@@ -187,4 +187,14 @@ begin
   assert jsonb_typeof(public.entitlements_internal(a, t) -> 'limits' -> 'products') = 'null', 'enterprise products unlimited';
 end $$;
 
+-- 11. Sync RPCs can resolve pgcrypto (installed in schema extensions on Supabase).
+do $$
+declare fn regprocedure;
+begin
+  for fn in select p.oid::regprocedure from pg_proc p where p.proname in ('apply_customer_sync','apply_sale_sync','apply_register_sync','apply_credit_note_sync','apply_stock_sync') loop
+    assert exists (select 1 from pg_proc p, unnest(p.proconfig) c where p.oid = fn and c = 'search_path=public, extensions, pg_temp'), format('%s must have extensions on its search_path', fn);
+  end loop;
+  assert (select count(*) from pg_proc where proname in ('apply_customer_sync','apply_sale_sync','apply_register_sync','apply_credit_note_sync','apply_stock_sync')) = 5, 'all five sync RPCs exist';
+end $$;
+
 rollback;
