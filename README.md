@@ -23,6 +23,7 @@ Copy `.env.example` to `.env.local` and add Supabase project values when the hos
 
 ## Planning documents
 
+- [Product overview and marketing brief](docs/PRODUCT_OVERVIEW_AND_MARKETING.md)
 - [Product requirements](docs/PRD.md)
 - [Product design](docs/PRODUCT_DESIGN.md)
 - [Technical design](docs/TECHNICAL_DESIGN.md)
