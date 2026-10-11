@@ -1,3 +1,5 @@
+import { formatMoney, splitVatInclusive } from "./fiscal/countries.ts";
+
 export type Product = {
   id: string;
   name: string;
@@ -134,12 +136,11 @@ export const initialProducts: Product[] = [
 ];
 
 export function formatAED(fils: number) {
-  return new Intl.NumberFormat("en-AE", { style: "currency", currency: "AED" }).format(fils / 100);
+  return formatMoney(fils, "AED");
 }
 
-export function calculateVatInclusive(grossFils: number) {
-  const netFils = Math.round((grossFils * 100) / 105);
-  return { netFils, vatFils: grossFils - netFils, grossFils };
+export function calculateVatInclusive(grossFils: number, rateBp = 500) {
+  return splitVatInclusive(grossFils, rateBp);
 }
 
 export function formatDateTime(value: string) {
