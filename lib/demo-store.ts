@@ -14,6 +14,7 @@ import {
   type SyncOperation,
 } from "@/lib/domain";
 import { clearSyncedOutbox, persistOfflineSnapshot } from "@/lib/offline-db";
+import { isSupabaseConfigured } from "@/lib/supabase/client";
 import { useSyncExternalStore } from "react";
 
 const STORE_KEY = "shop-ledger-demo-store-v2";
@@ -107,14 +108,35 @@ function hydrate() {
   queueMicrotask(emit);
 }
 
-function queueIfOffline(next: DemoState, entity: SyncOperation["entity"], entityId: string) {
-  if (typeof navigator === "undefined" || navigator.onLine) return next;
+function enqueueOperation(next: DemoState, entity: SyncOperation["entity"], entityId: string, payload?: SyncOperation["payload"]) {
   return {
     ...next,
-    syncOperations: [{ id: crypto.randomUUID(), entity, entityId, createdAt: new Date().toISOString(), status: "pending" as const }, ...next.syncOperations],
+    syncOperations: [{ id: crypto.randomUUID(), entity, entityId, createdAt: new Date().toISOString(), status: "pending" as const, ...(payload ? { payload } : {}) }, ...next.syncOperations],
   };
 }
 
+function queueCustomerOperation(next: DemoState, entityId: string, payload: SyncOperation["payload"]) {
+  if (typeof navigator !== "undefined" && navigator.onLine && !isSupabaseConfigured()) return next;
+  return enqueueOperation(next, "customer", entityId, payload);
+}
+function queueSaleOperation(next: DemoState, sale: Sale) {
+  if (typeof navigator !== "undefined" && navigator.onLine && !isSupabaseConfigured()) return next;
+  return enqueueOperation(next, "sale", sale.id, { sale, register: state.register });
+}
+
+function queueRegisterOperation(next: DemoState, entityId: string, payload: SyncOperation["payload"]) {
+  if (typeof navigator !== "undefined" && navigator.onLine && !isSupabaseConfigured()) return next;
+  return enqueueOperation(next, "register", entityId, payload);
+}
+
+function queueCreditNoteOperation(next: DemoState, creditNote: CreditNote) {
+  if (typeof navigator !== "undefined" && navigator.onLine && !isSupabaseConfigured()) return next;
+  return enqueueOperation(next, "credit-note", creditNote.id, { creditNote });
+}
+function queueStockOperation(next: DemoState, movement: StockMovement, product: Product) {
+  if (typeof navigator !== "undefined" && navigator.onLine && !isSupabaseConfigured()) return next;
+  return enqueueOperation(next, "stock", movement.id, { movement, product });
+}
 function subscribe(listener: () => void) {
   listeners.add(listener);
   hydrate();
@@ -168,7 +190,7 @@ export function addCustomer(input: CustomerInput): { ok: true; customer: Custome
   if (error) return { ok: false, error };
   const now = new Date().toISOString();
   const customer: Customer = { ...input, name: input.name.trim(), phone: input.phone.trim(), trn: input.trn?.trim() || undefined, id: crypto.randomUUID(), createdAt: now, updatedAt: now };
-  save(queueIfOffline({ ...state, customers: [customer, ...state.customers] }, "customer", customer.id));
+  save(queueCustomerOperation({ ...state, customers: [customer, ...state.customers] }, customer.id, { customer }));
   return { ok: true, customer };
 }
 
@@ -180,7 +202,8 @@ export function updateCustomer(id: string, input: CustomerInput): { ok: true } |
     ...state,
     customers: state.customers.map((customer) => customer.id === id ? { ...customer, ...input, name: input.name.trim(), phone: input.phone.trim(), trn: input.trn?.trim() || undefined, updatedAt: new Date().toISOString() } : customer),
   };
-  save(queueIfOffline(next, "customer", id));
+  const updatedCustomer = next.customers.find((customer) => customer.id === id);
+  save(queueCustomerOperation(next, id, updatedCustomer ? { customer: updatedCustomer } : undefined));
   return { ok: true };
 }
 
@@ -189,23 +212,24 @@ export function addProduct(input: Omit<Product, "id" | "active">) {
   const movement: StockMovement | null = input.stock > 0 ? {
     id: crypto.randomUUID(), productId: product.id, delta: input.stock, type: "opening", reason: "Opening stock", createdAt: new Date().toISOString(),
   } : null;
-  save({ ...state, products: [product, ...state.products], stockMovements: movement ? [movement, ...state.stockMovements] : state.stockMovements });
+  const next = { ...state, products: [product, ...state.products], stockMovements: movement ? [movement, ...state.stockMovements] : state.stockMovements };
+  save(movement ? queueStockOperation(next, movement, product) : next);
 }
-
 export function adjustStock(productId: string, delta: number, reason: string) {
   const product = state.products.find((item) => item.id === productId);
   if (!product || product.stock + delta < 0) return false;
   const movement: StockMovement = {
     id: crypto.randomUUID(), productId, delta, type: delta > 0 ? "receipt" : "correction-out", reason, createdAt: new Date().toISOString(),
   };
-  save({
+  const next = {
     ...state,
     products: state.products.map((item) => item.id === productId ? { ...item, stock: item.stock + delta } : item),
     stockMovements: [movement, ...state.stockMovements],
-  });
+  };
+  const updatedProduct = next.products.find((item) => item.id === productId) ?? product;
+  save(queueStockOperation(next, movement, updatedProduct));
   return true;
 }
-
 export function getRegisterTotals(source = state) {
   const register = source.register;
   if (!register) return { cashSalesFils: 0, cardSalesFils: 0, cashReturnsFils: 0, cardReturnsFils: 0, adjustmentsFils: 0, expectedCashFils: 0 };
@@ -221,32 +245,24 @@ export function getRegisterTotals(source = state) {
 
 export function openRegister(openingCashFils: number) {
   if (state.register?.status === "open") return false;
-  save({
-    ...state,
-    register: { id: crypto.randomUUID(), status: "open", openedAt: new Date().toISOString(), openingCashFils, adjustments: [] },
-  });
+  const register: NonNullable<DemoState["register"]> = { id: crypto.randomUUID(), status: "open", openedAt: new Date().toISOString(), openingCashFils, adjustments: [] };
+  save(queueRegisterOperation({ ...state, register }, crypto.randomUUID(), { action: "open", register }));
   return true;
 }
-
 export function addCashAdjustment(amountFils: number, reason: string) {
   if (!state.register || state.register.status !== "open" || amountFils === 0) return false;
-  save({
-    ...state,
-    register: { ...state.register, adjustments: [{ id: crypto.randomUUID(), amountFils, reason, createdAt: new Date().toISOString() }, ...state.register.adjustments] },
-  });
+  const cashAdjustment = { id: crypto.randomUUID(), amountFils, reason, createdAt: new Date().toISOString() };
+  const register = { ...state.register, adjustments: [cashAdjustment, ...state.register.adjustments] };
+  save(queueRegisterOperation({ ...state, register }, cashAdjustment.id, { action: "adjustment", registerId: state.register.id, adjustment: cashAdjustment, register: state.register }));
   return true;
 }
-
 export function closeRegister(countedCashFils: number) {
   if (!state.register || state.register.status !== "open") return false;
   const { expectedCashFils } = getRegisterTotals();
-  save({
-    ...state,
-    register: { ...state.register, status: "closed", closedAt: new Date().toISOString(), countedCashFils, expectedCashFils, varianceFils: countedCashFils - expectedCashFils },
-  });
+  const register: NonNullable<DemoState["register"]> = { ...state.register, status: "closed", closedAt: new Date().toISOString(), countedCashFils, expectedCashFils, varianceFils: countedCashFils - expectedCashFils };
+  save(queueRegisterOperation({ ...state, register }, crypto.randomUUID(), { action: "close", register }));
   return true;
 }
-
 export type CheckoutLine = { productId?: string; name: string; sku?: string; quantity: number; unitGrossFils: number };
 
 function uaeDateCode(date: Date) {
@@ -315,7 +331,7 @@ export function completeSale(inputLines: CheckoutLine[], paymentMethod: PaymentM
   const movements: StockMovement[] = lines.filter((item) => item.productId).map((item) => ({
     id: crypto.randomUUID(), productId: item.productId!, delta: -item.quantity, type: "sale", reason: sale.invoiceNumber, createdAt: sale.createdAt,
   }));
-  save(queueIfOffline({
+  save(queueSaleOperation({
     ...state,
     products: state.products.map((product) => {
       const quantity = requested.get(product.id) ?? 0;
@@ -323,7 +339,7 @@ export function completeSale(inputLines: CheckoutLine[], paymentMethod: PaymentM
     }),
     sales: [sale, ...state.sales],
     stockMovements: [...movements, ...state.stockMovements],
-  }, "sale", sale.id));
+  }, sale));
   return { ok: true, sale };
 }
 
@@ -371,19 +387,84 @@ export function createCreditNote(saleId: string, requestedQuantities: Record<str
     creditNotes: [creditNote, ...state.creditNotes],
     stockMovements: [...movements, ...state.stockMovements],
   };
-  save(queueIfOffline(next, "credit-note", creditNote.id));
+  save(queueCreditNoteOperation(next, creditNote));
   return { ok: true, creditNote };
 }
 
-export function reconcilePendingOperations() {
-  const syncedAt = new Date().toISOString();
-  const synced = state.syncOperations.map((operation) => operation.status === "pending" ? { ...operation, status: "synced" as const, error: undefined } : operation);
-  if (synced.every((operation, index) => operation === state.syncOperations[index])) return;
-  save({ ...state, syncOperations: synced });
-  void clearSyncedOutbox(synced).catch(() => undefined);
-  return syncedAt;
-}
+export async function reconcilePendingOperations() {
+  const pending = state.syncOperations.filter((operation) => operation.status === "pending" || operation.status === "failed");
+  if (!pending.length) return { status: "idle" as const, pendingCount: 0, message: "There are no pending operations." };
 
+  const syncable = pending.filter((operation) => (
+    (operation.entity === "customer" && Boolean(operation.payload && "customer" in operation.payload)) ||
+    (operation.entity === "sale" && Boolean(operation.payload && "sale" in operation.payload)) ||
+    (operation.entity === "credit-note" && Boolean(operation.payload && "creditNote" in operation.payload)) ||
+    (operation.entity === "register" && Boolean(operation.payload && "action" in operation.payload)) ||
+    (operation.entity === "stock" && Boolean(operation.payload && "movement" in operation.payload))
+  )).sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+  if (!syncable.length) {
+    return { status: "blocked" as const, pendingCount: pending.length, message: "Hosted sync currently supports customer, sale, refund, register, and inventory changes only; other pending operations were kept safely." };
+  }
+  if (!isSupabaseConfigured()) {
+    return { status: "blocked" as const, pendingCount: pending.length, message: "Supabase is not configured. Pending operations were kept safely." };
+  }
+
+  let response: Response;
+  try {
+    response = await fetch("/api/v1/sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ operations: syncable }),
+    });
+  } catch {
+    return { status: "blocked" as const, pendingCount: pending.length, message: "The sync request could not reach the hosted service. Pending operations were kept safely." };
+  }
+
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    return { status: "blocked" as const, pendingCount: pending.length, message: "The hosted service returned an invalid sync response. Pending operations were kept safely." };
+  }
+  if (!response.ok) {
+    const message = body && typeof body === "object" && "error" in body && typeof body.error === "string" ? body.error : "The hosted service rejected the sync request.";
+    return { status: "blocked" as const, pendingCount: pending.length, message: message + " Pending operations were kept safely." };
+  }
+
+  const rawResults = body && typeof body === "object" && "operations" in body && Array.isArray(body.operations)
+    ? body.operations
+    : [];
+  const results = rawResults.filter((result): result is { id: string; status: "accepted" | "rejected"; error?: string } => (
+    Boolean(result) &&
+    typeof result === "object" &&
+    "id" in result &&
+    typeof result.id === "string" &&
+    "status" in result &&
+    (result.status === "accepted" || result.status === "rejected")
+  ));
+  const acceptedIds = new Set(results.filter((result) => result.status === "accepted").map((result) => result.id));
+  const rejected = new Map(results.filter((result) => result.status === "rejected").map((result) => [result.id, result.error ?? "The hosted service rejected this operation."]));
+  if (!acceptedIds.size && !rejected.size) {
+    return { status: "blocked" as const, pendingCount: pending.length, message: "The hosted service did not acknowledge any operation. Pending operations were kept safely." };
+  }
+
+  const nextOperations = state.syncOperations.map((operation) => {
+    if (acceptedIds.has(operation.id)) return { ...operation, status: "synced" as const, error: undefined };
+    if (rejected.has(operation.id)) return { ...operation, status: "failed" as const, error: rejected.get(operation.id) };
+    return operation;
+  });
+  save({ ...state, syncOperations: nextOperations });
+  void clearSyncedOutbox(nextOperations).catch(() => undefined);
+
+  const acceptedCount = acceptedIds.size;
+  const rejectedCount = rejected.size;
+  const status = rejectedCount ? acceptedCount ? "partial" as const : "failed" as const : "synced" as const;
+  return {
+    status,
+    pendingCount: nextOperations.filter((operation) => operation.status === "pending").length,
+    message: acceptedCount + " supported operation" + (acceptedCount === 1 ? "" : "s") + " synchronized" + (rejectedCount ? "; " + rejectedCount + " failed and remain visible for review." : "."),
+  };
+}
 export function getSale(id: string) {
   return state.sales.find((sale) => sale.id === id);
 }

@@ -29,11 +29,12 @@ export function OfflineRuntime() {
     }
   }, []);
 
+
   useEffect(() => {
     if (!online || pending === 0) return;
-    const timer = window.setTimeout(() => reconcilePendingOperations(), 900);
+    const timer = window.setTimeout(() => { void reconcilePendingOperations(); }, 900);
     return () => window.clearTimeout(timer);
   }, [online, pending]);
 
-  return <div className={`sync-state ${online ? "" : "offline"}`} title={online ? "This device is connected." : "Sales are being saved to this device."}><span className="sync-dot" />{online ? pending ? `${pending} changes syncing` : "Device ready · synced" : `${pending} pending · working offline`}</div>;
+  return <div className={`sync-state ${online ? "" : "offline"}`} title={online ? "This device is connected; supported changes sync automatically when available." : "Sales are being saved to this device."}><span className="sync-dot" />{online ? pending ? `${pending} pending · syncing when available` : "Device ready · local cache" : `${pending} pending · working offline`}</div>;
 }

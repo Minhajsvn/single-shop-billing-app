@@ -76,6 +76,16 @@ export type CreditNote = {
   grossFils: number;
 };
 
+export type CustomerSyncPayload = { customer: Customer };
+export type SaleSyncPayload = { sale: Sale; register?: RegisterSession | null };
+export type RegisterSyncPayload =
+  | { action: "open"; register: RegisterSession }
+  | { action: "adjustment"; registerId: string; adjustment: CashAdjustment; register?: RegisterSession | null }
+  | { action: "close"; register: RegisterSession };
+export type CreditNoteSyncPayload = { creditNote: CreditNote };
+export type StockSyncPayload = { movement: StockMovement; product: Product };
+export type SyncPayload = CustomerSyncPayload | SaleSyncPayload | RegisterSyncPayload | CreditNoteSyncPayload | StockSyncPayload;
+
 export type SyncOperation = {
   id: string;
   entity: "sale" | "credit-note" | "customer" | "register" | "stock";
@@ -83,6 +93,7 @@ export type SyncOperation = {
   createdAt: string;
   status: "pending" | "synced" | "failed";
   error?: string;
+  payload?: SyncPayload;
 };
 
 export type CashAdjustment = {

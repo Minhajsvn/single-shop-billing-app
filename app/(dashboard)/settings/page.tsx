@@ -20,9 +20,12 @@ const defaults = {
 export default function SettingsPage() {
   const store = useDemoStore();
   const [saved, setSaved] = useState(false);
+  const [settingsBusy, setSettingsBusy] = useState(false);
   const [settings, setSettings] = useState(defaults);
   const [backupMessage, setBackupMessage] = useState("");
   const [catalogMessage, setCatalogMessage] = useState("");
+  const [settingsMessage, setSettingsMessage] = useState("");
+  const [syncMessage, setSyncMessage] = useState("");
   const [catalogBusy, setCatalogBusy] = useState(false);
   const backupInput = useRef<HTMLInputElement>(null);
 
@@ -34,12 +37,51 @@ export default function SettingsPage() {
     return () => window.clearTimeout(timer);
   }, []);
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+
+  useEffect(() => {
+    if (!isSupabaseConfigured()) return;
+    let active = true;
+    void fetch("/api/v1/business").then(async (response) => {
+      if (!response.ok) return;
+      const body = await response.json() as { business?: typeof defaults };
+      if (active && body.business) setSettings({ ...defaults, ...body.business });
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, []);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setSaved(false);
+    setSettingsMessage("");
+    setSettingsBusy(true);
+
+    if (isSupabaseConfigured()) {
+      try {
+        const response = await fetch("/api/v1/business", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(settings),
+        });
+        if (!response.ok) {
+          const body = await response.json().catch(() => null) as { error?: unknown } | null;
+          const message = body && typeof body.error === "string" ? body.error : "Hosted business settings could not be saved.";
+          setSettingsMessage(message);
+          setSettingsBusy(false);
+          return;
+        }
+      } catch {
+        setSettingsMessage("The hosted business settings request failed. Local settings were not changed.");
+        setSettingsBusy(false);
+        return;
+      }
+    }
+
     window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
     setSaved(true);
+    setSettingsBusy(false);
     window.setTimeout(() => setSaved(false), 2200);
   }
+
 
   function downloadBackup() {
     const payload = { schemaVersion: 3, exportedAt: new Date().toISOString(), app: "Shop Ledger UAE", settings, state: createDemoStateBackup() };
@@ -87,6 +129,11 @@ export default function SettingsPage() {
     setCatalogMessage(`${result.products} products and ${result.customers} customers are now available in Supabase.`);
   }
 
+  async function retryPending() {
+    const result = await reconcilePendingOperations();
+    setSyncMessage(result.message);
+  }
+
   return (
     <>
       <div className="page-heading"><div><div className="eyebrow">Business profile</div><h1 className="page-title">Settings</h1><p className="page-copy">These legal details will be snapshotted onto each tax invoice.</p></div>{saved && <span className="badge green">Saved</span>}</div>
@@ -100,14 +147,16 @@ export default function SettingsPage() {
           <div className="field full-span"><label htmlFor="address">Registered address</label><textarea className="textarea" id="address" value={settings.address} onChange={(event) => setSettings({ ...settings, address: event.target.value })} required /></div>
           <div className="field full-span"><label htmlFor="footer">Receipt footer</label><input className="input" id="footer" value={settings.footer} onChange={(event) => setSettings({ ...settings, footer: event.target.value })} /></div>
         </div></div>
-        <div className="modal-footer"><button className="button primary" type="submit">Save settings</button></div>
+        {settingsMessage && <div className="backup-message" role="alert">{settingsMessage}</div>}
+        <div className="modal-footer"><button className="button primary" type="submit" disabled={settingsBusy}>{settingsBusy ? "Saving…" : "Save settings"}</button></div>
       </form>
       <section className="panel sync-diagnostics">
         <div className="panel-header"><div><div className="panel-title">Cloud catalog</div><div className="panel-subtitle">Explicitly upload products and customers to this business</div></div><button className="button" type="button" onClick={syncCatalog} disabled={!isSupabaseConfigured() || catalogBusy}><UploadSimple size={15} weight="bold" />{catalogBusy ? "Uploading…" : "Upload catalog"}</button></div>
         <div className="panel-body"><p className="panel-subtitle">This uploads the current local catalog only. Sales, returns, stock movements, and register records are not uploaded by this action.</p>{catalogMessage && <div className="backup-message" role="status">{catalogMessage}</div>}</div>
       </section>
       <section className="panel sync-diagnostics">
-        <div className="panel-header"><div><div className="panel-title">Offline outbox</div><div className="panel-subtitle">Idempotent operations waiting for reconnect</div></div><button className="button" onClick={() => reconcilePendingOperations()} disabled={!store.syncOperations.some((item) => item.status === "pending")}><ArrowsClockwise size={15} weight="bold" /> Retry pending</button></div>
+        <div className="panel-header"><div><div className="panel-title">Offline outbox</div><div className="panel-subtitle">Supported customer, sale, refund, register, and inventory changes sync automatically; other pending operations are retained</div></div><button className="button" onClick={retryPending} disabled={!store.syncOperations.some((item) => item.status === "pending" || item.status === "failed")}><ArrowsClockwise size={15} weight="bold" /> Retry pending</button></div>
+        {syncMessage && <div className="backup-message" role="status">{syncMessage}</div>}
         {store.syncOperations.length ? <div className="table-wrap"><table><thead><tr><th>Operation</th><th>Entity</th><th>Created</th><th>Status</th></tr></thead><tbody>{store.syncOperations.slice(0, 12).map((operation) => <tr key={operation.id}><td className="product-meta">{operation.id}</td><td>{operation.entity}</td><td>{formatDateTime(operation.createdAt)}</td><td><span className={`badge ${operation.status === "synced" ? "green" : operation.status === "failed" ? "red" : "yellow"}`}>{operation.status}</span>{operation.error && <div className="product-meta">{operation.error}</div>}</td></tr>)}</tbody></table></div> : <div className="empty compact-empty"><CheckCircle size={28} weight="duotone" /><h3>Outbox is clear</h3><p>Offline sales, returns, customers, and stock changes appear here until reconnect.</p></div>}
       </section>
       <section className="panel backup-panel">
