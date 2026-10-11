@@ -39,6 +39,16 @@ do $$ begin
   assert not public.has_role('b0000000-0000-4000-8000-00000000000a', 'cashier'), 'B has no role in A';
 end $$;
 
+-- 3b. Ownership cannot be reassigned, even by the owner (still acting as B).
+do $$ begin
+  begin
+    update public.businesses set owner_id = '00000000-0000-4000-8000-00000000000a' where id = 'b0000000-0000-4000-8000-00000000000b';
+    assert false, 'owner_id must not be reassignable';
+  exception when others then
+    assert sqlerrm = 'owner_id_immutable', format('expected owner_id_immutable, got %s', sqlerrm);
+  end;
+end $$;
+
 -- 4. Cross-tenant spoof: B cannot attach a device to A's branch.
 reset role;
 select set_config('test.a_branch', (select id::text from public.branches where business_id = 'b0000000-0000-4000-8000-00000000000a' and is_main), true);

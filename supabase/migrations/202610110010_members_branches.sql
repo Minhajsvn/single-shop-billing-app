@@ -108,6 +108,19 @@ $$;
 
 create trigger bootstrap_business after insert on public.businesses for each row execute function public.bootstrap_business();
 
+create function public.prevent_owner_change()
+returns trigger language plpgsql set search_path = public
+as $$
+begin
+  if new.owner_id is distinct from old.owner_id then
+    raise exception using errcode = 'P0001', message = 'owner_id_immutable';
+  end if;
+  return new;
+end
+$$;
+
+create trigger prevent_owner_change before update on public.businesses for each row execute function public.prevent_owner_change();
+
 drop policy "owners manage their business" on public.businesses;
 create policy "members read their business" on public.businesses for select using (owner_id = auth.uid() or public.has_role(id, 'cashier'));
 create policy "users create their own business" on public.businesses for insert with check (owner_id = auth.uid());
