@@ -102,4 +102,89 @@ do $$ begin
   end;
 end $$;
 
+-- 6. Every business has a subscription; new ones start a 14-day Pro trial.
+do $$ begin
+  assert (select plan_id from public.subscriptions where business_id = 'b0000000-0000-4000-8000-00000000000a') = 'pro', 'trial is on pro';
+  assert (select status::text from public.subscriptions where business_id = 'b0000000-0000-4000-8000-00000000000a') = 'trialing', 'trialing';
+  assert (select trial_ends_at between now() + interval '13 days 23 hours' and now() + interval '14 days 1 hour' from public.subscriptions where business_id = 'b0000000-0000-4000-8000-00000000000a'), 'trial is 14 days';
+  assert not exists (select 1 from public.businesses b left join public.subscriptions s on s.business_id = b.id where s.business_id is null), 'every business has a subscription';
+end $$;
+
+-- 7. Limits: Pro trial allows 2 tills; a third is refused.
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-00000000000a","role":"authenticated"}', true);
+insert into public.devices (id, business_id, name) values ('d0000000-0000-4000-8000-0000000000a2', 'b0000000-0000-4000-8000-00000000000a', 'Till 2');
+do $$ begin
+  begin
+    insert into public.devices (business_id, name) values ('b0000000-0000-4000-8000-00000000000a', 'Till 3');
+    assert false, 'third till should exceed the Pro trial limit';
+  exception when others then
+    assert sqlerrm = 'plan_limit_reached', format('expected plan_limit_reached, got %s', sqlerrm);
+  end;
+end $$;
+reset role;
+
+-- 8. Downgrade over the limit keeps existing tills but blocks new ones and re-activation; an add-on lifts it.
+update public.subscriptions set plan_id = 'starter', status = 'active' where business_id = 'b0000000-0000-4000-8000-00000000000a';
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-00000000000a","role":"authenticated"}', true);
+do $$ begin
+  assert (select count(*) from public.devices where business_id = 'b0000000-0000-4000-8000-00000000000a' and status = 'active') = 2, 'existing tills survive downgrade';
+  update public.devices set status = 'revoked' where id = 'd0000000-0000-4000-8000-0000000000a2';
+  begin
+    update public.devices set status = 'active' where id = 'd0000000-0000-4000-8000-0000000000a2';
+    assert false, 're-activating beyond the Starter limit must fail';
+  exception when others then
+    assert sqlerrm = 'plan_limit_reached', format('expected plan_limit_reached, got %s', sqlerrm);
+  end;
+end $$;
+reset role;
+update public.subscriptions set addon_tills = 1 where business_id = 'b0000000-0000-4000-8000-00000000000a';
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-00000000000a","role":"authenticated"}', true);
+update public.devices set status = 'active' where id = 'd0000000-0000-4000-8000-0000000000a2';
+
+-- 9. Entitlement access: members only.
+do $$ begin
+  assert (public.business_entitlements('b0000000-0000-4000-8000-00000000000a') -> 'limits' ->> 'tills')::int = 2, 'starter 1 till + 1 add-on';
+end $$;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-00000000000b","role":"authenticated"}', true);
+do $$ begin
+  begin
+    perform public.business_entitlements('b0000000-0000-4000-8000-00000000000a');
+    assert false, 'non-members must not read entitlements';
+  exception when insufficient_privilege then
+    null;
+  end;
+end $$;
+reset role;
+
+-- 10. Lifecycle, overrides and the trial boundary (resolver evaluated at fixed instants).
+do $$
+declare
+  t timestamptz := '2026-11-01 00:00:00+00';
+  a constant uuid := 'b0000000-0000-4000-8000-00000000000a';
+begin
+  update public.subscriptions set plan_id = 'pro', status = 'trialing', trial_ends_at = t, addon_tills = 0 where business_id = a;
+  assert public.entitlements_internal(a, t - interval '1 second') ->> 'access' = 'full', 'trial active before end';
+  assert public.entitlements_internal(a, t) ->> 'access' = 'read_only', 'trial ends exactly at trial_ends_at';
+
+  update public.subscriptions set status = 'past_due', grace_ends_at = t where business_id = a;
+  assert public.entitlements_internal(a, t - interval '1 day') ->> 'access' = 'full', 'grace period keeps access';
+  assert public.entitlements_internal(a, t) ->> 'access' = 'read_only', 'grace expiry is read-only';
+
+  update public.subscriptions set status = 'canceled' where business_id = a;
+  assert public.entitlements_internal(a, t - interval '1 day') ->> 'access' = 'read_only', 'canceled is read-only';
+
+  update public.subscriptions set status = 'active', plan_id = 'starter' where business_id = a;
+  insert into public.entitlement_overrides (business_id, features, max_tills, note) values (a, array['repairs'], 5, 'pilot deal');
+  insert into public.entitlement_overrides (business_id, features, expires_at, note) values (a, array['loyalty'], t - interval '1 day', 'expired promo');
+  assert public.entitlements_internal(a, t) -> 'features' ? 'repairs', 'override adds feature';
+  assert not (public.entitlements_internal(a, t) -> 'features' ? 'loyalty'), 'expired override ignored';
+  assert (public.entitlements_internal(a, t) -> 'limits' ->> 'tills')::int = 5, 'override replaces till limit';
+
+  update public.subscriptions set plan_id = 'enterprise' where business_id = a;
+  assert jsonb_typeof(public.entitlements_internal(a, t) -> 'limits' -> 'products') = 'null', 'enterprise products unlimited';
+end $$;
+
 rollback;
