@@ -9,7 +9,8 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test tests/*.test.mjs"
+    "test": "node --experimental-strip-types --test tests/*.test.mjs",
+    "plans:sql": "node --experimental-strip-types scripts/plan-catalog-sql.mjs"
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",
