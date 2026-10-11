@@ -64,4 +64,42 @@ do $$ begin
 end $$;
 reset role;
 
+-- 5. Country rules: valid tax IDs, consistent country profile, country locked after first invoice.
+do $$ begin
+  begin
+    insert into public.businesses (owner_id, legal_name, trn, address, phone)
+    values ('00000000-0000-4000-8000-00000000000c', 'Bad TRN', '12345', 'Dubai', '+971500000009');
+    assert false, 'invalid UAE TRN must be rejected';
+  exception when check_violation then
+    null;
+  end;
+  begin
+    update public.businesses set country = 'SA' where id = 'b0000000-0000-4000-8000-00000000000b';
+    assert false, 'SA with AED and a UAE TRN must be rejected';
+  exception when check_violation then
+    null;
+  end;
+  assert (select tax_category::text from public.products limit 0) is null, 'tax_category column exists';
+end $$;
+
+-- B has no sales yet, so B may still switch country.
+update public.businesses set country = 'SA', currency = 'SAR', timezone = 'Asia/Riyadh', trn = '300000000000003' where id = 'b0000000-0000-4000-8000-00000000000b';
+update public.businesses set country = 'AE', currency = 'AED', timezone = 'Asia/Dubai', trn = '100000000000004' where id = 'b0000000-0000-4000-8000-00000000000b';
+
+-- A issues an invoice (inserted as the migration owner, as the sync RPCs do), then cannot switch.
+insert into public.register_sessions (id, business_id, device_id, business_date, opening_cash_fils, opened_by)
+values ('e0000000-0000-4000-8000-00000000000a', 'b0000000-0000-4000-8000-00000000000a', 'd0000000-0000-4000-8000-00000000000a', current_date, 0, '00000000-0000-4000-8000-00000000000a');
+insert into public.sales (id, business_id, device_id, register_session_id, invoice_number, operation_id, payment_method, supply_date, supplier_snapshot, net_fils, vat_fils, gross_fils, created_by)
+values ('5a000000-0000-4000-8000-00000000000a', 'b0000000-0000-4000-8000-00000000000a', 'd0000000-0000-4000-8000-00000000000a', 'e0000000-0000-4000-8000-00000000000a', 'T-0001', gen_random_uuid(), 'cash', current_date, '{}'::jsonb, 100, 5, 105, '00000000-0000-4000-8000-00000000000a');
+
+do $$ begin
+  assert (select s.branch_id = d.branch_id from public.sales s join public.devices d on d.id = s.device_id where s.id = '5a000000-0000-4000-8000-00000000000a'), 'sale inherits device branch';
+  begin
+    update public.businesses set country = 'SA', currency = 'SAR', timezone = 'Asia/Riyadh', trn = '300000000000003' where id = 'b0000000-0000-4000-8000-00000000000a';
+    assert false, 'country must be locked after the first invoice';
+  exception when others then
+    assert sqlerrm = 'country_locked', format('expected country_locked, got %s', sqlerrm);
+  end;
+end $$;
+
 rollback;
