@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-strip-types --test tests/*.test.mjs",
     "plans:sql": "node --experimental-strip-types scripts/plan-catalog-sql.mjs",
-    "test:sql": "node --env-file=.env.local scripts/run-sql-tests.mjs"
+    "test:sql": "node --env-file=.env.local scripts/run-sql-tests.mjs",
+    "test:rehearsal": "node --env-file=.env.local scripts/rehearse-backfill.mjs"
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",
