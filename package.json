@@ -9,7 +9,10 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test tests/*.test.mjs"
+    "test": "node --experimental-strip-types --test tests/*.test.mjs",
+    "plans:sql": "node --experimental-strip-types scripts/plan-catalog-sql.mjs",
+    "test:sql": "node --env-file=.env.local scripts/run-sql-tests.mjs",
+    "test:rehearsal": "node --env-file=.env.local scripts/rehearse-backfill.mjs"
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",
@@ -28,6 +31,7 @@
     "@types/react-dom": "^19.1.9",
     "eslint": "^9.34.0",
     "eslint-config-next": "^16.2.7",
+    "postgres": "^3.4.5",
     "tailwindcss": "^4.1.12",
     "typescript": "^5.9.2"
   }
