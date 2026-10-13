@@ -49,6 +49,16 @@ do $$ begin
   end;
 end $$;
 
+-- 3c. A branch cannot be moved to another business (still acting as B).
+do $$ begin
+  begin
+    update public.branches set business_id = 'b0000000-0000-4000-8000-00000000000a' where business_id = 'b0000000-0000-4000-8000-00000000000b';
+    assert false, 'branch business_id must not be reassignable';
+  exception when others then
+    assert sqlerrm = 'branch_business_immutable', format('expected branch_business_immutable, got %s', sqlerrm);
+  end;
+end $$;
+
 -- 4. Cross-tenant spoof: B cannot attach a device to A's branch.
 reset role;
 select set_config('test.a_branch', (select id::text from public.branches where business_id = 'b0000000-0000-4000-8000-00000000000a' and is_main), true);

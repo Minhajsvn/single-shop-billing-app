@@ -121,6 +121,19 @@ $$;
 
 create trigger prevent_owner_change before update on public.businesses for each row execute function public.prevent_owner_change();
 
+create function public.prevent_branch_business_change()
+returns trigger language plpgsql set search_path = public
+as $$
+begin
+  if new.business_id is distinct from old.business_id then
+    raise exception using errcode = 'P0001', message = 'branch_business_immutable';
+  end if;
+  return new;
+end
+$$;
+
+create trigger prevent_branch_business_change before update on public.branches for each row execute function public.prevent_branch_business_change();
+
 drop policy "owners manage their business" on public.businesses;
 create policy "members read their business" on public.businesses for select using (owner_id = auth.uid() or public.has_role(id, 'cashier'));
 create policy "users create their own business" on public.businesses for insert with check (owner_id = auth.uid());
