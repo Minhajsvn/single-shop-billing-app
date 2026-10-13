@@ -33,7 +33,8 @@ test("trial and grace constants match the spec", () => {
 test("the latest plan_catalog migration matches lib/billing/plans.ts", () => {
   const files = readdirSync("supabase/migrations").filter((name) => name.endsWith("_plan_catalog.sql")).sort();
   assert.ok(files.length > 0, "run: npm run plans:sql -- --write <yyyymmddhhmm>");
-  const latest = readFileSync(`supabase/migrations/${files.at(-1)}`, "utf8");
+  // Git may check the file out with CRLF on Windows; compare content, not line endings.
+  const latest = readFileSync(`supabase/migrations/${files.at(-1)}`, "utf8").replace(/\r\n/g, "\n");
   assert.equal(latest, planCatalogSql(PLANS));
 });
 
