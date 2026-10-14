@@ -28,7 +28,7 @@ export function mapSnapshotRows(rows: SnapshotRows, generatedAt: string): ShopSn
       status: "completed" as const,
     })),
     creditNotes: rows.creditNotes.map((n) => ({
-      id: n.id, creditNoteNumber: n.credit_note_number, saleId: n.sale_id, invoiceNumber: invoiceBySale.get(n.sale_id) ?? "", createdAt: n.created_at, paymentMethod: n.payment_method,
+      id: n.id, creditNoteNumber: n.credit_note_number, saleId: n.sale_id, invoiceNumber: n.sales?.invoice_number ?? invoiceBySale.get(n.sale_id) ?? "", createdAt: n.created_at, paymentMethod: n.payment_method,
       lines: n.credit_note_items.map((item) => ({ ...mapLine(item), originalLineId: item.sale_item_id })),
       netFils: Number(n.net_fils), vatFils: Number(n.vat_fils), grossFils: Number(n.gross_fils),
     })),

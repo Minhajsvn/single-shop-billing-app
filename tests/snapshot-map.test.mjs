@@ -18,6 +18,7 @@ const rows = {
   }],
   creditNotes: [{
     id: "n1", credit_note_number: "CN-1-261013-0001", sale_id: "s1", payment_method: "cash", created_at: "2026-10-13T09:00:00Z",
+    sales: { invoice_number: "SMK-1-261013-0001" },
     net_fils: 2714, vat_fils: 136, gross_fils: 2850,
     credit_note_items: [{ id: "nl1", sale_item_id: "l1", product_id: "p1", description: "Coffee", sku: "COF", quantity: 1, unit_gross_fils: 2850, net_fils: 2714, vat_fils: 136, gross_fils: 2850 }],
   }],
@@ -50,6 +51,11 @@ test("credit notes link to the original line and invoice number", () => {
   const { state } = mapSnapshotRows(rows, "x");
   assert.equal(state.creditNotes[0].invoiceNumber, "SMK-1-261013-0001");
   assert.equal(state.creditNotes[0].lines[0].originalLineId, "l1");
+});
+
+test("a credit note whose sale is outside the window keeps its invoice number", () => {
+  const { state } = mapSnapshotRows({ ...rows, sales: [], creditNotes: [{ ...rows.creditNotes[0], sale_id: "old-sale", sales: { invoice_number: "SMK-1-250101-0007" } }] }, "x");
+  assert.equal(state.creditNotes[0].invoiceNumber, "SMK-1-250101-0007");
 });
 
 test("stock movement types use the client's hyphenated names", () => {
