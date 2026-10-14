@@ -28,11 +28,15 @@ export async function proxy(request: NextRequest) {
     },
   });
 
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user }, error } = await supabase.auth.getUser();
+  // A network failure or 5xx means the auth server is unreachable, not that the user signed out.
+  const authUnavailable = Boolean(error && (error.name === "AuthRetryableFetchError" || error.status === 0 || (error.status ?? 0) >= 500));
   const decision = routeDecision({
     signedIn: Boolean(user),
     pathname: request.nextUrl.pathname,
     sampleCookie: request.cookies.get(SAMPLE_MODE_COOKIE)?.value,
+    authUnavailable,
+    hasSessionCookie: request.cookies.getAll().some((cookie) => cookie.name.startsWith("sb-") && cookie.name.includes("-auth-token")),
   });
 
   if (decision === "login") {

@@ -24,6 +24,18 @@ test("the login page itself is always reachable when signed out", () => {
   assert.equal(routeDecision({ signedIn: false, pathname: "/login", sampleCookie: undefined }), "allow");
 });
 
+test("an auth outage does not log out a browser that still holds a session", () => {
+  assert.equal(routeDecision({ signedIn: false, pathname: "/sale", sampleCookie: undefined, authUnavailable: true, hasSessionCookie: true }), "allow");
+});
+
+test("an auth outage never lets a browser without a session through", () => {
+  assert.equal(routeDecision({ signedIn: false, pathname: "/sale", sampleCookie: undefined, authUnavailable: true, hasSessionCookie: false }), "login");
+});
+
+test("a reachable auth server that rejects the session still sends to login", () => {
+  assert.equal(routeDecision({ signedIn: false, pathname: "/sale", sampleCookie: undefined, authUnavailable: false, hasSessionCookie: true }), "login");
+});
+
 test("the cookie name is shared with the client store", () => {
   assert.equal(SAMPLE_MODE_COOKIE, "shop-ledger-mode");
 });
