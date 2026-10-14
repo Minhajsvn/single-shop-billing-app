@@ -35,6 +35,8 @@ export type Customer = {
 
 export type CustomerSnapshot = Pick<Customer, "id" | "name" | "phone" | "email" | "address" | "trn">;
 
+export type SupplierSnapshot = { name: string; trn: string; address: string; phone: string };
+
 export type InvoiceLine = {
   id: string;
   productId?: string;
@@ -58,6 +60,7 @@ export type Sale = {
   vatFils: number;
   grossFils: number;
   customer?: CustomerSnapshot;
+  supplier?: SupplierSnapshot;
   status: "completed";
 };
 
