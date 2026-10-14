@@ -21,14 +21,14 @@ export function mergeSnapshot(server: DemoState, local: DemoState): DemoState {
     } else if (operation.entity === "credit-note" && "creditNote" in payload && !merged.creditNotes.some((note) => note.id === payload.creditNote.id)) {
       merged.creditNotes = [payload.creditNote, ...merged.creditNotes];
       for (const line of payload.creditNote.lines) addDelta(line.productId, line.quantity);
-    } else if (operation.entity === "customer" && "customer" in payload) {
+    } else if (operation.entity === "customer" && "customer" in payload && operation.status === "pending") {
       merged.customers = [payload.customer, ...merged.customers.filter((customer) => customer.id !== payload.customer.id)];
     } else if (operation.entity === "stock" && "movement" in payload && !merged.stockMovements.some((movement) => movement.id === payload.movement.id)) {
       merged.stockMovements = [payload.movement, ...merged.stockMovements];
       if (!merged.products.some((product) => product.id === payload.product.id)) merged.products = [{ ...payload.product, stock: 0 }, ...merged.products];
       addDelta(payload.movement.productId, payload.movement.delta);
-    } else if (operation.entity === "register" && "action" in payload) {
-      merged.register = local.register;
+    } else if (operation.entity === "register" && "action" in payload && operation.status === "pending") {
+      merged.register = local.register ?? merged.register;
     }
   }
 

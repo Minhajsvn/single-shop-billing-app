@@ -58,3 +58,32 @@ test("a pending stock movement for a product the server lacks adds it at 0 then 
   assert.equal(merged.products.find((p) => p.id === "p1")?.stock, 10);
   assert.deepEqual(merged.stockMovements.map((m) => m.id), ["m1"]);
 });
+
+test("R9: a failed register op does not override the server register", () => {
+  const serverRegister = { id: "r-server", status: "open", openedAt: "2026-10-13T04:00:00Z", openingCashFils: 500, adjustments: [] };
+  const localRegister = { id: "r-local", status: "open", openedAt: "2026-10-13T05:00:00Z", openingCashFils: 100, adjustments: [] };
+  const merged = mergeSnapshot({ ...server, register: serverRegister }, { ...empty, register: localRegister, syncOperations: [op("failed", "register", { action: "open", register: localRegister })] });
+  assert.equal(merged.register?.id, "r-server");
+  assert.equal(merged.syncOperations.length, 1, "failed op stays visible for review");
+});
+
+test("R9: a failed customer op does not override the server customer", () => {
+  const serverCustomer = { id: "c1", name: "Server", phone: "1", createdAt: "a", updatedAt: "a" };
+  const localCustomer = { ...serverCustomer, name: "Rejected edit", updatedAt: "b" };
+  const merged = mergeSnapshot({ ...server, customers: [serverCustomer] }, { ...empty, customers: [localCustomer], syncOperations: [{ ...op("failed", "customer", { customer: localCustomer }), entityId: "c1" }] });
+  assert.deepEqual(merged.customers.map((c) => c.name), ["Server"]);
+});
+
+test("R9: a failed sale is still shown and deducts stock exactly once per merge", () => {
+  const once = mergeSnapshot(server, { ...empty, sales: [sale], syncOperations: [op("failed")] });
+  const again = mergeSnapshot(server, once);
+  assert.deepEqual(once.sales.map((s) => s.id), ["s-local"]);
+  assert.equal(once.products[0].stock, 8);
+  assert.equal(again.products[0].stock, 8, "re-merging from the same server state does not compound");
+});
+
+test("R9: a pending register op with no local register keeps the server register", () => {
+  const serverRegister = { id: "r-server", status: "open", openedAt: "2026-10-13T04:00:00Z", openingCashFils: 500, adjustments: [] };
+  const merged = mergeSnapshot({ ...server, register: serverRegister }, { ...empty, register: null, syncOperations: [op("pending", "register", { action: "open", register: serverRegister })] });
+  assert.equal(merged.register?.id, "r-server");
+});
