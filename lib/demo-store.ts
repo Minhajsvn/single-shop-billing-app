@@ -1,5 +1,7 @@
 "use client";
 
+import { parseEntitlements, type Entitlements } from "@/lib/billing/entitlements";
+import { getStoredDeviceId } from "@/lib/device";
 import {
   calculateVatInclusive,
   initialProducts,
@@ -13,13 +15,30 @@ import {
   type StockMovement,
   type SyncOperation,
 } from "@/lib/domain";
-import { clearSyncedOutbox, persistOfflineSnapshot } from "@/lib/offline-db";
+import { dubaiSupplyDate, nextCreditNoteNumber, nextInvoiceNumber } from "@/lib/invoice-numbers";
+import { clearSyncedOutbox, loadOfflineCustomers, persistOfflineSnapshot } from "@/lib/offline-db";
+import { mergeSnapshot } from "@/lib/snapshot/merge";
+import type { BusinessProfile, ShopSnapshot, TillDevice } from "@/lib/snapshot/types";
+import {
+  createSerialQueue,
+  createSyncEpoch,
+  effectiveEntitlements,
+  emptyHostedContext,
+  emptyShopState,
+  parseHostedCache,
+  type HostedCache,
+  type HostedContext,
+} from "@/lib/store/hosted";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 import { useSyncExternalStore } from "react";
 
+// Sample and unconfigured (no Supabase) modes keep using the original browser-only demo keys.
 const STORE_KEY = "shop-ledger-demo-store-v2";
 const LEGACY_PRODUCT_KEY = "shop-ledger-demo-products-v1";
 const SETTINGS_KEY = "shop-ledger-demo-settings-v1";
+// Hosted mode never touches the demo keys above; it caches the last server snapshot here (customers excluded).
+const HOSTED_KEY = "shop-ledger-hosted-store-v1";
+const SAMPLE_COOKIE = "shop-ledger-mode";
 
 const initialCustomers: Customer[] = [
   { id: "customer-001", name: "Mariam Trading LLC", phone: "+971 50 555 0132", email: "accounts@mariamtrading.example", address: "Al Barsha, Dubai, United Arab Emirates", trn: "100123456700003", createdAt: "2026-08-28T08:00:00.000Z", updatedAt: "2026-08-28T08:00:00.000Z" },
@@ -66,20 +85,85 @@ const initialState: DemoState = {
   },
 };
 
-let state = initialState;
+export type StoreMode = "hosted" | "sample" | "unconfigured";
+
+export type ShopContext = {
+  mode: StoreMode;
+  business: BusinessProfile | null;
+  device: TillDevice | null;
+  devices: TillDevice[];
+  entitlements: Entitlements;
+  lastRefreshedAt: string | null;
+};
+
+function sampleRequested() {
+  try {
+    return typeof document !== "undefined" && document.cookie.split("; ").includes(`${SAMPLE_COOKIE}=sample`);
+  } catch {
+    return false;
+  }
+}
+
+function initialMode(): StoreMode {
+  if (!isSupabaseConfigured()) return "unconfigured";
+  return sampleRequested() ? "sample" : "hosted";
+}
+
+let mode: StoreMode = initialMode();
+let state: DemoState = mode === "hosted" ? emptyShopState() : initialState;
+let hostedContext: HostedContext = emptyHostedContext();
 let hydrated = false;
 const listeners = new Set<() => void>();
+const contextListeners = new Set<() => void>();
+// Sync and snapshot refresh never overlap (ruling R8): a snapshot read while a sync commits could
+// count a sale's stock twice or drop the sale, because products and sales are read separately.
+const runSerial = createSerialQueue();
+const syncEpoch = createSyncEpoch();
+
+function buildContext(): ShopContext {
+  const deviceId = getStoredDeviceId();
+  return {
+    mode,
+    business: hostedContext.business,
+    devices: hostedContext.devices,
+    device: hostedContext.devices.find((device) => device.id === deviceId && device.status === "active") ?? null,
+    entitlements: effectiveEntitlements(hostedContext.entitlementCache),
+    lastRefreshedAt: hostedContext.lastRefreshedAt,
+  };
+}
+
+let contextSnapshot: ShopContext = buildContext();
+const serverContext: ShopContext = buildContext();
+const serverState: DemoState = mode === "hosted" ? state : initialState;
 
 function emit() {
   listeners.forEach((listener) => listener());
 }
 
+function emitContext() {
+  contextSnapshot = buildContext();
+  contextListeners.forEach((listener) => listener());
+}
+
+function persist() {
+  if (typeof window === "undefined") return;
+  try {
+    if (mode === "hosted") {
+      const cache: HostedCache = { version: 1, state: { ...state, customers: [] }, context: hostedContext };
+      window.localStorage.setItem(HOSTED_KEY, JSON.stringify(cache));
+      // Customers are cached only in IndexedDB, encrypted with this device's key (ruling R10).
+      void persistOfflineSnapshot(state).catch(() => undefined);
+    } else {
+      window.localStorage.setItem(STORE_KEY, JSON.stringify(state));
+    }
+  } catch {
+    // Storage full or blocked: the in-memory state keeps working for this session.
+  }
+}
+
 function save(next: DemoState) {
   state = next;
-  if (typeof window !== "undefined") {
-    window.localStorage.setItem(STORE_KEY, JSON.stringify(next));
-    void persistOfflineSnapshot(next).catch(() => undefined);
-  }
+  persist();
   emit();
 }
 
@@ -95,46 +179,68 @@ function normalizeState(saved: Partial<DemoState>): DemoState {
   };
 }
 
+function readStorage(key: string) {
+  try { return window.localStorage.getItem(key); } catch { return null; }
+}
+
 function hydrate() {
   if (hydrated || typeof window === "undefined") return;
   hydrated = true;
-  const saved = window.localStorage.getItem(STORE_KEY);
-  if (saved) {
-    try { state = normalizeState(JSON.parse(saved) as Partial<DemoState>); } catch { state = initialState; }
+  if (mode === "hosted") {
+    const cache = parseHostedCache(readStorage(HOSTED_KEY));
+    if (cache) {
+      state = cache.state;
+      hostedContext = cache.context;
+    }
+    void loadOfflineCustomers().then((customers) => {
+      if (customers && mode === "hosted" && !state.customers.length) {
+        state = { ...state, customers };
+        emit();
+      }
+    }).catch(() => undefined);
   } else {
-    const legacyProducts = window.localStorage.getItem(LEGACY_PRODUCT_KEY);
-    if (legacyProducts) state = { ...initialState, products: JSON.parse(legacyProducts) as Product[] };
+    const saved = readStorage(STORE_KEY);
+    if (saved) {
+      try { state = normalizeState(JSON.parse(saved) as Partial<DemoState>); } catch { state = initialState; }
+    } else {
+      const legacyProducts = readStorage(LEGACY_PRODUCT_KEY);
+      if (legacyProducts) {
+        try { state = { ...initialState, products: JSON.parse(legacyProducts) as Product[] }; } catch { state = initialState; }
+      }
+    }
   }
-  queueMicrotask(emit);
+  queueMicrotask(() => {
+    emit();
+    emitContext();
+  });
 }
 
 function enqueueOperation(next: DemoState, entity: SyncOperation["entity"], entityId: string, payload?: SyncOperation["payload"]) {
+  // Only hosted shops sync; sample and unconfigured stores stay in this browser.
+  if (mode !== "hosted") return next;
+  const deviceId = contextSnapshot.device?.id;
+  const tagged = payload ? { ...payload, ...(deviceId ? { deviceId } : {}) } : undefined;
   return {
     ...next,
-    syncOperations: [{ id: crypto.randomUUID(), entity, entityId, createdAt: new Date().toISOString(), status: "pending" as const, ...(payload ? { payload } : {}) }, ...next.syncOperations],
+    syncOperations: [{ id: crypto.randomUUID(), entity, entityId, createdAt: new Date().toISOString(), status: "pending" as const, ...(tagged ? { payload: tagged } : {}) }, ...next.syncOperations],
   };
 }
 
 function queueCustomerOperation(next: DemoState, entityId: string, payload: SyncOperation["payload"]) {
-  if (typeof navigator !== "undefined" && navigator.onLine && !isSupabaseConfigured()) return next;
   return enqueueOperation(next, "customer", entityId, payload);
 }
 function queueSaleOperation(next: DemoState, sale: Sale) {
-  if (typeof navigator !== "undefined" && navigator.onLine && !isSupabaseConfigured()) return next;
   return enqueueOperation(next, "sale", sale.id, { sale, register: state.register });
 }
 
 function queueRegisterOperation(next: DemoState, entityId: string, payload: SyncOperation["payload"]) {
-  if (typeof navigator !== "undefined" && navigator.onLine && !isSupabaseConfigured()) return next;
   return enqueueOperation(next, "register", entityId, payload);
 }
 
 function queueCreditNoteOperation(next: DemoState, creditNote: CreditNote) {
-  if (typeof navigator !== "undefined" && navigator.onLine && !isSupabaseConfigured()) return next;
   return enqueueOperation(next, "credit-note", creditNote.id, { creditNote });
 }
 function queueStockOperation(next: DemoState, movement: StockMovement, product: Product) {
-  if (typeof navigator !== "undefined" && navigator.onLine && !isSupabaseConfigured()) return next;
   return enqueueOperation(next, "stock", movement.id, { movement, product });
 }
 function subscribe(listener: () => void) {
@@ -148,11 +254,120 @@ function getSnapshot() {
 }
 
 function getServerSnapshot() {
-  return initialState;
+  return serverState;
 }
 
 export function useDemoStore() {
   return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+}
+
+function subscribeContext(listener: () => void) {
+  contextListeners.add(listener);
+  hydrate();
+  return () => contextListeners.delete(listener);
+}
+
+export function useShopContext(): ShopContext {
+  return useSyncExternalStore(subscribeContext, () => contextSnapshot, () => serverContext);
+}
+
+export function getStoreMode(): StoreMode {
+  return mode;
+}
+
+function applySnapshot(snapshot: ShopSnapshot) {
+  // A cache from another business (a different account on this browser) is never merged into this one.
+  const sameBusiness = !hostedContext.business || hostedContext.business.id === snapshot.business.id;
+  const merged = mergeSnapshot(snapshot.state, sameBusiness ? state : emptyShopState());
+  hostedContext = {
+    business: snapshot.business,
+    devices: snapshot.devices,
+    entitlementCache: sameBusiness ? hostedContext.entitlementCache : null,
+    lastRefreshedAt: snapshot.generatedAt,
+  };
+  save(merged);
+  emitContext();
+}
+
+async function fetchSnapshot(): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (mode !== "hosted") return { ok: false, error: "This browser is not connected to a hosted shop." };
+  const startedAt = syncEpoch.current();
+  const deviceId = getStoredDeviceId();
+  let response: Response;
+  try {
+    response = await fetch(`/api/v1/snapshot${deviceId ? `?deviceId=${encodeURIComponent(deviceId)}` : ""}`, { cache: "no-store" });
+  } catch {
+    return { ok: false, error: "The shop data could not be reached. Showing the last saved copy." };
+  }
+  const body = await response.json().catch(() => null) as (ShopSnapshot & { error?: string }) | null;
+  if (!response.ok || !body?.business) {
+    return { ok: false, error: body?.error ?? "The shop data could not be loaded." };
+  }
+  // A sync finished after this request started, so this snapshot may predate it; a newer refresh follows.
+  if (syncEpoch.isStale(startedAt)) return { ok: true };
+  applySnapshot(body);
+  return { ok: true };
+}
+
+export function refreshSnapshot(): Promise<{ ok: true } | { ok: false; error: string }> {
+  return runSerial(fetchSnapshot);
+}
+
+async function refreshEntitlements() {
+  try {
+    const response = await fetch("/api/v1/entitlements", { cache: "no-store" });
+    if (!response.ok) return;
+    const body = await response.json() as { businessId?: string; entitlements?: unknown; expiresAt?: string };
+    if (hostedContext.business && body.businessId !== hostedContext.business.id) return;
+    hostedContext = { ...hostedContext, entitlementCache: { entitlements: parseEntitlements(body.entitlements), expiresAt: String(body.expiresAt) } };
+    persist();
+    emitContext();
+  } catch {
+    // Offline or misconfigured: keep the cached entitlements until they expire.
+  }
+}
+
+function clearSampleCookie() {
+  try { document.cookie = `${SAMPLE_COOKIE}=; path=/; Max-Age=0; SameSite=Lax`; } catch { /* ignore */ }
+}
+
+export async function startHostedStore(): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (mode !== "hosted") {
+    mode = "hosted";
+    hydrated = false;
+    state = emptyShopState();
+    hostedContext = emptyHostedContext();
+  }
+  clearSampleCookie();
+  hydrate();
+  const [snapshot] = await Promise.all([refreshSnapshot(), refreshEntitlements()]);
+  // With a cached copy the shop keeps working offline; without one there is nothing safe to show.
+  if (!snapshot.ok && !hostedContext.business) return snapshot;
+  return { ok: true };
+}
+
+export function startSampleStore() {
+  try { document.cookie = `${SAMPLE_COOKIE}=sample; path=/; SameSite=Lax`; } catch { /* ignore */ }
+  try { window.sessionStorage.setItem("shop-ledger-mode", "sample"); } catch { /* ignore */ }
+  mode = "sample";
+  hydrated = false;
+  state = initialState;
+  hostedContext = emptyHostedContext();
+  hydrate();
+  emit();
+  emitContext();
+}
+
+/** Forgets the hosted cache on sign-out. Refuses while unsynced work exists so it is never lost. */
+export function clearHostedStore(): { cleared: true } | { cleared: false; pending: number } {
+  const pending = state.syncOperations.filter((operation) => operation.status !== "synced").length;
+  if (mode === "hosted" && pending) return { cleared: false, pending };
+  try { window.localStorage.removeItem(HOSTED_KEY); } catch { /* ignore */ }
+  if (mode === "hosted") state = emptyShopState();
+  hostedContext = emptyHostedContext();
+  emit();
+  emitContext();
+  return { cleared: true };
 }
 
 export function createDemoStateBackup() {
@@ -160,6 +375,7 @@ export function createDemoStateBackup() {
 }
 
 export function restoreDemoStateBackup(input: unknown): { ok: true } | { ok: false; error: string } {
+  if (mode === "hosted") return { ok: false, error: "Restoring a backup is only available in the sample shop. Your hosted data is stored safely on the server." };
   if (!input || typeof input !== "object") return { ok: false, error: "The backup does not contain a valid state object." };
   const candidate = input as Partial<DemoState>;
   if (!Array.isArray(candidate.products) || !Array.isArray(candidate.sales) || !Array.isArray(candidate.customers) || !Array.isArray(candidate.creditNotes)) {
@@ -265,21 +481,10 @@ export function closeRegister(countedCashFils: number) {
 }
 export type CheckoutLine = { productId?: string; name: string; sku?: string; quantity: number; unitGrossFils: number };
 
-function uaeDateCode(date: Date) {
-  const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Dubai", year: "2-digit", month: "2-digit", day: "2-digit" }).formatToParts(date);
-  const value = (type: string) => parts.find((part) => part.type === type)?.value ?? "00";
-  return `${value("year")}${value("month")}${value("day")}`;
-}
-
-function uaeSupplyDate(date: Date) {
-  const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Dubai", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(date);
-  const value = (type: string) => parts.find((part) => part.type === type)?.value ?? "00";
-  return `${value("year")}-${value("month")}-${value("day")}`;
-}
-
 function invoicePrefix() {
+  if (mode === "hosted") return contextSnapshot.business?.invoicePrefix ?? "SL";
   if (typeof window === "undefined") return "SL";
-  const value = window.localStorage.getItem(SETTINGS_KEY);
+  const value = readStorage(SETTINGS_KEY);
   if (!value) return "SL";
   try {
     const prefix = String((JSON.parse(value) as { prefix?: string }).prefix || "SL").toUpperCase();
@@ -287,7 +492,14 @@ function invoicePrefix() {
   } catch { return "SL"; }
 }
 
+/** Hosted shops number documents per till; the browser-only stores behave as a single till 1. */
+function tillNumber() {
+  return mode === "hosted" ? contextSnapshot.device?.tillNumber ?? null : 1;
+}
+
 export function completeSale(inputLines: CheckoutLine[], paymentMethod: PaymentMethod, customerId?: string): { ok: true; sale: Sale } | { ok: false; error: string } {
+  const till = tillNumber();
+  if (till === null) return { ok: false, error: "Choose which till this browser is before selling." };
   if (!state.register || state.register.status !== "open") return { ok: false, error: "Open the register before completing a sale." };
   if (!inputLines.length) return { ok: false, error: "Add at least one item to the cart." };
 
@@ -303,20 +515,14 @@ export function completeSale(inputLines: CheckoutLine[], paymentMethod: PaymentM
   }
 
   const now = new Date();
-  const dateCode = uaeDateCode(now);
-  const prefix = invoicePrefix().toUpperCase();
-  const sameDayNumbers = state.sales
-    .map((sale) => sale.invoiceNumber.match(new RegExp(`^${prefix}-${dateCode}-(\\d+)$`)))
-    .filter((match): match is RegExpMatchArray => Boolean(match))
-    .map((match) => Number(match[1]));
-  const sequence = Math.max(0, ...sameDayNumbers) + 1;
-  const invoiceNumber = `${prefix}-${dateCode}-${String(sequence).padStart(4, "0")}`;
+  const invoiceNumber = nextInvoiceNumber(invoicePrefix().toUpperCase(), till, now, state.sales.map((sale) => sale.invoiceNumber));
   const lines: InvoiceLine[] = inputLines.map((item) => {
     const totals = calculateVatInclusive(item.unitGrossFils * item.quantity);
     return { ...item, id: crypto.randomUUID(), ...totals };
   });
+  const business = mode === "hosted" ? contextSnapshot.business : null;
   const sale: Sale = {
-    id: crypto.randomUUID(), invoiceNumber, createdAt: now.toISOString(), supplyDate: uaeSupplyDate(now), paymentMethod, lines,
+    id: crypto.randomUUID(), invoiceNumber, createdAt: now.toISOString(), supplyDate: dubaiSupplyDate(now), paymentMethod, lines,
     netFils: lines.reduce((sum, item) => sum + item.netFils, 0),
     vatFils: lines.reduce((sum, item) => sum + item.vatFils, 0),
     grossFils: lines.reduce((sum, item) => sum + item.grossFils, 0),
@@ -326,6 +532,7 @@ export function completeSale(inputLines: CheckoutLine[], paymentMethod: PaymentM
       const { id, name, phone, email, address, trn } = customer;
       return { id, name, phone, email, address, trn };
     })() : undefined,
+    supplier: business ? { name: business.legalName, trn: business.trn, address: business.address, phone: business.phone } : undefined,
     status: "completed",
   };
   const movements: StockMovement[] = lines.filter((item) => item.productId).map((item) => ({
@@ -352,6 +559,8 @@ export function returnedQuantities(saleId: string) {
 }
 
 export function createCreditNote(saleId: string, requestedQuantities: Record<string, number>): { ok: true; creditNote: CreditNote } | { ok: false; error: string } {
+  const till = tillNumber();
+  if (till === null) return { ok: false, error: "Choose which till this browser is before processing a refund." };
   if (!state.register || state.register.status !== "open") return { ok: false, error: "Open the register before processing a refund." };
   const sale = state.sales.find((item) => item.id === saleId);
   if (!sale) return { ok: false, error: "Original invoice not found." };
@@ -367,9 +576,7 @@ export function createCreditNote(saleId: string, requestedQuantities: Record<str
   if (!validLines.length) return { ok: false, error: "Choose at least one item to return." };
 
   const now = new Date();
-  const dateCode = uaeDateCode(now);
-  const sameDay = state.creditNotes.map((note) => note.creditNoteNumber.match(new RegExp(`^CN-${dateCode}-(\\d+)$`))).filter((match): match is RegExpMatchArray => Boolean(match)).map((match) => Number(match[1]));
-  const creditNoteNumber = `CN-${dateCode}-${String(Math.max(0, ...sameDay) + 1).padStart(4, "0")}`;
+  const creditNoteNumber = nextCreditNoteNumber(till, now, state.creditNotes.map((note) => note.creditNoteNumber));
   const lines = validLines.map(({ item, quantity }) => {
     const totals = calculateVatInclusive(item.unitGrossFils * quantity);
     return { ...item, id: crypto.randomUUID(), originalLineId: item.id, quantity, ...totals };
@@ -391,9 +598,18 @@ export function createCreditNote(saleId: string, requestedQuantities: Record<str
   return { ok: true, creditNote };
 }
 
-export async function reconcilePendingOperations() {
+type ReconcileResult = { status: "idle" | "blocked" | "synced" | "partial" | "failed"; pendingCount: number; message: string };
+
+export async function reconcilePendingOperations(): Promise<ReconcileResult> {
+  const result = await runSerial(syncPendingOperations);
+  // Refresh only after the sync has finished, through the same serial queue (ruling R8).
+  if (result.status === "synced" || result.status === "partial") void refreshSnapshot();
+  return result;
+}
+
+async function syncPendingOperations(): Promise<ReconcileResult> {
   const pending = state.syncOperations.filter((operation) => operation.status === "pending" || operation.status === "failed");
-  if (!pending.length) return { status: "idle" as const, pendingCount: 0, message: "There are no pending operations." };
+  if (!pending.length) return { status: "idle", pendingCount: 0, message: "There are no pending operations." };
 
   const syncable = pending.filter((operation) => (
     (operation.entity === "customer" && Boolean(operation.payload && "customer" in operation.payload)) ||
@@ -403,10 +619,10 @@ export async function reconcilePendingOperations() {
     (operation.entity === "stock" && Boolean(operation.payload && "movement" in operation.payload))
   )).sort((left, right) => left.createdAt.localeCompare(right.createdAt));
   if (!syncable.length) {
-    return { status: "blocked" as const, pendingCount: pending.length, message: "Hosted sync currently supports customer, sale, refund, register, and inventory changes only; other pending operations were kept safely." };
+    return { status: "blocked", pendingCount: pending.length, message: "Hosted sync currently supports customer, sale, refund, register, and inventory changes only; other pending operations were kept safely." };
   }
-  if (!isSupabaseConfigured()) {
-    return { status: "blocked" as const, pendingCount: pending.length, message: "Supabase is not configured. Pending operations were kept safely." };
+  if (mode !== "hosted") {
+    return { status: "blocked", pendingCount: pending.length, message: "This browser is not connected to a hosted shop. Pending operations were kept safely." };
   }
 
   let response: Response;
@@ -417,18 +633,18 @@ export async function reconcilePendingOperations() {
       body: JSON.stringify({ operations: syncable }),
     });
   } catch {
-    return { status: "blocked" as const, pendingCount: pending.length, message: "The sync request could not reach the hosted service. Pending operations were kept safely." };
+    return { status: "blocked", pendingCount: pending.length, message: "The sync request could not reach the hosted service. Pending operations were kept safely." };
   }
 
   let body: unknown;
   try {
     body = await response.json();
   } catch {
-    return { status: "blocked" as const, pendingCount: pending.length, message: "The hosted service returned an invalid sync response. Pending operations were kept safely." };
+    return { status: "blocked", pendingCount: pending.length, message: "The hosted service returned an invalid sync response. Pending operations were kept safely." };
   }
   if (!response.ok) {
     const message = body && typeof body === "object" && "error" in body && typeof body.error === "string" ? body.error : "The hosted service rejected the sync request.";
-    return { status: "blocked" as const, pendingCount: pending.length, message: message + " Pending operations were kept safely." };
+    return { status: "blocked", pendingCount: pending.length, message: message + " Pending operations were kept safely." };
   }
 
   const rawResults = body && typeof body === "object" && "operations" in body && Array.isArray(body.operations)
@@ -445,8 +661,9 @@ export async function reconcilePendingOperations() {
   const acceptedIds = new Set(results.filter((result) => result.status === "accepted").map((result) => result.id));
   const rejected = new Map(results.filter((result) => result.status === "rejected").map((result) => [result.id, result.error ?? "The hosted service rejected this operation."]));
   if (!acceptedIds.size && !rejected.size) {
-    return { status: "blocked" as const, pendingCount: pending.length, message: "The hosted service did not acknowledge any operation. Pending operations were kept safely." };
+    return { status: "blocked", pendingCount: pending.length, message: "The hosted service did not acknowledge any operation. Pending operations were kept safely." };
   }
+  syncEpoch.bump();
 
   const nextOperations = state.syncOperations.map((operation) => {
     if (acceptedIds.has(operation.id)) return { ...operation, status: "synced" as const, error: undefined };

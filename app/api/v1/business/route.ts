@@ -26,15 +26,32 @@ async function authenticatedClient() {
   return { supabase, user };
 }
 
+type ServerClient = Awaited<ReturnType<typeof createServerSupabaseClient>>;
+
+async function memberBusinessId(supabase: ServerClient, userId: string) {
+  const { data, error } = await supabase
+    .from("business_members")
+    .select("business_id")
+    .eq("user_id", userId)
+    .eq("status", "active")
+    .limit(1)
+    .maybeSingle();
+  return { businessId: (data?.business_id as string | undefined) ?? null, error };
+}
+
 export async function GET() {
   try {
     const { supabase, user } = await authenticatedClient();
     if (!supabase || !user) return responseError("Authentication is required.", 401);
 
+    const membership = await memberBusinessId(supabase, user.id);
+    if (membership.error) return responseError(membership.error.message, 502);
+    if (!membership.businessId) return responseError("No business is configured for this account.", 404);
+
     const { data, error } = await supabase
       .from("businesses")
       .select(businessSelect)
-      .eq("owner_id", user.id)
+      .eq("id", membership.businessId)
       .maybeSingle();
 
     if (error) return responseError(error.message, 502);
@@ -73,6 +90,10 @@ export async function PATCH(request: Request) {
     const { supabase, user } = await authenticatedClient();
     if (!supabase || !user) return responseError("Authentication is required.", 401);
 
+    const membership = await memberBusinessId(supabase, user.id);
+    if (membership.error) return responseError(membership.error.message, 502);
+    if (!membership.businessId) return responseError("No business is configured for this account.", 404);
+
     const { data, error } = await supabase
       .from("businesses")
       .update({
@@ -84,11 +105,13 @@ export async function PATCH(request: Request) {
         receipt_footer: parsed.data.footer,
         updated_at: new Date().toISOString(),
       })
-      .eq("owner_id", user.id)
+      .eq("id", membership.businessId)
       .select(businessSelect)
-      .single();
+      .maybeSingle();
 
-    if (error || !data) return responseError(error?.message ?? "Business settings could not be saved.", 502);
+    if (error) return responseError(error.message, 502);
+    // RLS only lets owners update the business, so a member without that role gets no row back.
+    if (!data) return responseError("Only the owner can change business settings.", 403);
 
     return Response.json({
       business: {

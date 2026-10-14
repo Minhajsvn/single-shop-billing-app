@@ -64,6 +64,23 @@ export async function persistOfflineSnapshot(state: DemoState) {
   }
 }
 
+/** Reads back the customer list written by persistOfflineSnapshot, decrypting it with this device's key. */
+export async function loadOfflineCustomers(): Promise<Customer[] | null> {
+  if (typeof indexedDB === "undefined") return null;
+  const database = await openDatabase();
+  try {
+    const encrypted = await requestResult(database.transaction("private", "readonly").objectStore("private").get(CUSTOMER_KEY)) as EncryptedPayload | undefined;
+    if (!encrypted) return null;
+    const key = await encryptionKey(database);
+    const plaintext = await crypto.subtle.decrypt({ name: "AES-GCM", iv: new Uint8Array(encrypted.iv) }, key, encrypted.ciphertext);
+    return JSON.parse(new TextDecoder().decode(plaintext)) as Customer[];
+  } catch {
+    return null;
+  } finally {
+    database.close();
+  }
+}
+
 export async function clearSyncedOutbox(operations: SyncOperation[]) {
   if (typeof indexedDB === "undefined") return;
   const database = await openDatabase();

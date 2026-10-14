@@ -89,7 +89,9 @@ export type RegisterSyncPayload =
   | { action: "close"; register: RegisterSession };
 export type CreditNoteSyncPayload = { creditNote: CreditNote };
 export type StockSyncPayload = { movement: StockMovement; product: Product };
-export type SyncPayload = CustomerSyncPayload | SaleSyncPayload | RegisterSyncPayload | CreditNoteSyncPayload | StockSyncPayload;
+/** The till that created the operation; the server books the work to this device. Absent on operations queued before Stage 1B. */
+export type DeviceTag = { deviceId?: string };
+export type SyncPayload = (CustomerSyncPayload | SaleSyncPayload | RegisterSyncPayload | CreditNoteSyncPayload | StockSyncPayload) & DeviceTag;
 
 export type SyncOperation = {
   id: string;
