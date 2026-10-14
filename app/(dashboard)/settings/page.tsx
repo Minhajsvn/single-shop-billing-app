@@ -2,7 +2,7 @@
 
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
 import { ArrowsClockwise, CheckCircle, DownloadSimple, ShieldCheck, UploadSimple } from "@phosphor-icons/react";
-import { createDemoStateBackup, reconcilePendingOperations, restoreDemoStateBackup, useDemoStore } from "@/lib/demo-store";
+import { createDemoStateBackup, reconcilePendingOperations, refreshSnapshot, restoreDemoStateBackup, useDemoStore, useShopContext } from "@/lib/demo-store";
 import { formatDateTime } from "@/lib/domain";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 import { syncCatalogToSupabase } from "@/lib/supabase/catalog-sync";
@@ -19,6 +19,8 @@ const defaults = {
 
 export default function SettingsPage() {
   const store = useDemoStore();
+  const { mode, business } = useShopContext();
+  const hosted = mode === "hosted";
   const [saved, setSaved] = useState(false);
   const [settingsBusy, setSettingsBusy] = useState(false);
   const [settings, setSettings] = useState(defaults);
@@ -29,25 +31,23 @@ export default function SettingsPage() {
   const [catalogBusy, setCatalogBusy] = useState(false);
   const backupInput = useRef<HTMLInputElement>(null);
 
+  // Hosted shops edit the server copy; the browser-only stores keep theirs in localStorage.
   useEffect(() => {
+    if (hosted) return;
     const timer = window.setTimeout(() => {
-      const value = window.localStorage.getItem(SETTINGS_KEY);
-      if (value) setSettings(JSON.parse(value));
+      try {
+        const value = window.localStorage.getItem(SETTINGS_KEY);
+        if (value) setSettings(JSON.parse(value));
+      } catch { /* keep defaults */ }
     }, 0);
     return () => window.clearTimeout(timer);
-  }, []);
-
+  }, [hosted]);
 
   useEffect(() => {
-    if (!isSupabaseConfigured()) return;
-    let active = true;
-    void fetch("/api/v1/business").then(async (response) => {
-      if (!response.ok) return;
-      const body = await response.json() as { business?: typeof defaults };
-      if (active && body.business) setSettings({ ...defaults, ...body.business });
-    }).catch(() => undefined);
-    return () => { active = false; };
-  }, []);
+    if (!hosted || !business) return;
+    const timer = window.setTimeout(() => setSettings({ name: business.legalName, trn: business.trn, phone: business.phone, prefix: business.invoicePrefix, address: business.address, footer: business.receiptFooter }), 0);
+    return () => window.clearTimeout(timer);
+  }, [hosted, business]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -55,7 +55,7 @@ export default function SettingsPage() {
     setSettingsMessage("");
     setSettingsBusy(true);
 
-    if (isSupabaseConfigured()) {
+    if (hosted) {
       try {
         const response = await fetch("/api/v1/business", {
           method: "PATCH",
@@ -76,7 +76,10 @@ export default function SettingsPage() {
       }
     }
 
-    window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    if (hosted) await refreshSnapshot();
+    else {
+      try { window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* storage unavailable */ }
+    }
     setSaved(true);
     setSettingsBusy(false);
     window.setTimeout(() => setSaved(false), 2200);
@@ -150,10 +153,10 @@ export default function SettingsPage() {
         {settingsMessage && <div className="backup-message" role="alert">{settingsMessage}</div>}
         <div className="modal-footer"><button className="button primary" type="submit" disabled={settingsBusy}>{settingsBusy ? "Saving…" : "Save settings"}</button></div>
       </form>
-      <section className="panel sync-diagnostics">
+      {!hosted ? <section className="panel sync-diagnostics">
         <div className="panel-header"><div><div className="panel-title">Cloud catalog</div><div className="panel-subtitle">Explicitly upload products and customers to this business</div></div><button className="button" type="button" onClick={syncCatalog} disabled={!isSupabaseConfigured() || catalogBusy}><UploadSimple size={15} weight="bold" />{catalogBusy ? "Uploading…" : "Upload catalog"}</button></div>
         <div className="panel-body"><p className="panel-subtitle">This uploads the current local catalog only. Sales, returns, stock movements, and register records are not uploaded by this action.</p>{catalogMessage && <div className="backup-message" role="status">{catalogMessage}</div>}</div>
-      </section>
+      </section> : null}
       <section className="panel sync-diagnostics">
         <div className="panel-header"><div><div className="panel-title">Offline outbox</div><div className="panel-subtitle">Supported customer, sale, refund, register, and inventory changes sync automatically; other pending operations are retained</div></div><button className="button" onClick={retryPending} disabled={!store.syncOperations.some((item) => item.status === "pending" || item.status === "failed")}><ArrowsClockwise size={15} weight="bold" /> Retry pending</button></div>
         {syncMessage && <div className="backup-message" role="status">{syncMessage}</div>}
@@ -161,7 +164,7 @@ export default function SettingsPage() {
       </section>
       <section className="panel backup-panel">
         <div className="panel-header"><div><div className="panel-title">Backup and recovery</div><div className="panel-subtitle">Portable local snapshot for this single device</div></div><ShieldCheck size={20} weight="duotone" /></div>
-        <div className="panel-body backup-body"><div><strong>Keep a recoverable copy</strong><p>Download after closing each business day. The file contains invoices, customers, products, stock movements, register data, and settings.</p></div><div className="backup-actions"><button className="button" onClick={downloadBackup}><DownloadSimple size={15} weight="bold" /> Download backup</button><button className="button" onClick={() => backupInput.current?.click()}><UploadSimple size={15} weight="bold" /> Restore backup</button><input className="sr-only" ref={backupInput} type="file" accept="application/json,.json" onChange={restoreBackup} aria-label="Choose Shop Ledger backup file" /></div></div>
+        <div className="panel-body backup-body"><div><strong>Keep a recoverable copy</strong><p>Download after closing each business day. The file contains invoices, customers, products, stock movements, register data, and settings.</p></div><div className="backup-actions"><button className="button" onClick={downloadBackup}><DownloadSimple size={15} weight="bold" /> Download backup</button>{!hosted ? <><button className="button" onClick={() => backupInput.current?.click()}><UploadSimple size={15} weight="bold" /> Restore backup</button><input className="sr-only" ref={backupInput} type="file" accept="application/json,.json" onChange={restoreBackup} aria-label="Choose Shop Ledger backup file" /></> : null}</div></div>
         {backupMessage && <div className="backup-message" role="status">{backupMessage}</div>}
       </section>
     </>

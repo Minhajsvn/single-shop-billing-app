@@ -1,5 +1,6 @@
 "use client";
 
+import { SAMPLE_MODE_COOKIE } from "@/lib/auth/access-rules";
 import { parseEntitlements, type Entitlements } from "@/lib/billing/entitlements";
 import { getStoredDeviceId } from "@/lib/device";
 import {
@@ -38,7 +39,7 @@ const LEGACY_PRODUCT_KEY = "shop-ledger-demo-products-v1";
 const SETTINGS_KEY = "shop-ledger-demo-settings-v1";
 // Hosted mode never touches the demo keys above; it caches the last server snapshot here (customers excluded).
 const HOSTED_KEY = "shop-ledger-hosted-store-v1";
-const SAMPLE_COOKIE = "shop-ledger-mode";
+const SAMPLE_COOKIE = SAMPLE_MODE_COOKIE;
 
 const initialCustomers: Customer[] = [
   { id: "customer-001", name: "Mariam Trading LLC", phone: "+971 50 555 0132", email: "accounts@mariamtrading.example", address: "Al Barsha, Dubai, United Arab Emirates", trn: "100123456700003", createdAt: "2026-08-28T08:00:00.000Z", updatedAt: "2026-08-28T08:00:00.000Z" },

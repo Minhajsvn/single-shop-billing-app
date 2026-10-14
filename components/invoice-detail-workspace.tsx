@@ -4,7 +4,7 @@ import { ArrowCounterClockwise, ArrowLeft, FilePdf, Printer, Receipt, X } from "
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { createCreditNote, useDemoStore } from "@/lib/demo-store";
+import { createCreditNote, useDemoStore, useShopContext } from "@/lib/demo-store";
 import { formatAED, formatDateTime } from "@/lib/domain";
 
 const SETTINGS_KEY = "shop-ledger-demo-settings-v1";
@@ -15,18 +15,30 @@ export function InvoiceDetailWorkspace({ id }: { id: string }) {
   const pathname = usePathname();
   const routeId = pathname.split("/").filter(Boolean).at(-1) ?? id;
   const sale = store.sales.find((item) => item.id === routeId);
-  const [shop, setShop] = useState(defaultShop);
+  const { mode, business } = useShopContext();
+  const [savedShop, setSavedShop] = useState(defaultShop);
   const [returnOpen, setReturnOpen] = useState(false);
   const [returnQuantities, setReturnQuantities] = useState<Record<string, number>>({});
   const [returnError, setReturnError] = useState("");
 
+  // Browser-only stores keep their shop details in localStorage; hosted shops use the server copy.
   useEffect(() => {
+    if (mode === "hosted") return;
     const timer = window.setTimeout(() => {
-      const saved = window.localStorage.getItem(SETTINGS_KEY);
-      if (saved) setShop({ ...defaultShop, ...JSON.parse(saved) });
+      try {
+        const saved = window.localStorage.getItem(SETTINGS_KEY);
+        if (saved) setSavedShop({ ...defaultShop, ...JSON.parse(saved) });
+      } catch { /* keep defaults */ }
     }, 0);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [mode]);
+  const footer = business?.receiptFooter ?? (mode === "hosted" ? "" : savedShop.footer);
+  // An issued invoice shows the supplier details captured when it was synced, never later edits.
+  const shop = sale?.supplier
+    ? { name: sale.supplier.name, trn: sale.supplier.trn, address: sale.supplier.address, phone: sale.supplier.phone, footer }
+    : business
+      ? { name: business.legalName, trn: business.trn, address: business.address, phone: business.phone, footer }
+      : mode === "hosted" ? { name: "", trn: "", address: "", phone: "", footer } : savedShop;
 
   function print(mode: "receipt" | "a4") {
     document.documentElement.dataset.printMode = mode;

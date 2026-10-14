@@ -14,6 +14,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { OfflineRuntime } from "@/components/offline-runtime";
+import { clearHostedStore, useShopContext } from "@/lib/demo-store";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 
 const links = [
@@ -31,6 +32,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const active = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
   const [email, setEmail] = useState<string | null>(null);
+  const [signOutNotice, setSignOutNotice] = useState<string | null>(null);
+  const { mode, business, device } = useShopContext();
 
   useEffect(() => {
     if (!isSupabaseConfigured()) return;
@@ -39,7 +42,14 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, []);
 
   async function signOut() {
+    // Unsynced sales must never be discarded: keep them and sign out only once they have reached the server.
+    const cleared = clearHostedStore();
+    if (!cleared.cleared) {
+      setSignOutNotice(`${cleared.pending} change${cleared.pending === 1 ? " has" : "s have"} not synced yet. Reconnect and sync before signing out.`);
+      return;
+    }
     if (isSupabaseConfigured()) await createClient().auth.signOut();
+    document.cookie = "shop-ledger-mode=; path=/; Max-Age=0; SameSite=Lax";
     router.replace("/login");
   }
 
@@ -74,7 +84,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         <div className="sidebar-bottom">
           <OfflineRuntime />
-          <div className="operator"><strong>Owner till</strong><span>Device 01</span></div>
+          <div className="operator"><strong>{mode === "sample" ? "Sample shop" : device ? `Till ${device.tillNumber}` : "Till"}</strong><span>{device?.name ?? (mode === "hosted" ? "Not selected" : "This browser")}</span></div>
         </div>
       </aside>
 
@@ -85,14 +95,16 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <main className="main">
         <header className="topbar">
-          <div className="topbar-title">Single shop workspace</div>
+          <div className="topbar-title">{business?.legalName ?? "Shop Ledger"}</div>
           <div className="topbar-actions">
-            <span className="badge yellow">Local cache</span>
+            {mode === "hosted" && device ? <span className="badge">Till {device.tillNumber}</span> : null}
+            {mode === "sample" ? <span className="badge yellow">Sample shop</span> : null}
             {email ? <span className="auth-user" title={email}>{email}</span> : null}
-            {isSupabaseConfigured() ? <button className="button" type="button" onClick={signOut}>Sign out</button> : null}
+            {isSupabaseConfigured() ? <button className="button" type="button" onClick={signOut}>{mode === "sample" ? "Leave sample" : "Sign out"}</button> : null}
             <Link className="button primary" href="/sale"><ShoppingCart size={15} weight="bold" /> New sale</Link>
           </div>
         </header>
+        {signOutNotice ? <div className="notice error-notice" role="alert">{signOutNotice}</div> : null}
         <div className="content">{children}</div>
       </main>
     </div>
