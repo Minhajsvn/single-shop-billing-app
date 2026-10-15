@@ -84,7 +84,8 @@ const initialState: DemoState = {
   register: {
     id: "register-001",
     status: "open",
-    openedAt: "2026-08-30T04:00:00.000Z",
+    // Opened "now" so a fresh sample shop can sell straight away (a register from an earlier day blocks checkout).
+    openedAt: new Date().toISOString(),
     openingCashFils: 24000,
     adjustments: [],
   },

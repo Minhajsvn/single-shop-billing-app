@@ -3,19 +3,23 @@
 import { CreditCard, IdentificationCard, MagnifyingGlass, Minus, Money, Plus, ShoppingCart, Tag, Trash, User, X } from "@phosphor-icons/react";
 import Link from "next/link";
 import { FormEvent, KeyboardEvent, useMemo, useRef, useState } from "react";
+import { HeldCarts } from "@/components/pos/held-carts";
 import { LineDiscountDialog } from "@/components/pos/line-discount-dialog";
 import { PaymentDialog } from "@/components/pos/payment-dialog";
 import { ReceiptPanel } from "@/components/pos/receipt-panel";
 import { useReceiptShop } from "@/components/receipt-document";
+import type { HeldCart } from "@/lib/checkout/held-carts";
 import { findByCode } from "@/lib/checkout/lookup";
+import { staleRegister } from "@/lib/checkout/register-status";
 import { cartTotals } from "@/lib/checkout/pricing";
-import { completeSale, type CheckoutLine, useDemoStore } from "@/lib/demo-store";
+import { completeSale, type CheckoutLine, useDemoStore, useShopContext } from "@/lib/demo-store";
 import { formatAED, type Product, type Sale } from "@/lib/domain";
 
 type CartItem = CheckoutLine & { key: string };
 
 export function PosWorkspace() {
   const store = useDemoStore();
+  const { device } = useShopContext();
   const [query, setQuery] = useState("");
   const [cart, setCart] = useState<CartItem[]>([]);
   const [customOpen, setCustomOpen] = useState(false);
@@ -82,6 +86,12 @@ export function PosWorkspace() {
     window.setTimeout(() => searchInput.current?.focus(), 0);
   }
 
+  function resumeHeld(held: HeldCart, notices: string[]) {
+    setCart(held.lines.map((line) => ({ ...line, key: line.productId ?? crypto.randomUUID() })));
+    setCustomerId(held.customerId);
+    setError(notices.join(" "));
+  }
+
   function applyDiscount(key: string, unitGrossFils: number) {
     setCart((current) => current.map((line) => line.key === key ? { ...line, listUnitGrossFils: line.listUnitGrossFils ?? line.unitGrossFils, unitGrossFils } : line));
     closeDialog(setDiscountFor);
@@ -143,6 +153,9 @@ export function PosWorkspace() {
   }
 
   const registerOpen = store.register?.status === "open";
+  // A register left open from an earlier Dubai day must be closed before any more sales (end-of-day integrity).
+  const stale = staleRegister(store.register, new Date());
+  const canSell = registerOpen && !stale.stale;
   const selectedCustomer = store.customers.find((customer) => customer.id === customerId);
 
   function handleShortcut(event: KeyboardEvent<HTMLDivElement>) {
@@ -156,11 +169,11 @@ export function PosWorkspace() {
       setCustomOpen(false);
       setCustomerOpen(false);
     }
-    if (!customOpen && !customerOpen && !payment && !completed && registerOpen && cart.length && event.key === "F2") {
+    if (!customOpen && !customerOpen && !payment && !completed && canSell && cart.length && event.key === "F2") {
       event.preventDefault();
       pay("cash");
     }
-    if (!customOpen && !customerOpen && !payment && !completed && registerOpen && cart.length && event.key === "F3") {
+    if (!customOpen && !customerOpen && !payment && !completed && canSell && cart.length && event.key === "F3") {
       event.preventDefault();
       pay("card");
     }
@@ -171,6 +184,7 @@ export function PosWorkspace() {
       <div className="page-heading pos-heading"><div><div className="eyebrow">Point of sale</div><h1 className="page-title">New sale</h1><p className="page-copy">Search or scan products, confirm the cart, then record Cash or Card.</p></div><div className="pos-status"><span className={`badge ${registerOpen ? "green" : "red"}`}>{registerOpen ? "Register open" : "Register closed"}</span><span className="keyboard-hint"><kbd>/</kbd> Search <kbd>F2</kbd> Cash <kbd>F3</kbd> Card</span></div></div>
 
       {!registerOpen && <div className="notice error-notice"><CashRegisterNotice /> <div><strong>Checkout is locked.</strong> Open the register before accepting a payment.</div></div>}
+      {stale.stale && <div className="notice error-notice" role="alert"><CashRegisterNotice /> <div><strong>The register opened on {stale.openedOn} is still open.</strong> Close it on the <Link href="/register">Register page</Link> before selling.</div></div>}
 
       <div className="pos-layout">
         <section className="panel catalog-panel">
@@ -185,7 +199,7 @@ export function PosWorkspace() {
         </section>
 
         {completed ? <ReceiptPanel sale={completed.sale} tenderedFils={completed.tenderedFils} shop={receiptShop} onNewSale={startNewSale} /> : <aside className="panel cart-panel">
-          <div className="panel-header"><div><div className="panel-title">Current cart</div><div className="panel-subtitle">{cart.reduce((sum, item) => sum + item.quantity, 0)} items</div></div>{cart.length > 0 && <button className="button" onClick={() => setCart([])}>Clear</button>}</div>
+          <div className="panel-header"><div><div className="panel-title">Current cart</div><div className="panel-subtitle">{cart.reduce((sum, item) => sum + item.quantity, 0)} items</div></div><HeldCarts deviceId={device?.id ?? null} products={store.products} canHold={cart.length > 0} cartIsEmpty={!cart.length} onHold={() => ({ customerId, lines: cart.map(({ productId, name, sku, quantity, unitGrossFils, listUnitGrossFils }) => ({ productId, name, sku, quantity, unitGrossFils, listUnitGrossFils })) })} onHeld={() => { setCart([]); setCustomerId(undefined); }} onResume={resumeHeld} />{cart.length > 0 && <button className="button" onClick={() => setCart([])}>Clear</button>}</div>
           <div className="cart-lines" aria-live="polite">{cart.length ? cart.map((item) => <div className="cart-line" key={item.key}><div className="cart-line-top"><div><div className="product-name">{item.name}</div><div className="product-meta">{item.sku ?? "Custom non-stock item"}</div>{item.listUnitGrossFils ? <div className="product-meta discount-meta"><s>{formatAED(item.listUnitGrossFils)}</s> {formatAED(item.unitGrossFils)} each · −{formatAED((item.listUnitGrossFils - item.unitGrossFils) * item.quantity)}</div> : null}</div><button className="cart-remove" onClick={() => setCart((current) => current.filter((line) => line.key !== item.key))} aria-label={`Remove ${item.name}`}><Trash size={15} weight="bold" /></button></div><div className="cart-line-bottom"><div className="quantity-stepper"><button onClick={() => changeQuantity(item, -1)} aria-label={`Decrease ${item.name}`}><Minus size={13} weight="bold" /></button><span>{item.quantity}</span><button onClick={() => changeQuantity(item, 1)} aria-label={`Increase ${item.name}`}><Plus size={13} weight="bold" /></button></div><button className="button discount-button" type="button" onClick={() => setDiscountFor(item.key)} aria-label={`Discount ${item.name}`}><Tag size={14} weight="bold" />{item.listUnitGrossFils ? "Edit" : "Discount"}</button><strong>{formatAED(item.unitGrossFils * item.quantity)}</strong></div></div>) : <div className="cart-empty"><ShoppingCart size={30} weight="duotone" /><p>Add a product to begin the sale.</p></div>}</div>
 
           <div className="checkout-block">
@@ -195,7 +209,7 @@ export function PosWorkspace() {
             <div className="summary-line"><span>VAT 5%</span><strong>{formatAED(totals.vatFils)}</strong></div>
             <div className="summary-line total"><span>Total</span><strong>{formatAED(totals.grossFils)}</strong></div>
             {error && <p className="form-error checkout-error" role="alert">{error}</p>}
-            <div className="payment-grid"><button className="payment-button cash" disabled={!registerOpen || !cart.length} onClick={() => pay("cash")} aria-keyshortcuts="F2"><Money size={21} weight="fill" /><span>Cash · F2</span><small>Record drawer payment</small></button><button className="payment-button card" disabled={!registerOpen || !cart.length} onClick={() => pay("card")} aria-keyshortcuts="F3"><CreditCard size={21} weight="fill" /><span>Card · F3</span><small>External terminal paid</small></button></div>
+            <div className="payment-grid"><button className="payment-button cash" disabled={!canSell || !cart.length} onClick={() => pay("cash")} aria-keyshortcuts="F2"><Money size={21} weight="fill" /><span>Cash · F2</span><small>Record drawer payment</small></button><button className="payment-button card" disabled={!canSell || !cart.length} onClick={() => pay("card")} aria-keyshortcuts="F3"><CreditCard size={21} weight="fill" /><span>Card · F3</span><small>External terminal paid</small></button></div>
           </div>
         </aside>}
       </div>
