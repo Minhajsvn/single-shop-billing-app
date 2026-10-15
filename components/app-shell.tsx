@@ -14,7 +14,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { OfflineRuntime } from "@/components/offline-runtime";
-import { clearHostedStore, useShopContext } from "@/lib/demo-store";
+import { clearHostedStore, useDemoStore, useShopContext } from "@/lib/demo-store";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 
 const links = [
@@ -32,8 +32,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const active = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
   const [email, setEmail] = useState<string | null>(null);
-  const [signOutNotice, setSignOutNotice] = useState<string | null>(null);
   const { mode, business, device } = useShopContext();
+  const store = useDemoStore();
 
   useEffect(() => {
     if (!isSupabaseConfigured()) return;
@@ -42,12 +42,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, []);
 
   async function signOut() {
-    // Unsynced sales must never be discarded: keep them and sign out only once they have reached the server.
-    const cleared = clearHostedStore();
-    if (!cleared.cleared) {
-      setSignOutNotice(`${cleared.pending} change${cleared.pending === 1 ? " has" : "s have"} not synced yet. Reconnect and sync before signing out.`);
-      return;
-    }
+    // Unsynced work is never discarded: it stays in this user's own cache and syncs when they sign in here again.
+    const pending = store.syncOperations.filter((operation) => operation.status !== "synced").length;
+    if (mode === "hosted" && pending && !window.confirm(`${pending} change${pending === 1 ? " has" : "s have"} not synced yet. They stay saved on this browser and sync when you sign in here again. Sign out anyway?`)) return;
+    clearHostedStore();
     if (isSupabaseConfigured()) await createClient().auth.signOut();
     document.cookie = "shop-ledger-mode=; path=/; Max-Age=0; SameSite=Lax";
     router.replace("/login");
@@ -104,7 +102,6 @@ export function AppShell({ children }: { children: ReactNode }) {
             <Link className="button primary" href="/sale"><ShoppingCart size={15} weight="bold" /> New sale</Link>
           </div>
         </header>
-        {signOutNotice ? <div className="notice error-notice" role="alert">{signOutNotice}</div> : null}
         <div className="content">{children}</div>
       </main>
     </div>

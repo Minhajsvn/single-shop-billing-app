@@ -16,7 +16,8 @@ export function TillPicker() {
   async function choose(id: string) {
     setBusy(true);
     storeDeviceId(id);
-    await refreshSnapshot();
+    const result = await refreshSnapshot();
+    if (!result.ok) setError(`This till could not be loaded: ${result.error}`);
     setBusy(false);
   }
 
@@ -48,6 +49,7 @@ export function TillPicker() {
         <div className="eyebrow">Till setup</div>
         <h1 id="till-title">Which till is this browser?</h1>
         <p className="page-copy">Each till has its own invoice numbers. Pick the till this computer works as, or register a new one.</p>
+        <p className="field-hint">Use each till on one browser only. Two browsers on the same till would issue the same invoice numbers.</p>
         {active.length ? (
           <div className="auth-form">
             {active.map((device) => (

@@ -47,15 +47,18 @@ async function encryptCustomers(database: IDBDatabase, customers: Customer[]): P
   return { iv: Array.from(iv), ciphertext };
 }
 
-export async function persistOfflineSnapshot(state: DemoState) {
+/** Every cached copy belongs to one signed-in user, so accounts sharing a browser never see each other's data. */
+const scoped = (key: string, scope: string) => `${key}:${scope}`;
+
+export async function persistOfflineSnapshot(state: DemoState, scope: string) {
   if (typeof indexedDB === "undefined") return;
   const database = await openDatabase();
   try {
     const { customers, ...nonSensitiveState } = state;
     const encryptedCustomers = await encryptCustomers(database, customers);
     const transaction = database.transaction(["snapshots", "private", "outbox"], "readwrite");
-    transaction.objectStore("snapshots").put(nonSensitiveState, SNAPSHOT_KEY);
-    transaction.objectStore("private").put(encryptedCustomers, CUSTOMER_KEY);
+    transaction.objectStore("snapshots").put(nonSensitiveState, scoped(SNAPSHOT_KEY, scope));
+    transaction.objectStore("private").put(encryptedCustomers, scoped(CUSTOMER_KEY, scope));
     for (const operation of state.syncOperations.filter((item) => item.status === "pending")) {
       transaction.objectStore("outbox").put(operation);
     }
@@ -65,17 +68,37 @@ export async function persistOfflineSnapshot(state: DemoState) {
 }
 
 /** Reads back the customer list written by persistOfflineSnapshot, decrypting it with this device's key. */
-export async function loadOfflineCustomers(): Promise<Customer[] | null> {
+export async function loadOfflineCustomers(scope: string): Promise<Customer[] | null> {
   if (typeof indexedDB === "undefined") return null;
   const database = await openDatabase();
   try {
-    const encrypted = await requestResult(database.transaction("private", "readonly").objectStore("private").get(CUSTOMER_KEY)) as EncryptedPayload | undefined;
+    const encrypted = await requestResult(database.transaction("private", "readonly").objectStore("private").get(scoped(CUSTOMER_KEY, scope))) as EncryptedPayload | undefined;
     if (!encrypted) return null;
     const key = await encryptionKey(database);
     const plaintext = await crypto.subtle.decrypt({ name: "AES-GCM", iv: new Uint8Array(encrypted.iv) }, key, encrypted.ciphertext);
     return JSON.parse(new TextDecoder().decode(plaintext)) as Customer[];
   } catch {
     return null;
+  } finally {
+    database.close();
+  }
+}
+
+/**
+ * Removes a user's cached snapshot and encrypted customers (on sign-out), plus the unscoped copies written by
+ * earlier builds, which could hold another account's or the old demo store's customers.
+ */
+export async function clearOfflineCache(scope: string | null) {
+  if (typeof indexedDB === "undefined") return;
+  const database = await openDatabase();
+  try {
+    const transaction = database.transaction(["snapshots", "private"], "readwrite");
+    transaction.objectStore("snapshots").delete(SNAPSHOT_KEY);
+    transaction.objectStore("private").delete(CUSTOMER_KEY);
+    if (scope) {
+      transaction.objectStore("snapshots").delete(scoped(SNAPSHOT_KEY, scope));
+      transaction.objectStore("private").delete(scoped(CUSTOMER_KEY, scope));
+    }
   } finally {
     database.close();
   }

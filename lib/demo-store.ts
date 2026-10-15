@@ -17,7 +17,7 @@ import {
   type SyncOperation,
 } from "@/lib/domain";
 import { dubaiSupplyDate, nextCreditNoteNumber, nextInvoiceNumber } from "@/lib/invoice-numbers";
-import { clearSyncedOutbox, loadOfflineCustomers, persistOfflineSnapshot } from "@/lib/offline-db";
+import { clearOfflineCache, clearSyncedOutbox, loadOfflineCustomers, persistOfflineSnapshot } from "@/lib/offline-db";
 import { mergeSnapshot } from "@/lib/snapshot/merge";
 import { registerTotals } from "@/lib/store/register-totals";
 import type { BusinessProfile, ShopSnapshot, TillDevice } from "@/lib/snapshot/types";
@@ -28,6 +28,7 @@ import {
   effectiveEntitlements,
   emptyHostedContext,
   emptyShopState,
+  hostedCacheKey,
   parseHostedCache,
   type HostedCache,
   type HostedContext,
@@ -39,8 +40,9 @@ import { useSyncExternalStore } from "react";
 const STORE_KEY = "shop-ledger-demo-store-v2";
 const LEGACY_PRODUCT_KEY = "shop-ledger-demo-products-v1";
 const SETTINGS_KEY = "shop-ledger-demo-settings-v1";
-// Hosted mode never touches the demo keys above; it caches the last server snapshot here (customers excluded).
-const HOSTED_KEY = "shop-ledger-hosted-store-v1";
+// Hosted mode never touches the demo keys above; it caches each user's last server snapshot under
+// hostedCacheKey(userId) (customers excluded). This unscoped key from earlier builds is removed on start.
+const LEGACY_HOSTED_KEY = "shop-ledger-hosted-store-v1";
 const SAMPLE_COOKIE = SAMPLE_MODE_COOKIE;
 
 const initialCustomers: Customer[] = [
@@ -116,6 +118,8 @@ let mode: StoreMode = initialMode();
 let state: DemoState = mode === "hosted" ? emptyShopState() : initialState;
 let hostedContext: HostedContext = emptyHostedContext();
 let hydrated = false;
+// The signed-in user whose hosted shop is loaded; every hosted cache is keyed by it (ruling R17).
+let activeUserId: string | null = null;
 const listeners = new Set<() => void>();
 const contextListeners = new Set<() => void>();
 // Sync and snapshot refresh never overlap (ruling R8): a snapshot read while a sync commits could
@@ -152,10 +156,12 @@ function persist() {
   if (typeof window === "undefined") return;
   try {
     if (mode === "hosted") {
+      // Nothing is cached until we know whose shop this is (ruling R17).
+      if (!activeUserId) return;
       const cache: HostedCache = { version: 1, state: { ...state, customers: [] }, context: hostedContext };
-      window.localStorage.setItem(HOSTED_KEY, JSON.stringify(cache));
+      window.localStorage.setItem(hostedCacheKey(activeUserId), JSON.stringify(cache));
       // Customers are cached only in IndexedDB, encrypted with this device's key (ruling R10).
-      void persistOfflineSnapshot(state).catch(() => undefined);
+      void persistOfflineSnapshot(state, activeUserId).catch(() => undefined);
     } else {
       window.localStorage.setItem(STORE_KEY, JSON.stringify(state));
     }
@@ -190,17 +196,7 @@ function hydrate() {
   if (hydrated || typeof window === "undefined") return;
   hydrated = true;
   if (mode === "hosted") {
-    const cache = parseHostedCache(readStorage(HOSTED_KEY));
-    if (cache) {
-      state = cache.state;
-      hostedContext = cache.context;
-    }
-    void loadOfflineCustomers().then((customers) => {
-      if (customers && mode === "hosted" && !state.customers.length) {
-        state = { ...state, customers };
-        emit();
-      }
-    }).catch(() => undefined);
+    // The hosted cache is loaded by startHostedStore once the signed-in user is known.
   } else {
     const saved = readStorage(STORE_KEY);
     if (saved) {
@@ -334,15 +330,33 @@ function clearSampleCookie() {
   try { document.cookie = `${SAMPLE_COOKIE}=; path=/; Max-Age=0; SameSite=Lax`; } catch { /* ignore */ }
 }
 
-export async function startHostedStore(): Promise<{ ok: true } | { ok: false; error: string }> {
-  if (mode !== "hosted") {
-    mode = "hosted";
-    hydrated = false;
-    state = emptyShopState();
-    hostedContext = emptyHostedContext();
-  }
+function loadUserCache(userId: string) {
+  const cache = parseHostedCache(readStorage(hostedCacheKey(userId)));
+  state = cache?.state ?? emptyShopState();
+  hostedContext = cache?.context ?? emptyHostedContext();
+  emit();
+  emitContext();
+  // Remove the unscoped cache written by earlier builds; it could belong to another account.
+  try { window.localStorage.removeItem(LEGACY_HOSTED_KEY); } catch { /* ignore */ }
+  void clearOfflineCache(null).catch(() => undefined);
+  void loadOfflineCustomers(userId).then((customers) => {
+    if (customers && mode === "hosted" && activeUserId === userId && !state.customers.length) {
+      state = { ...state, customers };
+      emit();
+    }
+  }).catch(() => undefined);
+}
+
+/** Switches this browser to the signed-in user's hosted shop. Called with the session's user id (also leaves sample mode). */
+export async function startHostedStore(userId: string): Promise<{ ok: true } | { ok: false; error: string }> {
   clearSampleCookie();
-  hydrate();
+  try { window.sessionStorage.removeItem("shop-ledger-mode"); } catch { /* ignore */ }
+  if (mode !== "hosted" || activeUserId !== userId) {
+    mode = "hosted";
+    hydrated = true;
+    activeUserId = userId;
+    loadUserCache(userId);
+  }
   const [snapshot] = await Promise.all([refreshSnapshot(), refreshEntitlements()]);
   // With a cached copy the shop keeps working offline; without one there is nothing safe to show.
   if (!snapshot.ok && !hostedContext.business) return snapshot;
@@ -354,6 +368,7 @@ export function startSampleStore() {
   try { window.sessionStorage.setItem("shop-ledger-mode", "sample"); } catch { /* ignore */ }
   mode = "sample";
   hydrated = false;
+  activeUserId = null;
   state = initialState;
   hostedContext = emptyHostedContext();
   hydrate();
@@ -361,16 +376,23 @@ export function startSampleStore() {
   emitContext();
 }
 
-/** Forgets the hosted cache on sign-out. Refuses while unsynced work exists so it is never lost. */
-export function clearHostedStore(): { cleared: true } | { cleared: false; pending: number } {
+/**
+ * Sign-out. Only the hosted shop of the signed-in user is ever touched (never from sample mode). Unsynced work
+ * stays in that user's own cache and syncs when they sign in again; otherwise the cache is wiped from this browser.
+ */
+export function clearHostedStore(): { cleared: boolean; pending: number } {
+  if (mode !== "hosted" || !activeUserId) return { cleared: false, pending: 0 };
   const pending = state.syncOperations.filter((operation) => operation.status !== "synced").length;
-  if (mode === "hosted" && pending) return { cleared: false, pending };
-  try { window.localStorage.removeItem(HOSTED_KEY); } catch { /* ignore */ }
-  if (mode === "hosted") state = emptyShopState();
+  if (!pending) {
+    try { window.localStorage.removeItem(hostedCacheKey(activeUserId)); } catch { /* ignore */ }
+    void clearOfflineCache(activeUserId).catch(() => undefined);
+  }
+  activeUserId = null;
+  state = emptyShopState();
   hostedContext = emptyHostedContext();
   emit();
   emitContext();
-  return { cleared: true };
+  return { cleared: !pending, pending };
 }
 
 export function createDemoStateBackup() {

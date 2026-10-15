@@ -16,6 +16,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const pathRef = useRef(pathname);
   useEffect(() => { pathRef.current = pathname; }, [pathname]);
   const { device, mode } = useShopContext();
+  // Server and first client render agree on "checking", so the sample shop never causes a hydration mismatch.
   const [gate, setGate] = useState<GateState>(isSupabaseConfigured() ? { status: "checking" } : { status: "ready" });
 
   // Runs once per mount: the dashboard layout stays mounted across page changes, so the shop loads once.
@@ -24,7 +25,9 @@ export function AuthGate({ children }: { children: ReactNode }) {
     const { data } = await supabase.auth.getSession();
     if (!active()) return;
     if (!data.session) {
-      router.replace(`/login?next=${encodeURIComponent(pathRef.current)}`);
+      // Without an account, only the explicitly chosen sample shop is available.
+      if (getStoreMode() === "sample") setGate({ status: "ready" });
+      else router.replace(`/login?next=${encodeURIComponent(pathRef.current)}`);
       return;
     }
     if (pathRef.current !== "/setup") {
@@ -37,15 +40,14 @@ export function AuthGate({ children }: { children: ReactNode }) {
         return;
       }
     }
-    const result = await startHostedStore();
+    // A signed-in session always wins over a leftover sample-shop choice (startHostedStore leaves sample mode).
+    const result = await startHostedStore(data.session.user.id);
     if (!active()) return;
     setGate(result.ok ? { status: "ready" } : { status: "error", message: result.error });
   }, [router]);
 
   useEffect(() => {
     if (!isSupabaseConfigured()) return;
-    // The explicit sample shop has no account to check.
-    if (getStoreMode() === "sample") return;
     let active = true;
     const timer = window.setTimeout(() => void start(() => active), 0);
     const { data: subscription } = createClient().auth.onAuthStateChange((_event, session) => {
@@ -58,7 +60,6 @@ export function AuthGate({ children }: { children: ReactNode }) {
     };
   }, [router, start]);
 
-  if (mode === "sample") return children;
   if (gate.status === "checking") {
     return <div className="auth-loading" role="status">Loading your shop…</div>;
   }
