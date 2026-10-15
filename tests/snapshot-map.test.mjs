@@ -11,13 +11,13 @@ const rows = {
   products: [{ id: "p1", name: "Coffee", sku: "COF", barcode: null, price_fils: 2850, stock_quantity: 4, low_stock_threshold: 5, status: "active" }],
   customers: [{ id: "c1", name: "Omar", phone: "+971 55", email: null, address: null, trn: null, created_at: "2026-10-01T00:00:00Z", updated_at: "2026-10-02T00:00:00Z" }],
   sales: [{
-    id: "s1", invoice_number: "SMK-1-261013-0001", created_at: "2026-10-13T08:00:00Z", supply_date: "2026-10-13", payment_method: "cash",
+    id: "s1", device_id: "dev-1", invoice_number: "SMK-1-261013-0001", created_at: "2026-10-13T08:00:00Z", supply_date: "2026-10-13", payment_method: "cash",
     net_fils: 2714, vat_fils: 136, gross_fils: 2850, status: "completed",
     customer_snapshot: null, supplier_snapshot: { name: "Smoke LLC", trn: "100000000000003", address: "Dubai", phone: "+971" },
     sale_items: [{ id: "l1", product_id: "p1", description: "Coffee", sku: "COF", quantity: 1, unit_gross_fils: 2850, net_fils: 2714, vat_fils: 136, gross_fils: 2850 }],
   }],
   creditNotes: [{
-    id: "n1", credit_note_number: "CN-1-261013-0001", sale_id: "s1", payment_method: "cash", created_at: "2026-10-13T09:00:00Z",
+    id: "n1", device_id: "dev-2", credit_note_number: "CN-1-261013-0001", sale_id: "s1", payment_method: "cash", created_at: "2026-10-13T09:00:00Z",
     sales: { invoice_number: "SMK-1-261013-0001" },
     net_fils: 2714, vat_fils: 136, gross_fils: 2850,
     credit_note_items: [{ id: "nl1", sale_item_id: "l1", product_id: "p1", description: "Coffee", sku: "COF", quantity: 1, unit_gross_fils: 2850, net_fils: 2714, vat_fils: 136, gross_fils: 2850 }],
@@ -72,4 +72,10 @@ test("no register row means no register; sync outbox always starts empty", () =>
   const s = mapSnapshotRows({ ...rows, register: null }, "x");
   assert.equal(s.state.register, null);
   assert.deepEqual(s.state.syncOperations, []);
+});
+
+test("sales and credit notes keep the till that issued them", () => {
+  const { state } = mapSnapshotRows(rows, "x");
+  assert.equal(state.sales[0].deviceId, "dev-1");
+  assert.equal(state.creditNotes[0].deviceId, "dev-2");
 });

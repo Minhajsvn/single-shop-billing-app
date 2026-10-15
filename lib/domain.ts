@@ -61,6 +61,8 @@ export type Sale = {
   grossFils: number;
   customer?: CustomerSnapshot;
   supplier?: SupplierSnapshot;
+  /** The till that issued the invoice (hosted shops only). */
+  deviceId?: string;
   status: "completed";
 };
 
@@ -79,6 +81,8 @@ export type CreditNote = {
   netFils: number;
   vatFils: number;
   grossFils: number;
+  /** The till that issued the credit note (hosted shops only). */
+  deviceId?: string;
 };
 
 export type CustomerSyncPayload = { customer: Customer };

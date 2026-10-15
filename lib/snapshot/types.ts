@@ -13,8 +13,8 @@ export type SnapshotRows = {
   devices: { id: string; name: string; till_number: number; branch_id: string; status: string }[];
   products: { id: string; name: string; sku: string; barcode: string | null; price_fils: number; stock_quantity: number; low_stock_threshold: number; status: string }[];
   customers: { id: string; name: string; phone: string; email: string | null; address: string | null; trn: string | null; created_at: string; updated_at: string }[];
-  sales: (Money & { id: string; invoice_number: string; created_at: string; supply_date: string; payment_method: "cash" | "card"; status: string; customer_snapshot: Record<string, unknown> | null; supplier_snapshot: Record<string, unknown> | null; sale_items: LineRow[] })[];
-  creditNotes: (Money & { id: string; credit_note_number: string; sale_id: string; payment_method: "cash" | "card"; created_at: string; sales: { invoice_number: string } | null; credit_note_items: (LineRow & { sale_item_id: string })[] })[];
+  sales: (Money & { id: string; device_id: string; invoice_number: string; created_at: string; supply_date: string; payment_method: "cash" | "card"; status: string; customer_snapshot: Record<string, unknown> | null; supplier_snapshot: Record<string, unknown> | null; sale_items: LineRow[] })[];
+  creditNotes: (Money & { id: string; device_id: string; credit_note_number: string; sale_id: string; payment_method: "cash" | "card"; created_at: string; sales: { invoice_number: string } | null; credit_note_items: (LineRow & { sale_item_id: string })[] })[];
   stockMovements: { id: string; product_id: string; type: string; quantity_delta: number; reason: string; created_at: string }[];
   register: null | { id: string; status: "open" | "closed"; opened_at: string; opening_cash_fils: number; closed_at: string | null; counted_cash_fils: number | null; expected_cash_fils: number | null; variance_fils: number | null; cash_movements: { id: string; type: string; amount_fils: number; reason: string; created_at: string }[] };
 };

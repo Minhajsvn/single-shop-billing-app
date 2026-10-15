@@ -21,14 +21,14 @@ export function mapSnapshotRows(rows: SnapshotRows, generatedAt: string): ShopSn
       id: c.id, name: c.name, phone: c.phone, email: optional(c.email), address: optional(c.address), trn: optional(c.trn), createdAt: c.created_at, updatedAt: c.updated_at,
     })),
     sales: rows.sales.map((s) => ({
-      id: s.id, invoiceNumber: s.invoice_number, createdAt: s.created_at, supplyDate: s.supply_date, paymentMethod: s.payment_method,
+      id: s.id, deviceId: s.device_id, invoiceNumber: s.invoice_number, createdAt: s.created_at, supplyDate: s.supply_date, paymentMethod: s.payment_method,
       lines: s.sale_items.map(mapLine), netFils: Number(s.net_fils), vatFils: Number(s.vat_fils), grossFils: Number(s.gross_fils),
       customer: (s.customer_snapshot ?? undefined) as CustomerSnapshot | undefined,
       supplier: (s.supplier_snapshot ?? undefined) as SupplierSnapshot | undefined,
       status: "completed" as const,
     })),
     creditNotes: rows.creditNotes.map((n) => ({
-      id: n.id, creditNoteNumber: n.credit_note_number, saleId: n.sale_id, invoiceNumber: n.sales?.invoice_number ?? invoiceBySale.get(n.sale_id) ?? "", createdAt: n.created_at, paymentMethod: n.payment_method,
+      id: n.id, deviceId: n.device_id, creditNoteNumber: n.credit_note_number, saleId: n.sale_id, invoiceNumber: n.sales?.invoice_number ?? invoiceBySale.get(n.sale_id) ?? "", createdAt: n.created_at, paymentMethod: n.payment_method,
       lines: n.credit_note_items.map((item) => ({ ...mapLine(item), originalLineId: item.sale_item_id })),
       netFils: Number(n.net_fils), vatFils: Number(n.vat_fils), grossFils: Number(n.gross_fils),
     })),

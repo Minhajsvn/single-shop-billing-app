@@ -19,8 +19,10 @@ import {
 import { dubaiSupplyDate, nextCreditNoteNumber, nextInvoiceNumber } from "@/lib/invoice-numbers";
 import { clearSyncedOutbox, loadOfflineCustomers, persistOfflineSnapshot } from "@/lib/offline-db";
 import { mergeSnapshot } from "@/lib/snapshot/merge";
+import { registerTotals } from "@/lib/store/register-totals";
 import type { BusinessProfile, ShopSnapshot, TillDevice } from "@/lib/snapshot/types";
 import {
+  chunk,
   createSerialQueue,
   createSyncEpoch,
   effectiveEntitlements,
@@ -448,16 +450,8 @@ export function adjustStock(productId: string, delta: number, reason: string) {
   return true;
 }
 export function getRegisterTotals(source = state) {
-  const register = source.register;
-  if (!register) return { cashSalesFils: 0, cardSalesFils: 0, cashReturnsFils: 0, cardReturnsFils: 0, adjustmentsFils: 0, expectedCashFils: 0 };
-  const sales = source.sales.filter((sale) => sale.createdAt >= register.openedAt && (!register.closedAt || sale.createdAt <= register.closedAt));
-  const cashSalesFils = sales.filter((sale) => sale.paymentMethod === "cash").reduce((sum, sale) => sum + sale.grossFils, 0);
-  const cardSalesFils = sales.filter((sale) => sale.paymentMethod === "card").reduce((sum, sale) => sum + sale.grossFils, 0);
-  const creditNotes = source.creditNotes.filter((note) => note.createdAt >= register.openedAt && (!register.closedAt || note.createdAt <= register.closedAt));
-  const cashReturnsFils = creditNotes.filter((note) => note.paymentMethod === "cash").reduce((sum, note) => sum + note.grossFils, 0);
-  const cardReturnsFils = creditNotes.filter((note) => note.paymentMethod === "card").reduce((sum, note) => sum + note.grossFils, 0);
-  const adjustmentsFils = register.adjustments.reduce((sum, adjustment) => sum + adjustment.amountFils, 0);
-  return { cashSalesFils, cardSalesFils, cashReturnsFils, cardReturnsFils, adjustmentsFils, expectedCashFils: register.openingCashFils + cashSalesFils - cashReturnsFils + adjustmentsFils };
+  // Hosted shops share one sales list across tills; only this till's documents belong in its drawer.
+  return registerTotals(source, mode === "hosted" ? contextSnapshot.device?.id ?? null : null);
 }
 
 export function openRegister(openingCashFils: number) {
@@ -534,6 +528,7 @@ export function completeSale(inputLines: CheckoutLine[], paymentMethod: PaymentM
       return { id, name, phone, email, address, trn };
     })() : undefined,
     supplier: business ? { name: business.legalName, trn: business.trn, address: business.address, phone: business.phone } : undefined,
+    deviceId: mode === "hosted" ? contextSnapshot.device?.id : undefined,
     status: "completed",
   };
   const movements: StockMovement[] = lines.filter((item) => item.productId).map((item) => ({
@@ -585,6 +580,7 @@ export function createCreditNote(saleId: string, requestedQuantities: Record<str
   const creditNote: CreditNote = {
     id: crypto.randomUUID(), creditNoteNumber, saleId, invoiceNumber: sale.invoiceNumber, createdAt: now.toISOString(), paymentMethod: sale.paymentMethod, lines,
     netFils: lines.reduce((sum, item) => sum + item.netFils, 0), vatFils: lines.reduce((sum, item) => sum + item.vatFils, 0), grossFils: lines.reduce((sum, item) => sum + item.grossFils, 0),
+    deviceId: mode === "hosted" ? contextSnapshot.device?.id : undefined,
   };
   const restored = new Map<string, number>();
   for (const item of lines) if (item.productId) restored.set(item.productId, (restored.get(item.productId) ?? 0) + item.quantity);
@@ -608,6 +604,40 @@ export async function reconcilePendingOperations(): Promise<ReconcileResult> {
   return result;
 }
 
+const SYNC_BATCH_SIZE = 50;
+type SyncResult = { id: string; status: "accepted" | "rejected"; error?: string };
+
+async function postSyncBatch(batch: SyncOperation[]): Promise<{ ok: true; results: SyncResult[] } | { ok: false; message: string }> {
+  let response: Response;
+  try {
+    response = await fetch("/api/v1/sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ operations: batch }),
+    });
+  } catch {
+    return { ok: false, message: "The sync request could not reach the hosted service. Pending operations were kept safely." };
+  }
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    return { ok: false, message: "The hosted service returned an invalid sync response. Pending operations were kept safely." };
+  }
+  if (!response.ok) {
+    const message = body && typeof body === "object" && "error" in body && typeof body.error === "string" ? body.error : "The hosted service rejected the sync request.";
+    return { ok: false, message: message + " Pending operations were kept safely." };
+  }
+  const rawResults = body && typeof body === "object" && "operations" in body && Array.isArray(body.operations) ? body.operations : [];
+  return {
+    ok: true,
+    results: rawResults.filter((result): result is SyncResult => (
+      Boolean(result) && typeof result === "object" && "id" in result && typeof result.id === "string" &&
+      "status" in result && (result.status === "accepted" || result.status === "rejected")
+    )),
+  };
+}
+
 async function syncPendingOperations(): Promise<ReconcileResult> {
   const pending = state.syncOperations.filter((operation) => operation.status === "pending" || operation.status === "failed");
   if (!pending.length) return { status: "idle", pendingCount: 0, message: "There are no pending operations." };
@@ -626,43 +656,22 @@ async function syncPendingOperations(): Promise<ReconcileResult> {
     return { status: "blocked", pendingCount: pending.length, message: "This browser is not connected to a hosted shop. Pending operations were kept safely." };
   }
 
-  let response: Response;
-  try {
-    response = await fetch("/api/v1/sync", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ operations: syncable }),
-    });
-  } catch {
-    return { status: "blocked", pendingCount: pending.length, message: "The sync request could not reach the hosted service. Pending operations were kept safely." };
+  // The sync API accepts at most 50 operations per request; send oldest-first batches and keep every
+  // batch's results, stopping at the first failure so nothing already accepted is lost.
+  const results: SyncResult[] = [];
+  let blockedMessage: string | null = null;
+  for (const batch of chunk(syncable, SYNC_BATCH_SIZE)) {
+    const outcome = await postSyncBatch(batch);
+    if (!outcome.ok) {
+      blockedMessage = outcome.message;
+      break;
+    }
+    results.push(...outcome.results);
   }
-
-  let body: unknown;
-  try {
-    body = await response.json();
-  } catch {
-    return { status: "blocked", pendingCount: pending.length, message: "The hosted service returned an invalid sync response. Pending operations were kept safely." };
-  }
-  if (!response.ok) {
-    const message = body && typeof body === "object" && "error" in body && typeof body.error === "string" ? body.error : "The hosted service rejected the sync request.";
-    return { status: "blocked", pendingCount: pending.length, message: message + " Pending operations were kept safely." };
-  }
-
-  const rawResults = body && typeof body === "object" && "operations" in body && Array.isArray(body.operations)
-    ? body.operations
-    : [];
-  const results = rawResults.filter((result): result is { id: string; status: "accepted" | "rejected"; error?: string } => (
-    Boolean(result) &&
-    typeof result === "object" &&
-    "id" in result &&
-    typeof result.id === "string" &&
-    "status" in result &&
-    (result.status === "accepted" || result.status === "rejected")
-  ));
   const acceptedIds = new Set(results.filter((result) => result.status === "accepted").map((result) => result.id));
   const rejected = new Map(results.filter((result) => result.status === "rejected").map((result) => [result.id, result.error ?? "The hosted service rejected this operation."]));
   if (!acceptedIds.size && !rejected.size) {
-    return { status: "blocked", pendingCount: pending.length, message: "The hosted service did not acknowledge any operation. Pending operations were kept safely." };
+    return { status: "blocked", pendingCount: pending.length, message: blockedMessage ?? "The hosted service did not acknowledge any operation. Pending operations were kept safely." };
   }
   syncEpoch.bump();
 

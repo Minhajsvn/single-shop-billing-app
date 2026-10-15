@@ -1,7 +1,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { READ_ONLY_ENTITLEMENTS } from "../lib/billing/entitlements.ts";
-import { createSerialQueue, createSyncEpoch, effectiveEntitlements, emptyShopState, parseHostedCache } from "../lib/store/hosted.ts";
+import { chunk, createSerialQueue, createSyncEpoch, effectiveEntitlements, emptyShopState, hostedCacheKey, parseHostedCache } from "../lib/store/hosted.ts";
+
+test("sync batches respect the server's 50-operation limit", () => {
+  const ops = Array.from({ length: 120 }, (_, index) => index);
+  assert.deepEqual(chunk(ops, 50).map((batch) => batch.length), [50, 50, 20]);
+  assert.deepEqual(chunk([], 50), []);
+  assert.deepEqual(chunk([1, 2], 50), [[1, 2]]);
+});
+
+test("the hosted cache is scoped to the signed-in user", () => {
+  assert.equal(hostedCacheKey("user-a"), "shop-ledger-hosted-store-v1:user-a");
+  assert.notEqual(hostedCacheKey("user-a"), hostedCacheKey("user-b"));
+});
 
 const full = {
   planId: "pro", status: "trialing", access: "full", trialEndsAt: null, graceEndsAt: null,
