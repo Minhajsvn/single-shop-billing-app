@@ -35,6 +35,8 @@ export type Customer = {
 
 export type CustomerSnapshot = Pick<Customer, "id" | "name" | "phone" | "email" | "address" | "trn">;
 
+export type SupplierSnapshot = { name: string; trn: string; address: string; phone: string };
+
 export type InvoiceLine = {
   id: string;
   productId?: string;
@@ -58,6 +60,9 @@ export type Sale = {
   vatFils: number;
   grossFils: number;
   customer?: CustomerSnapshot;
+  supplier?: SupplierSnapshot;
+  /** The till that issued the invoice (hosted shops only). */
+  deviceId?: string;
   status: "completed";
 };
 
@@ -76,6 +81,8 @@ export type CreditNote = {
   netFils: number;
   vatFils: number;
   grossFils: number;
+  /** The till that issued the credit note (hosted shops only). */
+  deviceId?: string;
 };
 
 export type CustomerSyncPayload = { customer: Customer };
@@ -86,7 +93,9 @@ export type RegisterSyncPayload =
   | { action: "close"; register: RegisterSession };
 export type CreditNoteSyncPayload = { creditNote: CreditNote };
 export type StockSyncPayload = { movement: StockMovement; product: Product };
-export type SyncPayload = CustomerSyncPayload | SaleSyncPayload | RegisterSyncPayload | CreditNoteSyncPayload | StockSyncPayload;
+/** The till that created the operation; the server books the work to this device. Absent on operations queued before Stage 1B. */
+export type DeviceTag = { deviceId?: string };
+export type SyncPayload = (CustomerSyncPayload | SaleSyncPayload | RegisterSyncPayload | CreditNoteSyncPayload | StockSyncPayload) & DeviceTag;
 
 export type SyncOperation = {
   id: string;

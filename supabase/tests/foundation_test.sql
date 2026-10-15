@@ -207,4 +207,69 @@ begin
   assert (select count(*) from pg_proc where proname in ('apply_customer_sync','apply_sale_sync','apply_register_sync','apply_credit_note_sync','apply_stock_sync')) = 5, 'all five sync RPCs exist';
 end $$;
 
+-- 12. Till numbers: existing and new devices get 1, 2, … per business.
+do $$ begin
+  assert (select till_number from public.devices where id = 'd0000000-0000-4000-8000-00000000000a') = 1, 'first device is till 1';
+  assert (select till_number from public.devices where id = 'd0000000-0000-4000-8000-0000000000a2') = 2, 'second device is till 2';
+end $$;
+
+-- 13. sync_device_id: payload device must belong to the business and be active; absent falls back.
+do $$
+declare
+  a constant uuid := 'b0000000-0000-4000-8000-00000000000a';
+  b constant uuid := 'b0000000-0000-4000-8000-00000000000b';
+begin
+  assert public.sync_device_id(a, '{"deviceId":"d0000000-0000-4000-8000-0000000000a2"}'::jsonb) = 'd0000000-0000-4000-8000-0000000000a2', 'explicit device used';
+  assert public.sync_device_id(a, '{}'::jsonb) = 'd0000000-0000-4000-8000-00000000000a', 'absent deviceId falls back to oldest active';
+  begin
+    perform public.sync_device_id(b, '{"deviceId":"d0000000-0000-4000-8000-00000000000a"}'::jsonb);
+    assert false, 'foreign device must be rejected';
+  exception when others then
+    assert sqlerrm = 'sync_device_invalid', format('expected sync_device_invalid, got %s', sqlerrm);
+  end;
+  update public.devices set status = 'revoked' where id = 'd0000000-0000-4000-8000-0000000000a2';
+  begin
+    perform public.sync_device_id(a, '{"deviceId":"d0000000-0000-4000-8000-0000000000a2"}'::jsonb);
+    assert false, 'revoked device must be rejected';
+  exception when others then
+    assert sqlerrm = 'sync_device_invalid', format('expected sync_device_invalid, got %s', sqlerrm);
+  end;
+  update public.devices set status = 'active' where id = 'd0000000-0000-4000-8000-0000000000a2';
+  assert not exists (
+    select 1 from pg_proc p
+    where p.proname in ('apply_customer_sync','apply_sale_sync','apply_register_sync','apply_credit_note_sync','apply_stock_sync')
+      and p.prosrc ~ 'order by (d\.)?created_at'
+  ), 'no sync RPC still picks the oldest device itself';
+end $$;
+
+-- 14. business_entitlements fails closed without a user.
+select set_config('request.jwt.claims', '', true);
+do $$ begin
+  begin
+    perform public.business_entitlements('b0000000-0000-4000-8000-00000000000a');
+    assert false, 'no auth.uid() must be forbidden';
+  exception when others then
+    assert sqlerrm = 'forbidden', format('expected forbidden, got %s', sqlerrm);
+  end;
+end $$;
+
+-- 15. Business settings mirror to the main branch.
+update public.businesses set address = 'Mirror Street', invoice_prefix = 'MIR', receipt_footer = 'Mirrored' where id = 'b0000000-0000-4000-8000-00000000000b';
+do $$ begin
+  assert (select address = 'Mirror Street' and invoice_prefix = 'MIR' and receipt_footer = 'Mirrored'
+          from public.branches where business_id = 'b0000000-0000-4000-8000-00000000000b' and is_main), 'main branch mirrors business settings';
+end $$;
+
+-- 16. A till number never changes once assigned (invoice numbers embed it).
+do $$ begin
+  begin
+    update public.devices set till_number = 7 where id = 'd0000000-0000-4000-8000-00000000000a';
+    assert false, 'till_number must be immutable';
+  exception when others then
+    assert sqlerrm = 'till_number_immutable', format('expected till_number_immutable, got %s', sqlerrm);
+  end;
+  update public.devices set name = 'Renamed till' where id = 'd0000000-0000-4000-8000-00000000000a';
+  assert (select till_number from public.devices where id = 'd0000000-0000-4000-8000-00000000000a') = 1, 'other device edits still allowed';
+end $$;
+
 rollback;

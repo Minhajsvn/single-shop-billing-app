@@ -52,6 +52,9 @@ begin
   assert (select count(*) from public.devices where business_id = 'b1000000-0000-4000-9000-000000000001' and status = 'active') = 2, 'business 1 keeps both devices active';
   assert (select count(*) from public.products where status = 'active') = 2, 'existing products stay active';
 
+  -- Existing devices are numbered as tills 1, 2, … per business (created_at, then id).
+  assert (select array_agg(till_number order by id) from public.devices where business_id = 'b1000000-0000-4000-9000-000000000001') = array[1, 2]::smallint[], 'business 1 devices are tills 1 and 2';
+
   -- The sync RPC search_path hotfix is applied.
   assert (select count(*) from pg_proc p, unnest(p.proconfig) c
           where p.proname in ('apply_customer_sync', 'apply_sale_sync', 'apply_register_sync', 'apply_credit_note_sync', 'apply_stock_sync')

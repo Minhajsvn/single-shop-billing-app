@@ -1,6 +1,7 @@
 "use client";
 
-import { LockKey, SignIn } from "@phosphor-icons/react";
+import { LockKey, SignIn, Storefront } from "@phosphor-icons/react";
+import { startSampleStore } from "@/lib/demo-store";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
@@ -19,6 +20,11 @@ export default function LoginPage() {
       if (data.session) router.replace("/overview");
     });
   }, [router]);
+
+  function trySample() {
+    startSampleStore();
+    router.replace("/overview");
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -55,7 +61,11 @@ export default function LoginPage() {
           {error ? <div className="notice error-notice" role="alert"><LockKey size={17} weight="bold" /><span>{error}</span></div> : null}
           <button className="button primary auth-submit" type="submit" disabled={busy}><SignIn size={16} weight="bold" />{busy ? "Signing in…" : "Sign in"}</button>
         </form>
-        <p className="auth-footnote">Single-shop workspace · data access is protected by Supabase Auth and row-level security.</p>
+        <div className="auth-form">
+          <button className="button auth-submit" type="button" onClick={trySample}><Storefront size={16} weight="bold" />Try the sample shop</button>
+          <p className="field-hint">Explore with demo data. Nothing is saved to an account.</p>
+        </div>
+        <p className="auth-footnote">Data access is protected by Supabase Auth and row-level security.</p>
       </section>
     </main>
   );

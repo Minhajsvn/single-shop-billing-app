@@ -2,11 +2,12 @@
 
 import { WarningCircle } from "@phosphor-icons/react";
 import Link from "next/link";
-import { getRegisterTotals, useDemoStore } from "@/lib/demo-store";
+import { getRegisterTotals, useDemoStore, useShopContext } from "@/lib/demo-store";
 import { formatAED, formatTime } from "@/lib/domain";
 
 export default function OverviewPage() {
   const store = useDemoStore();
+  const { mode } = useShopContext();
   const lowStock = store.products.filter((product) => product.active && product.stock <= product.lowStockThreshold);
   const totals = getRegisterTotals(store);
   const grossFils = store.sales.reduce((sum, sale) => sum + sale.grossFils, 0) - store.creditNotes.reduce((sum, note) => sum + note.grossFils, 0);
@@ -25,7 +26,7 @@ export default function OverviewPage() {
         <span className={`badge ${registerOpen ? "green" : "red"}`}>{registerOpen ? "Register open" : "Register closed"}</span>
       </div>
 
-      <div className="notice"><WarningCircle size={18} weight="fill" /><div><strong>Local demo mode.</strong> Product and stock changes are saved in this browser. Connect Supabase credentials to enable hosted accounts and synchronized records.</div></div>
+      {mode !== "hosted" ? <div className="notice"><WarningCircle size={18} weight="fill" /><div><strong>{mode === "sample" ? "Sample shop." : "Local demo mode."}</strong> {mode === "sample" ? "This is demo data and nothing is saved to an account." : "Product and stock changes are saved in this browser. Connect Supabase credentials to enable hosted accounts and synchronized records."}</div></div> : null}
 
       <section className="metric-grid" aria-label="Today's sales summary">
         <div className="metric"><div className="metric-label">Gross sales</div><div className="metric-value">{formatAED(grossFils)}</div><div className="metric-note">{store.sales.length} invoices in demo ledger</div></div>

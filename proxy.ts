@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { SAMPLE_MODE_COOKIE, routeDecision } from "@/lib/auth/access-rules";
 
 function isConfigured() {
   return Boolean(
@@ -27,17 +28,25 @@ export async function proxy(request: NextRequest) {
     },
   });
 
-  const { data: { user } } = await supabase.auth.getUser();
-  const isLogin = request.nextUrl.pathname === "/login";
+  const { data: { user }, error } = await supabase.auth.getUser();
+  // A network failure or 5xx means the auth server is unreachable, not that the user signed out.
+  const authUnavailable = Boolean(error && (error.name === "AuthRetryableFetchError" || error.status === 0 || (error.status ?? 0) >= 500));
+  const decision = routeDecision({
+    signedIn: Boolean(user),
+    pathname: request.nextUrl.pathname,
+    sampleCookie: request.cookies.get(SAMPLE_MODE_COOKIE)?.value,
+    authUnavailable,
+    hasSessionCookie: request.cookies.getAll().some((cookie) => cookie.name.startsWith("sb-") && cookie.name.includes("-auth-token")),
+  });
 
-  if (!user && !isLogin) {
+  if (decision === "login") {
     const loginUrl = request.nextUrl.clone();
     loginUrl.pathname = "/login";
     loginUrl.searchParams.set("next", request.nextUrl.pathname);
     return NextResponse.redirect(loginUrl);
   }
 
-  if (user && isLogin) {
+  if (decision === "overview") {
     const overviewUrl = request.nextUrl.clone();
     overviewUrl.pathname = "/overview";
     overviewUrl.search = "";
