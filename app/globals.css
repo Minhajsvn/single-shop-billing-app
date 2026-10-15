@@ -441,6 +441,12 @@ kbd { min-width: 20px; display: inline-grid; place-items: center; padding: 2px 5
 .payment-dialog .modal-footer .button, .receipt-actions .button { min-height: 44px; }
 .receipt-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 16px; }
 .receipt-actions .button.primary { grid-column: 1 / -1; justify-content: center; }
+.scan-notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 16px 12px; }
+.discount-button { min-height: 44px; margin-left: auto; margin-right: 12px; }
+.discount-meta { color: var(--green, inherit); }
+.discount-meta s { color: var(--muted); }
+.segmented { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+.segmented .button { min-height: 44px; justify-content: center; }
 
 @media print {
   body * { visibility: hidden; }

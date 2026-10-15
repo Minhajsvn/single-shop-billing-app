@@ -1,17 +1,29 @@
 "use client";
 
 import { Archive, MagnifyingGlass, Plus, X } from "@phosphor-icons/react";
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useDemoProducts } from "@/hooks/use-demo-products";
 import { formatAED, type Product } from "@/lib/domain";
 
-type Dialog = { kind: "new" } | { kind: "adjust"; product: Product } | null;
+type Dialog = { kind: "new"; barcode?: string } | { kind: "adjust"; product: Product } | null;
 
 export function InventoryWorkspace() {
   const { products, addProduct, adjustStock } = useDemoProducts();
   const [query, setQuery] = useState("");
   const [dialog, setDialog] = useState<Dialog>(null);
   const [error, setError] = useState("");
+
+  // The POS links unknown scans to /inventory?barcode=…: open "Add product" once with that barcode filled in.
+  useEffect(() => {
+    const barcode = new URLSearchParams(window.location.search).get("barcode")?.trim();
+    if (!barcode) return;
+    // Clear the query only once the dialog opens, so a re-run of this effect (React dev double-invoke) still sees it.
+    const timer = window.setTimeout(() => {
+      setDialog({ kind: "new", barcode });
+      window.history.replaceState(null, "", window.location.pathname);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   const filtered = useMemo(() => {
     const term = query.trim().toLowerCase();
@@ -87,7 +99,7 @@ export function InventoryWorkspace() {
             <div className="modal-body"><div className="form-grid">
               <div className="field full-span"><label htmlFor="name">Product name</label><input className="input" id="name" name="name" required autoFocus /></div>
               <div className="field"><label htmlFor="sku">SKU</label><input className="input" id="sku" name="sku" required /></div>
-              <div className="field"><label htmlFor="barcode">Barcode</label><input className="input" id="barcode" name="barcode" inputMode="numeric" /></div>
+              <div className="field"><label htmlFor="barcode">Barcode</label><input className="input" id="barcode" name="barcode" inputMode="numeric" defaultValue={dialog?.kind === "new" ? dialog.barcode : undefined} /></div>
               <div className="field"><label htmlFor="price">Price (AED)</label><input className="input" id="price" name="price" type="number" min="0.01" step="0.01" required /></div>
               <div className="field"><label htmlFor="stock">Opening stock</label><input className="input" id="stock" name="stock" type="number" min="0" step="1" defaultValue="0" required /></div>
               <div className="field"><label htmlFor="threshold">Low-stock threshold</label><input className="input" id="threshold" name="threshold" type="number" min="0" step="1" defaultValue="5" required /></div>
