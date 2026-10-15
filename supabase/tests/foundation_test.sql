@@ -260,4 +260,16 @@ do $$ begin
           from public.branches where business_id = 'b0000000-0000-4000-8000-00000000000b' and is_main), 'main branch mirrors business settings';
 end $$;
 
+-- 16. A till number never changes once assigned (invoice numbers embed it).
+do $$ begin
+  begin
+    update public.devices set till_number = 7 where id = 'd0000000-0000-4000-8000-00000000000a';
+    assert false, 'till_number must be immutable';
+  exception when others then
+    assert sqlerrm = 'till_number_immutable', format('expected till_number_immutable, got %s', sqlerrm);
+  end;
+  update public.devices set name = 'Renamed till' where id = 'd0000000-0000-4000-8000-00000000000a';
+  assert (select till_number from public.devices where id = 'd0000000-0000-4000-8000-00000000000a') = 1, 'other device edits still allowed';
+end $$;
+
 rollback;
