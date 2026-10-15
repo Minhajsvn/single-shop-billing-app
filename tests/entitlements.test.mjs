@@ -39,6 +39,28 @@ test("tokens round-trip, expire after 72h, and detect tampering", () => {
   assert.equal(verifyEntitlements("garbage", secret, now), null);
 });
 
+test("R6: tokens with extra segments are rejected", () => {
+  const { token } = signEntitlements(parseEntitlements(raw), "biz-1", secret, now);
+  assert.equal(verifyEntitlements(`${token}.junk`, secret, now), null);
+});
+
+test("R6: verification refuses a short or missing secret instead of trusting it", () => {
+  const { token } = signEntitlements(parseEntitlements(raw), "biz-1", secret, now);
+  assert.throws(() => verifyEntitlements(token, "short", now), RangeError);
+  assert.throws(() => verifyEntitlements(token, "", now), RangeError);
+});
+
+test("R6: a signed body with an unparseable expiry or businessId is rejected", async () => {
+  const { createHmac } = await import("node:crypto");
+  const forge = (body) => {
+    const encoded = Buffer.from(JSON.stringify(body)).toString("base64url");
+    return `${encoded}.${createHmac("sha256", secret).update(encoded).digest("base64url")}`;
+  };
+  const entitlements = parseEntitlements(raw);
+  assert.equal(verifyEntitlements(forge({ businessId: "biz-1", entitlements, expiresAt: "never" }), secret, now), null, "non-finite expiry counts as expired");
+  assert.equal(verifyEntitlements(forge({ businessId: 42, entitlements, expiresAt: "2026-10-20T00:00:00Z" }), secret, now), null, "businessId must be a string");
+});
+
 test("refuses short secrets", () => {
   assert.throws(() => signEntitlements(parseEntitlements(raw), "biz-1", "short", now), RangeError);
 });

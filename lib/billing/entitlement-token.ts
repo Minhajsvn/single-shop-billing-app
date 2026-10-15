@@ -21,14 +21,20 @@ export function signEntitlements(entitlements: Entitlements, businessId: string,
 }
 
 export function verifyEntitlements(token: string, secret: string, now = new Date()): { businessId: string; entitlements: Entitlements } | null {
-  const [body, provided] = token.split(".");
+  assertSecret(secret);
+  const parts = token.split(".");
+  if (parts.length !== 2) return null;
+  const [body, provided] = parts;
   if (!body || !provided) return null;
   const expected = Buffer.from(signature(body, secret));
   const actual = Buffer.from(provided);
   if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) return null;
   try {
     const parsed = JSON.parse(Buffer.from(body, "base64url").toString()) as TokenBody;
-    if (new Date(parsed.expiresAt).getTime() <= now.getTime()) return null;
+    const expiresAt = new Date(parsed.expiresAt).getTime();
+    // An unparseable expiry would compare as NaN and never expire, so it counts as expired.
+    if (!Number.isFinite(expiresAt) || expiresAt <= now.getTime()) return null;
+    if (typeof parsed.businessId !== "string" || !parsed.businessId) return null;
     return { businessId: parsed.businessId, entitlements: parseEntitlements(parsed.entitlements) };
   } catch {
     return null;
