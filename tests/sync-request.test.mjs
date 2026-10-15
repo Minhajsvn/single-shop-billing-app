@@ -35,3 +35,14 @@ test("other RPC payloads pass through with their deviceId", () => {
   assert.equal(rpcPayloadFor(operation).deviceId, deviceId);
   assert.equal(rpcPayloadFor(operation).action, "open");
 });
+
+test("sale lines keep their list price through validation", () => {
+  const sale = {
+    id: "a1000000-0000-4000-8000-000000000001", invoiceNumber: "SMK-1-261015-0001", status: "completed",
+    createdAt: "2026-10-15T08:00:00Z", supplyDate: "2026-10-15", paymentMethod: "cash",
+    netFils: 230, vatFils: 12, grossFils: 242,
+    lines: [{ id: "a1000000-0000-4000-8000-0000000000a1", name: "Coffee", quantity: 1, unitGrossFils: 242, listUnitGrossFils: 285, netFils: 230, vatFils: 12, grossFils: 242 }],
+  };
+  const parsed = requestSchema.parse({ operations: [base("sale", sale.id, { sale, deviceId })] });
+  assert.equal(parsed.operations[0].payload.sale.lines[0].listUnitGrossFils, 285);
+});

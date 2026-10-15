@@ -6,7 +6,7 @@ export type TillDevice = { id: string; name: string; tillNumber: number; branchI
 export type ShopSnapshot = { business: BusinessProfile; devices: TillDevice[]; state: DemoState; generatedAt: string };
 
 type Money = { net_fils: number; vat_fils: number; gross_fils: number };
-type LineRow = Money & { id: string; product_id: string | null; description: string; sku: string | null; quantity: number; unit_gross_fils: number };
+type LineRow = Money & { id: string; product_id: string | null; description: string; sku: string | null; quantity: number; unit_gross_fils: number; list_unit_gross_fils?: number | null };
 
 export type SnapshotRows = {
   business: { id: string; legal_name: string; trn: string; address: string; phone: string; invoice_prefix: string; receipt_footer: string; country: string; currency: string };

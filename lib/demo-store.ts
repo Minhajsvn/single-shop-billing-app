@@ -496,7 +496,7 @@ export function closeRegister(countedCashFils: number) {
   save(queueRegisterOperation({ ...state, register }, crypto.randomUUID(), { action: "close", register }));
   return true;
 }
-export type CheckoutLine = { productId?: string; name: string; sku?: string; quantity: number; unitGrossFils: number };
+export type CheckoutLine = { productId?: string; name: string; sku?: string; quantity: number; unitGrossFils: number; listUnitGrossFils?: number };
 
 function invoicePrefix() {
   if (mode === "hosted") return contextSnapshot.business?.invoicePrefix ?? "SL";

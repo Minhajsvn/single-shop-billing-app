@@ -30,6 +30,7 @@ const saleLineSchema = z.object({
   sku: z.string().trim().max(100).optional(),
   quantity: z.number().int().positive(),
   unitGrossFils: z.number().int().positive(),
+  listUnitGrossFils: z.number().int().positive().optional(),
   netFils: z.number().int().nonnegative(),
   vatFils: z.number().int().nonnegative(),
   grossFils: z.number().int().positive(),

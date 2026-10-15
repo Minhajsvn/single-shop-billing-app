@@ -272,4 +272,35 @@ do $$ begin
   assert (select till_number from public.devices where id = 'd0000000-0000-4000-8000-00000000000a') = 1, 'other device edits still allowed';
 end $$;
 
+-- 17. Discounted sale lines keep their list price (UAE tax invoices must show discounts).
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-00000000000a","role":"authenticated"}', true);
+select public.apply_sale_sync(
+  gen_random_uuid(),
+  'b0000000-0000-4000-8000-00000000000a',
+  'a1000000-0000-4000-8000-000000000017',
+  jsonb_build_object(
+    'deviceId', 'd0000000-0000-4000-8000-00000000000a',
+    'register', null,
+    'sale', jsonb_build_object(
+      'id', 'a1000000-0000-4000-8000-000000000017', 'invoiceNumber', 'T17-1', 'status', 'completed',
+      'createdAt', now(), 'supplyDate', current_date, 'paymentMethod', 'card',
+      'netFils', 230, 'vatFils', 12, 'grossFils', 242,
+      'lines', jsonb_build_array(jsonb_build_object(
+        'id', 'a1000000-0000-4000-8000-0000000017a1', 'name', 'Discounted', 'quantity', 1,
+        'unitGrossFils', 242, 'listUnitGrossFils', 285, 'netFils', 230, 'vatFils', 12, 'grossFils', 242
+      ))
+    )
+  )
+);
+reset role;
+do $$ begin
+  assert (select list_unit_gross_fils from public.sale_items where id = 'a1000000-0000-4000-8000-0000000017a1') = 285, 'list price stored';
+  begin
+    update public.sale_items set list_unit_gross_fils = 100 where id = 'a1000000-0000-4000-8000-0000000017a1';
+    assert false, 'list price below the charged price must be rejected';
+  exception when check_violation then null;
+  end;
+end $$;
+
 rollback;
