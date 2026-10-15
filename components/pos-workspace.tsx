@@ -3,8 +3,12 @@
 import { CreditCard, IdentificationCard, MagnifyingGlass, Minus, Money, Plus, ShoppingCart, Trash, User, X } from "@phosphor-icons/react";
 import Link from "next/link";
 import { FormEvent, KeyboardEvent, useMemo, useRef, useState } from "react";
+import { PaymentDialog } from "@/components/pos/payment-dialog";
+import { ReceiptPanel } from "@/components/pos/receipt-panel";
+import { useReceiptShop } from "@/components/receipt-document";
+import { cartTotals } from "@/lib/checkout/pricing";
 import { completeSale, type CheckoutLine, useDemoStore } from "@/lib/demo-store";
-import { calculateVatInclusive, formatAED, type Product } from "@/lib/domain";
+import { formatAED, type Product, type Sale } from "@/lib/domain";
 
 type CartItem = CheckoutLine & { key: string };
 
@@ -16,6 +20,9 @@ export function PosWorkspace() {
   const [customerOpen, setCustomerOpen] = useState(false);
   const [customerId, setCustomerId] = useState<string>();
   const [error, setError] = useState("");
+  const [payment, setPayment] = useState<{ method: "cash" | "card"; error?: string } | null>(null);
+  const [completed, setCompleted] = useState<{ sale: Sale; tenderedFils: number | null } | null>(null);
+  const receiptShop = useReceiptShop(completed?.sale);
   const searchInput = useRef<HTMLInputElement>(null);
 
   const availableProducts = useMemo(() => {
@@ -23,10 +30,7 @@ export function PosWorkspace() {
     return store.products.filter((product) => product.active && (!term || [product.name, product.sku, product.barcode].some((value) => value?.toLowerCase().includes(term))));
   }, [query, store.products]);
 
-  const totals = useMemo(() => cart.reduce((result, item) => {
-    const line = calculateVatInclusive(item.unitGrossFils * item.quantity);
-    return { netFils: result.netFils + line.netFils, vatFils: result.vatFils + line.vatFils, grossFils: result.grossFils + line.grossFils };
-  }, { netFils: 0, vatFils: 0, grossFils: 0 }), [cart]);
+  const totals = useMemo(() => cartTotals(cart), [cart]);
 
   function addProduct(product: Product) {
     setError("");
@@ -64,15 +68,27 @@ export function PosWorkspace() {
 
   function pay(method: "cash" | "card") {
     setError("");
-    const result = completeSale(cart.map(({ productId, name, sku, quantity, unitGrossFils }) => ({ productId, name, sku, quantity, unitGrossFils })), method, customerId);
+    setPayment({ method });
+  }
+
+  function completePayment(tenderedFils: number | null) {
+    if (!payment) return;
+    const lines = cart.map(({ productId, name, sku, quantity, unitGrossFils, listUnitGrossFils }) => ({ productId, name, sku, quantity, unitGrossFils, listUnitGrossFils }));
+    const result = completeSale(lines, payment.method, customerId);
     if (!result.ok) {
-      setError(result.error);
+      setPayment({ ...payment, error: result.error });
       return;
     }
+    // Stay on /sale: the receipt panel replaces the cart until the cashier starts the next sale.
+    setPayment(null);
     setCart([]);
     setCustomerId(undefined);
-    const destination = `/sales/${result.sale.id}`;
-    window.location.assign(new URL(destination, window.location.origin));
+    setCompleted({ sale: result.sale, tenderedFils });
+  }
+
+  function startNewSale() {
+    setCompleted(null);
+    searchInput.current?.focus();
   }
 
   const registerOpen = store.register?.status === "open";
@@ -89,11 +105,11 @@ export function PosWorkspace() {
       setCustomOpen(false);
       setCustomerOpen(false);
     }
-    if (!customOpen && !customerOpen && registerOpen && cart.length && event.key === "F2") {
+    if (!customOpen && !customerOpen && !payment && !completed && registerOpen && cart.length && event.key === "F2") {
       event.preventDefault();
       pay("cash");
     }
-    if (!customOpen && !customerOpen && registerOpen && cart.length && event.key === "F3") {
+    if (!customOpen && !customerOpen && !payment && !completed && registerOpen && cart.length && event.key === "F3") {
       event.preventDefault();
       pay("card");
     }
@@ -116,7 +132,7 @@ export function PosWorkspace() {
           {!availableProducts.length && <div className="empty"><MagnifyingGlass size={28} weight="duotone" /><h3>No products found</h3><p>Try a different name, SKU, or barcode.</p></div>}
         </section>
 
-        <aside className="panel cart-panel">
+        {completed ? <ReceiptPanel sale={completed.sale} tenderedFils={completed.tenderedFils} shop={receiptShop} onNewSale={startNewSale} /> : <aside className="panel cart-panel">
           <div className="panel-header"><div><div className="panel-title">Current cart</div><div className="panel-subtitle">{cart.reduce((sum, item) => sum + item.quantity, 0)} items</div></div>{cart.length > 0 && <button className="button" onClick={() => setCart([])}>Clear</button>}</div>
           <div className="cart-lines" aria-live="polite">{cart.length ? cart.map((item) => <div className="cart-line" key={item.key}><div className="cart-line-top"><div><div className="product-name">{item.name}</div><div className="product-meta">{item.sku ?? "Custom non-stock item"}</div></div><button className="cart-remove" onClick={() => setCart((current) => current.filter((line) => line.key !== item.key))} aria-label={`Remove ${item.name}`}><Trash size={15} weight="bold" /></button></div><div className="cart-line-bottom"><div className="quantity-stepper"><button onClick={() => changeQuantity(item, -1)} aria-label={`Decrease ${item.name}`}><Minus size={13} weight="bold" /></button><span>{item.quantity}</span><button onClick={() => changeQuantity(item, 1)} aria-label={`Increase ${item.name}`}><Plus size={13} weight="bold" /></button></div><strong>{formatAED(item.unitGrossFils * item.quantity)}</strong></div></div>) : <div className="cart-empty"><ShoppingCart size={30} weight="duotone" /><p>Add a product to begin the sale.</p></div>}</div>
 
@@ -128,9 +144,10 @@ export function PosWorkspace() {
             {error && <p className="form-error checkout-error" role="alert">{error}</p>}
             <div className="payment-grid"><button className="payment-button cash" disabled={!registerOpen || !cart.length} onClick={() => pay("cash")} aria-keyshortcuts="F2"><Money size={21} weight="fill" /><span>Cash · F2</span><small>Record drawer payment</small></button><button className="payment-button card" disabled={!registerOpen || !cart.length} onClick={() => pay("card")} aria-keyshortcuts="F3"><CreditCard size={21} weight="fill" /><span>Card · F3</span><small>External terminal paid</small></button></div>
           </div>
-        </aside>
+        </aside>}
       </div>
 
+      {payment && <PaymentDialog method={payment.method} totalFils={totals.grossFils} error={payment.error} onCancel={() => setPayment(null)} onComplete={completePayment} />}
       {customOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setCustomOpen(false); }}><form className="modal" onSubmit={addCustomLine}><div className="modal-header"><div><div className="panel-title">Custom item</div><div className="panel-subtitle">This line will not change inventory.</div></div><button type="button" className="button icon-only" onClick={() => setCustomOpen(false)} aria-label="Close"><X size={16} weight="bold" /></button></div><div className="modal-body"><div className="form-grid"><div className="field full-span"><label htmlFor="customName">Description</label><input className="input" id="customName" name="name" required autoFocus /></div><div className="field"><label htmlFor="customPrice">VAT-inclusive price (AED)</label><input className="input" id="customPrice" name="price" type="number" min="0.01" step="0.01" required /></div></div></div><div className="modal-footer"><button type="button" className="button" onClick={() => setCustomOpen(false)}>Cancel</button><button className="button primary" type="submit">Add to cart</button></div></form></div>}
       {customerOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setCustomerOpen(false); }}><div className="modal customer-picker"><div className="modal-header"><div><div className="panel-title">Choose invoice customer</div><div className="panel-subtitle">Business details are copied onto this invoice only.</div></div><button type="button" className="button icon-only" onClick={() => setCustomerOpen(false)} aria-label="Close"><X size={16} weight="bold" /></button></div><div className="customer-pick-list"><button className={`customer-pick ${!customerId ? "selected" : ""}`} onClick={() => { setCustomerId(undefined); setCustomerOpen(false); }}><span className="customer-avatar"><User size={16} weight="bold" /></span><span><strong>Walk-in customer</strong><small>Simplified tax invoice</small></span></button>{store.customers.map((customer) => <button className={`customer-pick ${customerId === customer.id ? "selected" : ""}`} key={customer.id} onClick={() => { setCustomerId(customer.id); setCustomerOpen(false); }}><span className="customer-avatar">{customer.name.slice(0, 2).toUpperCase()}</span><span><strong>{customer.name}</strong><small>{customer.trn ? `TRN ${customer.trn}` : customer.phone}</small></span></button>)}</div><div className="modal-footer"><Link className="button" href="/customers">Manage customers</Link></div></div></div>}
     </div>

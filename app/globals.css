@@ -432,6 +432,16 @@ kbd { min-width: 20px; display: inline-grid; place-items: center; padding: 2px 5
   .backup-actions { width: 100%; flex-wrap: wrap; }
 }
 
+/* Checkout: payment step and receipt panel (Stage 1C). */
+.quick-cash { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+.quick-cash .button { min-height: 44px; justify-content: center; }
+.change-due { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-top: 16px; }
+.change-due span { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+.change-due strong { font-size: 32px; font-weight: 700; line-height: 1.1; }
+.payment-dialog .modal-footer .button, .receipt-actions .button { min-height: 44px; }
+.receipt-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 16px; }
+.receipt-actions .button.primary { grid-column: 1 / -1; justify-content: center; }
+
 @media print {
   body * { visibility: hidden; }
   .sidebar, .topbar, .no-print { display: none !important; }

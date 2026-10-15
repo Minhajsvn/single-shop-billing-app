@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useDemoStore } from "@/lib/demo-store";
 import { formatAED, formatDateTime } from "@/lib/domain";
+import { printDocument } from "@/lib/print";
 import { buildDailyReport, dailyReportCsv, uaeBusinessDate } from "@/lib/reporting";
 
 function reportDateLabel(value: string) {
@@ -33,9 +34,7 @@ export function ReportsWorkspace() {
   }
 
   function printReport() {
-    document.documentElement.dataset.printMode = "daily-report";
-    window.setTimeout(() => window.print(), 0);
-    window.addEventListener("afterprint", () => delete document.documentElement.dataset.printMode, { once: true });
+    printDocument("daily-report");
   }
 
   return <>
