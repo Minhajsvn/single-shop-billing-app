@@ -16,6 +16,7 @@ import {
   type StockMovement,
   type SyncOperation,
 } from "@/lib/domain";
+import { saleBlockReason } from "@/lib/checkout/register-status";
 import { dubaiSupplyDate, nextCreditNoteNumber, nextInvoiceNumber } from "@/lib/invoice-numbers";
 import { clearOfflineCache, clearSyncedOutbox, loadOfflineCustomers, persistOfflineSnapshot } from "@/lib/offline-db";
 import { mergeSnapshot } from "@/lib/snapshot/merge";
@@ -84,7 +85,8 @@ const initialState: DemoState = {
   register: {
     id: "register-001",
     status: "open",
-    openedAt: "2026-08-30T04:00:00.000Z",
+    // Opened "now" so a fresh sample shop can sell straight away (a register from an earlier day blocks checkout).
+    openedAt: new Date().toISOString(),
     openingCashFils: 24000,
     adjustments: [],
   },
@@ -496,7 +498,7 @@ export function closeRegister(countedCashFils: number) {
   save(queueRegisterOperation({ ...state, register }, crypto.randomUUID(), { action: "close", register }));
   return true;
 }
-export type CheckoutLine = { productId?: string; name: string; sku?: string; quantity: number; unitGrossFils: number };
+export type CheckoutLine = { productId?: string; name: string; sku?: string; quantity: number; unitGrossFils: number; listUnitGrossFils?: number };
 
 function invoicePrefix() {
   if (mode === "hosted") return contextSnapshot.business?.invoicePrefix ?? "SL";
@@ -517,7 +519,9 @@ function tillNumber() {
 export function completeSale(inputLines: CheckoutLine[], paymentMethod: PaymentMethod, customerId?: string): { ok: true; sale: Sale } | { ok: false; error: string } {
   const till = tillNumber();
   if (till === null) return { ok: false, error: "Choose which till this browser is before selling." };
-  if (!state.register || state.register.status !== "open") return { ok: false, error: "Open the register before completing a sale." };
+  // Re-checked here, not only at render: a sale started before Dubai midnight must not land on yesterday's register.
+  const blocked = saleBlockReason(state.register, new Date());
+  if (blocked || !state.register) return { ok: false, error: blocked ?? "Open the register before completing a sale." };
   if (!inputLines.length) return { ok: false, error: "Add at least one item to the cart." };
 
   const requested = new Map<string, number>();

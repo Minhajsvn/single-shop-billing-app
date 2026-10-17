@@ -8,6 +8,7 @@ function mapLine(row: SnapshotRows["sales"][number]["sale_items"][number]): Invo
   return {
     id: row.id, productId: optional(row.product_id), name: row.description, sku: optional(row.sku), quantity: row.quantity,
     unitGrossFils: Number(row.unit_gross_fils), netFils: Number(row.net_fils), vatFils: Number(row.vat_fils), grossFils: Number(row.gross_fils),
+    listUnitGrossFils: row.list_unit_gross_fils == null ? undefined : Number(row.list_unit_gross_fils),
   };
 }
 

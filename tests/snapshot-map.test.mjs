@@ -79,3 +79,9 @@ test("sales and credit notes keep the till that issued them", () => {
   assert.equal(state.sales[0].deviceId, "dev-1");
   assert.equal(state.creditNotes[0].deviceId, "dev-2");
 });
+
+test("discounted lines keep their list price", () => {
+  const discounted = { ...rows, sales: [{ ...rows.sales[0], sale_items: [{ ...rows.sales[0].sale_items[0], list_unit_gross_fils: 3000 }] }] };
+  assert.equal(mapSnapshotRows(discounted, "x").state.sales[0].lines[0].listUnitGrossFils, 3000);
+  assert.equal(mapSnapshotRows(rows, "x").state.sales[0].lines[0].listUnitGrossFils, undefined);
+});

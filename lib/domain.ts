@@ -44,6 +44,8 @@ export type InvoiceLine = {
   sku?: string;
   quantity: number;
   unitGrossFils: number;
+  /** Undiscounted unit price, present only when the line was discounted. */
+  listUnitGrossFils?: number;
   netFils: number;
   vatFils: number;
   grossFils: number;

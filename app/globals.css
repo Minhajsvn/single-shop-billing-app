@@ -380,9 +380,10 @@ kbd { min-width: 20px; display: inline-grid; place-items: center; padding: 2px 5
 }
 
 @media (max-width: 900px) {
-  .pos-layout { grid-template-columns: 1fr; }
-  .product-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .cart-panel { position: static; min-height: 460px; }
+  /* Tablets keep the cart beside the products: tablets are the most common shop-counter hardware. */
+  .pos-layout { grid-template-columns: minmax(0, 1fr) 300px; }
+  .product-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  .cart-panel { top: 16px; min-height: 460px; }
   .cart-lines { max-height: none; }
   .register-grid { grid-template-columns: 1fr; }
 }
@@ -430,6 +431,44 @@ kbd { min-width: 20px; display: inline-grid; place-items: center; padding: 2px 5
   .report-grid { grid-template-columns: 1fr; }
   .backup-body { align-items: flex-start; flex-direction: column; }
   .backup-actions { width: 100%; flex-wrap: wrap; }
+}
+
+/* Checkout: payment step and receipt panel (Stage 1C). */
+.quick-cash { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+.quick-cash .button { min-height: 44px; justify-content: center; }
+.change-due { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-top: 16px; }
+.change-due span { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+.change-due strong { font-size: 32px; font-weight: 700; line-height: 1.1; }
+.payment-dialog .modal-footer .button, .receipt-actions .button { min-height: 44px; }
+.receipt-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 16px; }
+.receipt-actions .button.primary { grid-column: 1 / -1; justify-content: center; }
+.scan-notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 16px 12px; }
+.discount-button { min-height: 44px; margin-left: auto; margin-right: 12px; }
+.discount-meta { color: var(--green, inherit); }
+.discount-meta s { color: var(--muted); }
+.segmented { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+.segmented .button { min-height: 44px; justify-content: center; }
+.held-carts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-left: auto; margin-right: 8px; }
+.held-carts .button { min-height: 44px; }
+.held-list { display: grid; gap: 8px; }
+.held-row { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.held-row span { display: block; color: var(--muted); font-size: 11px; }
+
+/* POS touch targets: at least 44 × 44 px (Stage 1C). */
+.quantity-stepper { grid-template-columns: 44px 40px 44px; height: 44px; }
+.cart-remove { width: 44px; height: 44px; }
+.payment-button, .cart-panel .button { min-height: 44px; }
+.pos-cart-bar { display: none; }
+
+/* Phones: one column, a fixed cart bar above the mobile nav, and the cart as a bottom sheet. */
+@media (max-width: 760px) {
+  .pos-layout { grid-template-columns: 1fr; }
+  .pos-page { padding-bottom: 76px; }
+  .cart-panel { position: fixed; left: 0; right: 0; bottom: calc(67px + env(safe-area-inset-bottom)); z-index: 45; max-height: 75vh; min-height: 0; overflow-y: auto; border-radius: 12px 12px 0 0; box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.18); }
+  .cart-panel:not(.sheet-open):not(.receipt-panel) { display: none; }
+  .pos-cart-bar { display: flex; position: fixed; left: 0; right: 0; bottom: calc(67px + env(safe-area-inset-bottom)); z-index: 41; gap: 8px; padding: 8px 12px; background: var(--surface, white); border-top: 1px solid var(--border); }
+  .pos-cart-bar-summary { flex: 1; min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 8px; border: 1px solid var(--border-strong); border-radius: 7px; background: white; padding: 0 12px; font: inherit; }
+  .pos-cart-bar .button { min-height: 44px; min-width: 88px; justify-content: center; }
 }
 
 @media print {
