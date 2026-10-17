@@ -80,8 +80,8 @@ export function parseTaxCategoryCell(cell: Cell): Parsed<TaxCategory | null> {
 }
 
 /** Trimmed text; null when blank. Over-long names are a problem, never truncated. */
-export function parseTextCell(cell: Cell, max: number): Parsed<string | null> {
+export function parseTextCell(cell: Cell, max: number, label = "Name"): Parsed<string | null> {
   const raw = text(cell);
   if (!raw) return ok(null);
-  return raw.length > max ? problem(`Name is longer than ${max} characters`) : ok(raw);
+  return raw.length > max ? problem(`${label} is longer than ${max} characters`) : ok(raw);
 }
