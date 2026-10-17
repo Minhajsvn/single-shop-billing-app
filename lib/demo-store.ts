@@ -548,7 +548,7 @@ export function setProductActive(id: string, active: boolean): { ok: true } | { 
 const IMPORT_REASON = "Spreadsheet import";
 
 /** Applies a confirmed import in one save: product operations first, then opening stock and stock counts. */
-export function applyImport(plan: ImportPlan): { createdIds: string[]; updatedIds: string[] } {
+export function applyImport(plan: ImportPlan): { createdIds: string[]; updatedIds: string[]; operationIds: string[] } {
   const now = new Date().toISOString();
   const items: QueuedItem[] = [];
   const movements: StockMovement[] = [];
@@ -589,8 +589,11 @@ export function applyImport(plan: ImportPlan): { createdIds: string[]; updatedId
     }
   }
 
-  save(enqueueInOrder({ ...state, products, syncOperations, stockMovements: [...movements.reverse(), ...state.stockMovements] }, items));
-  return { createdIds, updatedIds };
+  const next = enqueueInOrder({ ...state, products, syncOperations, stockMovements: [...movements.reverse(), ...state.stockMovements] }, items);
+  // enqueueInOrder prepends this import's operations (none outside hosted mode).
+  const operationIds = next.syncOperations.length > syncOperations.length ? next.syncOperations.slice(0, items.length).map((operation) => operation.id) : [];
+  save(next);
+  return { createdIds, updatedIds, operationIds };
 }
 export function adjustStock(productId: string, delta: number, reason: string) {
   const product = state.products.find((item) => item.id === productId);

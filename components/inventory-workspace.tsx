@@ -1,11 +1,12 @@
 "use client";
 
-import { Archive, MagnifyingGlass, Plus, X } from "@phosphor-icons/react";
+import { Archive, FileArrowUp, MagnifyingGlass, Plus, X } from "@phosphor-icons/react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { ImportDialog } from "@/components/catalogue/import-dialog";
 import { useDemoProducts } from "@/hooks/use-demo-products";
 import { formatAED, type Product } from "@/lib/domain";
 
-type Dialog = { kind: "new"; barcode?: string } | { kind: "adjust"; product: Product } | null;
+type Dialog = { kind: "new"; barcode?: string } | { kind: "adjust"; product: Product } | { kind: "import" } | null;
 
 export function InventoryWorkspace() {
   const { products, addProduct, adjustStock } = useDemoProducts();
@@ -75,7 +76,10 @@ export function InventoryWorkspace() {
     <>
       <div className="page-heading">
         <div><div className="eyebrow">Catalog and stock</div><h1 className="page-title">Inventory</h1><p className="page-copy">Maintain sellable items and keep every stock change traceable.</p></div>
-        <button className="button primary" onClick={() => setDialog({ kind: "new" })}><Plus size={15} weight="bold" /> Add product</button>
+        <div className="page-actions">
+          <button className="button" onClick={() => setDialog({ kind: "import" })}><FileArrowUp size={15} weight="bold" /> Import</button>
+          <button className="button primary" onClick={() => setDialog({ kind: "new" })}><Plus size={15} weight="bold" /> Add product</button>
+        </div>
       </div>
 
       <section className="panel">
@@ -109,6 +113,8 @@ export function InventoryWorkspace() {
           </form>
         </div>
       )}
+
+      {dialog?.kind === "import" && <ImportDialog onClose={closeDialog} onPrintLabels={closeDialog} />}
 
       {dialog?.kind === "adjust" && (
         <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeDialog(); }}>

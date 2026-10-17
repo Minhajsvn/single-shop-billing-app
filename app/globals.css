@@ -454,6 +454,35 @@ kbd { min-width: 20px; display: inline-grid; place-items: center; padding: 2px 5
 .held-row { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--border); }
 .held-row span { display: block; color: var(--muted); font-size: 11px; }
 
+/* Catalogue: spreadsheet import */
+.page-actions { display: flex; flex-wrap: wrap; gap: 9px; }
+.modal.import-dialog { width: min(860px, 100%); }
+.import-file { display: grid; justify-items: start; gap: 4px; }
+.import-file-button { min-height: 44px; cursor: pointer; }
+.import-file-name { margin: 0 0 14px; }
+.import-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
+.import-summary div { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; display: grid; gap: 2px; }
+.import-summary strong { font-size: 18px; }
+.import-summary span { color: var(--muted); font-size: 11px; }
+.import-summary .has-problems { border-color: var(--red); }
+.import-summary .has-problems strong { color: var(--red); }
+.import-group { border-top: 1px solid var(--border); padding: 4px 0; }
+.import-group summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 44px; cursor: pointer; }
+.import-rows { display: grid; gap: 2px; padding-bottom: 8px; }
+.import-row { display: grid; grid-template-columns: 70px minmax(0, 1fr); column-gap: 10px; padding: 6px 0; border-bottom: 1px dashed var(--border); font-size: 12px; }
+.import-row > span:first-child { color: var(--muted); grid-row: span 2; }
+.import-row > span:last-child { color: var(--muted); grid-column: 2; overflow-wrap: anywhere; }
+.import-row.problem > span:last-child { color: var(--red); }
+.import-check { grid-template-columns: 44px minmax(0, 1fr); align-items: start; cursor: pointer; }
+.import-check input { width: 20px; height: 20px; margin: 2px 0 0; grid-row: span 2; }
+.import-done { display: grid; gap: 10px; }
+.import-done progress { width: 100%; height: 10px; }
+@media (max-width: 760px) {
+  .import-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .modal.import-dialog .modal-footer { flex-wrap: wrap; }
+  .modal.import-dialog .button, .modal.import-dialog .select { min-height: 44px; }
+}
+
 /* POS touch targets: at least 44 × 44 px (Stage 1C). */
 .quantity-stepper { grid-template-columns: 44px 40px 44px; height: 44px; }
 .cart-remove { width: 44px; height: 44px; }
