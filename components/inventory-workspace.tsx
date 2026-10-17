@@ -1,8 +1,9 @@
 "use client";
 
-import { Archive, ArrowCounterClockwise, DownloadSimple, FileArrowUp, MagnifyingGlass, PencilSimple, Plus, WarningCircle, X } from "@phosphor-icons/react";
+import { Archive, ArrowCounterClockwise, Barcode, DownloadSimple, FileArrowUp, MagnifyingGlass, PencilSimple, Plus, WarningCircle, X } from "@phosphor-icons/react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { ImportDialog } from "@/components/catalogue/import-dialog";
+import { LabelPrintDialog } from "@/components/catalogue/label-print-dialog";
 import { ProductForm, type ProductFormValues } from "@/components/catalogue/product-form";
 import { useDemoProducts } from "@/hooks/use-demo-products";
 import { productsToCsv } from "@/lib/catalogue/csv";
@@ -14,6 +15,7 @@ type Dialog =
   | { kind: "edit"; product: Product }
   | { kind: "adjust"; product: Product }
   | { kind: "import" }
+  | { kind: "labels"; productIds: string[] }
   | null;
 type StatusFilter = "active" | "archived";
 
@@ -33,6 +35,7 @@ export function InventoryWorkspace() {
   const [dialog, setDialog] = useState<Dialog>(null);
   const [error, setError] = useState("");
   const [pageError, setPageError] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   // The POS links unknown scans to /inventory?barcode=…: open "Add product" once with that barcode filled in.
   useEffect(() => {
@@ -100,6 +103,19 @@ export function InventoryWorkspace() {
   }
 
   const attention = products.filter((product) => syncProblems.has(product.id)).length;
+  const selectedVisible = filtered.filter((product) => selected.has(product.id));
+  const allSelected = filtered.length > 0 && selectedVisible.length === filtered.length;
+
+  function toggle(productId: string) {
+    const next = new Set(selected);
+    if (next.has(productId)) next.delete(productId);
+    else next.add(productId);
+    setSelected(next);
+  }
+
+  function toggleAll() {
+    setSelected(allSelected ? new Set() : new Set(filtered.map((product) => product.id)));
+  }
 
   return (
     <>
@@ -124,14 +140,16 @@ export function InventoryWorkspace() {
               <button type="button" role="radio" aria-checked={status === "archived"} className={`button ${status === "archived" ? "primary" : ""}`} onClick={() => setStatus("archived")}>Archived</button>
             </div>
             <span className="button" aria-label="Product count">{filtered.length} products</span>
+            <button type="button" className="button" disabled={!selectedVisible.length} onClick={() => setDialog({ kind: "labels", productIds: selectedVisible.map((product) => product.id) })}><Barcode size={15} weight="bold" /> Print labels ({selectedVisible.length})</button>
           </div>
         </div>
         {filtered.length ? (
-          <div className="table-wrap"><table><thead><tr><th>Product</th><th>Status</th><th className="numeric">Stock</th><th className="numeric">Price incl. VAT</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>{filtered.map((product) => {
+          <div className="table-wrap"><table><thead><tr><th className="select-column"><input type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Select all shown products" /></th><th>Product</th><th>Status</th><th className="numeric">Stock</th><th className="numeric">Price incl. VAT</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>{filtered.map((product) => {
             const low = product.stock <= product.lowStockThreshold;
             const problem = syncProblems.get(product.id);
             return (
               <tr key={product.id}>
+                <td className="select-column"><input type="checkbox" checked={selected.has(product.id)} onChange={() => toggle(product.id)} aria-label={`Select ${product.name}`} /></td>
                 <td><div className="product-name">{product.name}</div><div className="product-meta">{product.sku}{product.barcode ? ` · ${product.barcode}` : ""}{product.taxCategory !== "standard" ? ` · ${product.taxCategory === "zero" ? "Zero-rated" : "Exempt"}` : ""}</div></td>
                 <td>
                   {product.active ? <span className={`badge ${low ? "red" : "green"}`}>{low ? "Low stock" : "In stock"}</span> : <span className="badge yellow">Archived</span>}
@@ -141,6 +159,7 @@ export function InventoryWorkspace() {
                 <td className="numeric">{formatAED(product.priceFils)}</td>
                 <td className="numeric"><div className="row-actions">
                   <button className="button" onClick={() => setDialog({ kind: "edit", product })} aria-label={`Edit ${product.name}`}><PencilSimple size={14} weight="bold" /> Edit</button>
+                  <button className="button" onClick={() => setDialog({ kind: "labels", productIds: [product.id] })} aria-label={`Print labels for ${product.name}`}><Barcode size={14} weight="bold" /> Labels</button>
                   {product.active ? (
                     <>
                       <button className="button" onClick={() => setDialog({ kind: "adjust", product })}>Adjust stock</button>
@@ -168,7 +187,9 @@ export function InventoryWorkspace() {
         />
       )}
 
-      {dialog?.kind === "import" && <ImportDialog onClose={closeDialog} onPrintLabels={closeDialog} />}
+      {dialog?.kind === "import" && <ImportDialog onClose={closeDialog} onPrintLabels={(productIds) => setDialog({ kind: "labels", productIds })} />}
+
+      {dialog?.kind === "labels" && <LabelPrintDialog products={products.filter((product) => dialog.productIds.includes(product.id))} onClose={closeDialog} />}
 
       {dialog?.kind === "adjust" && (
         <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeDialog(); }}>
