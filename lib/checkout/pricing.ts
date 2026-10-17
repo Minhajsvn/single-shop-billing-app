@@ -55,3 +55,9 @@ export function parseMoneyInput(text: string): number | null {
   const [whole, fraction = ""] = value.split(".");
   return Number(whole) * 100 + Number(fraction.padEnd(2, "0"));
 }
+
+/** Cart size for labels: the total quantity, with "item" for exactly one. */
+export function formatItemCount(lines: ReadonlyArray<{ quantity: number }>): string {
+  const count = lines.reduce((sum, line) => sum + line.quantity, 0);
+  return `${count} ${count === 1 ? "item" : "items"}`;
+}

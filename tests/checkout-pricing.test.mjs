@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cartTotals, changeDue, discountedUnit, parseMoneyInput, quickCashAmounts } from "../lib/checkout/pricing.ts";
+import { cartTotals, changeDue, discountedUnit, formatItemCount, parseMoneyInput, quickCashAmounts } from "../lib/checkout/pricing.ts";
 
 test("percent discounts round each unit to whole fils (half up)", () => {
   assert.deepEqual(discountedUnit(285, { kind: "percent", percent: 15 }), { ok: true, unitGrossFils: 242 });
@@ -50,4 +50,10 @@ test("money input is parsed strictly", () => {
   assert.equal(parseMoneyInput("abc"), null);
   assert.equal(parseMoneyInput("1.234"), null);
   assert.equal(parseMoneyInput("-5"), null);
+});
+
+test("formatItemCount sums quantities and uses singular for one", () => {
+  assert.equal(formatItemCount([]), "0 items");
+  assert.equal(formatItemCount([{ quantity: 1 }]), "1 item");
+  assert.equal(formatItemCount([{ quantity: 2 }, { quantity: 1 }]), "3 items");
 });

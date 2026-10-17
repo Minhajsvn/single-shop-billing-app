@@ -3,7 +3,7 @@
 import { ClockCounterClockwise, PauseCircle, Trash, X } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import { MAX_HELD_CARTS, heldCartsKey, holdCart, resumeCart, type HeldCart } from "@/lib/checkout/held-carts";
-import { cartTotals } from "@/lib/checkout/pricing";
+import { cartTotals, formatItemCount } from "@/lib/checkout/pricing";
 import { formatAED, formatTime, type Product } from "@/lib/domain";
 
 function readHeld(key: string): HeldCart[] {
@@ -91,7 +91,7 @@ export function HeldCarts({ deviceId, products, canHold, cartIsEmpty, onHold, on
             <div className="modal-body held-list">
               {list.map((cart) => (
                 <div className="held-row" key={cart.id}>
-                  <div><strong>{formatAED(cartTotals(cart.lines).grossFils)}</strong><span>{cart.lines.reduce((sum, line) => sum + line.quantity, 0)} items · held {formatTime(cart.heldAt)}</span></div>
+                  <div><strong>{formatAED(cartTotals(cart.lines).grossFils)}</strong><span>{formatItemCount(cart.lines)} · held {formatTime(cart.heldAt)}</span></div>
                   <button className="button primary" type="button" onClick={() => resume(cart.id)}>Resume</button>
                   <button className="button icon-only" type="button" onClick={() => discard(cart.id)} aria-label="Discard held sale"><Trash size={15} weight="bold" /></button>
                 </div>

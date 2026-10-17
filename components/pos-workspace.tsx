@@ -11,7 +11,7 @@ import { useReceiptShop } from "@/components/receipt-document";
 import type { HeldCart } from "@/lib/checkout/held-carts";
 import { findByCode } from "@/lib/checkout/lookup";
 import { staleRegister } from "@/lib/checkout/register-status";
-import { cartTotals } from "@/lib/checkout/pricing";
+import { cartTotals, formatItemCount } from "@/lib/checkout/pricing";
 import { completeSale, type CheckoutLine, useDemoStore, useShopContext } from "@/lib/demo-store";
 import { formatAED, type Product, type Sale } from "@/lib/domain";
 
@@ -34,7 +34,6 @@ export function PosWorkspace() {
   const [completed, setCompleted] = useState<{ sale: Sale; tenderedFils: number | null } | null>(null);
   const receiptShop = useReceiptShop(completed?.sale);
   const discountLine = discountFor ? cart.find((item) => item.key === discountFor) : undefined;
-  const itemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
   const searchInput = useRef<HTMLInputElement>(null);
 
   const availableProducts = useMemo(() => {
@@ -93,6 +92,8 @@ export function PosWorkspace() {
     setCart(held.lines.map((line) => ({ ...line, key: line.productId ?? crypto.randomUUID() })));
     setCustomerId(held.customerId);
     setError(notices.join(" "));
+    // The held-sales modal unmounts with focus inside it; hand focus back so F2/F3 work.
+    window.setTimeout(() => searchInput.current?.focus(), 0);
   }
 
   function applyDiscount(key: string, unitGrossFils: number) {
@@ -203,7 +204,7 @@ export function PosWorkspace() {
         </section>
 
         {completed ? <ReceiptPanel sale={completed.sale} tenderedFils={completed.tenderedFils} shop={receiptShop} onNewSale={startNewSale} /> : <aside className={`panel cart-panel ${sheetOpen ? "sheet-open" : ""}`}>
-          <div className="panel-header"><div><div className="panel-title">Current cart</div><div className="panel-subtitle">{cart.reduce((sum, item) => sum + item.quantity, 0)} items</div></div><HeldCarts deviceId={device?.id ?? null} products={store.products} canHold={cart.length > 0} cartIsEmpty={!cart.length} onHold={() => ({ customerId, lines: cart.map(({ productId, name, sku, quantity, unitGrossFils, listUnitGrossFils }) => ({ productId, name, sku, quantity, unitGrossFils, listUnitGrossFils })) })} onHeld={() => { setCart([]); setCustomerId(undefined); }} onResume={resumeHeld} />{cart.length > 0 && <button className="button" onClick={() => setCart([])}>Clear</button>}</div>
+          <div className="panel-header"><div><div className="panel-title">Current cart</div><div className="panel-subtitle">{formatItemCount(cart)}</div></div><HeldCarts deviceId={device?.id ?? null} products={store.products} canHold={cart.length > 0} cartIsEmpty={!cart.length} onHold={() => ({ customerId, lines: cart.map(({ productId, name, sku, quantity, unitGrossFils, listUnitGrossFils }) => ({ productId, name, sku, quantity, unitGrossFils, listUnitGrossFils })) })} onHeld={() => { setCart([]); setCustomerId(undefined); }} onResume={resumeHeld} />{cart.length > 0 && <button className="button" onClick={() => setCart([])}>Clear</button>}</div>
           <div className="cart-lines" aria-live="polite">{cart.length ? cart.map((item) => <div className="cart-line" key={item.key}><div className="cart-line-top"><div><div className="product-name">{item.name}</div><div className="product-meta">{item.sku ?? "Custom non-stock item"}</div>{item.listUnitGrossFils ? <div className="product-meta discount-meta"><s>{formatAED(item.listUnitGrossFils)}</s> {formatAED(item.unitGrossFils)} each · −{formatAED((item.listUnitGrossFils - item.unitGrossFils) * item.quantity)}</div> : null}</div><button className="cart-remove" onClick={() => setCart((current) => current.filter((line) => line.key !== item.key))} aria-label={`Remove ${item.name}`}><Trash size={15} weight="bold" /></button></div><div className="cart-line-bottom"><div className="quantity-stepper"><button onClick={() => changeQuantity(item, -1)} aria-label={`Decrease ${item.name}`}><Minus size={13} weight="bold" /></button><span>{item.quantity}</span><button onClick={() => changeQuantity(item, 1)} aria-label={`Increase ${item.name}`}><Plus size={13} weight="bold" /></button></div><button className="button discount-button" type="button" onClick={() => setDiscountFor(item.key)} aria-label={`Discount ${item.name}`}><Tag size={14} weight="bold" />{item.listUnitGrossFils ? "Edit" : "Discount"}</button><strong>{formatAED(item.unitGrossFils * item.quantity)}</strong></div></div>) : <div className="cart-empty"><ShoppingCart size={30} weight="duotone" /><p>Add a product to begin the sale.</p></div>}</div>
 
           <div className="checkout-block">
@@ -219,7 +220,7 @@ export function PosWorkspace() {
       </div>
 
       {discountLine && <LineDiscountDialog line={discountLine} onApply={(unit) => applyDiscount(discountLine.key, unit)} onRemove={() => removeDiscount(discountLine.key)} onCancel={() => closeDialog(setDiscountFor)} />}
-      {!completed && <div className="pos-cart-bar"><button type="button" className="pos-cart-bar-summary" onClick={() => setSheetOpen((open) => !open)} aria-expanded={sheetOpen} aria-label="Show cart"><strong>{itemCount} {itemCount === 1 ? "item" : "items"}</strong><span>{formatAED(totals.grossFils)}</span></button><button className="button primary" type="button" disabled={!canSell || !cart.length} onClick={() => pay("cash")}>Pay</button></div>}
+      {!completed && <div className="pos-cart-bar"><button type="button" className="pos-cart-bar-summary" onClick={() => setSheetOpen((open) => !open)} aria-expanded={sheetOpen} aria-label="Show cart"><strong>{formatItemCount(cart)}</strong><span>{formatAED(totals.grossFils)}</span></button><button className="button primary" type="button" disabled={!canSell || !cart.length} onClick={() => pay("cash")}>Pay</button></div>}
       {payment && <PaymentDialog method={payment.method} totalFils={totals.grossFils} error={payment.error} onCancel={() => closeDialog(setPayment)} onComplete={completePayment} />}
       {customOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setCustomOpen(false); }}><form className="modal" onSubmit={addCustomLine}><div className="modal-header"><div><div className="panel-title">Custom item</div><div className="panel-subtitle">This line will not change inventory.</div></div><button type="button" className="button icon-only" onClick={() => setCustomOpen(false)} aria-label="Close"><X size={16} weight="bold" /></button></div><div className="modal-body"><div className="form-grid"><div className="field full-span"><label htmlFor="customName">Description</label><input className="input" id="customName" name="name" required autoFocus /></div><div className="field"><label htmlFor="customPrice">VAT-inclusive price (AED)</label><input className="input" id="customPrice" name="price" type="number" min="0.01" step="0.01" required /></div></div></div><div className="modal-footer"><button type="button" className="button" onClick={() => setCustomOpen(false)}>Cancel</button><button className="button primary" type="submit">Add to cart</button></div></form></div>}
       {customerOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setCustomerOpen(false); }}><div className="modal customer-picker"><div className="modal-header"><div><div className="panel-title">Choose invoice customer</div><div className="panel-subtitle">Business details are copied onto this invoice only.</div></div><button type="button" className="button icon-only" onClick={() => setCustomerOpen(false)} aria-label="Close"><X size={16} weight="bold" /></button></div><div className="customer-pick-list"><button className={`customer-pick ${!customerId ? "selected" : ""}`} onClick={() => { setCustomerId(undefined); setCustomerOpen(false); }}><span className="customer-avatar"><User size={16} weight="bold" /></span><span><strong>Walk-in customer</strong><small>Simplified tax invoice</small></span></button>{store.customers.map((customer) => <button className={`customer-pick ${customerId === customer.id ? "selected" : ""}`} key={customer.id} onClick={() => { setCustomerId(customer.id); setCustomerOpen(false); }}><span className="customer-avatar">{customer.name.slice(0, 2).toUpperCase()}</span><span><strong>{customer.name}</strong><small>{customer.trn ? `TRN ${customer.trn}` : customer.phone}</small></span></button>)}</div><div className="modal-footer"><Link className="button" href="/customers">Manage customers</Link></div></div></div>}
