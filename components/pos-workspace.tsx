@@ -2,15 +2,15 @@
 
 import { CreditCard, IdentificationCard, MagnifyingGlass, Minus, Money, Plus, ShoppingCart, Tag, Trash, User, X } from "@phosphor-icons/react";
 import Link from "next/link";
-import { FormEvent, KeyboardEvent, useMemo, useRef, useState } from "react";
-import { HeldCarts } from "@/components/pos/held-carts";
+import { FormEvent, KeyboardEvent, MouseEvent, useMemo, useRef, useState } from "react";
+import { HeldCarts, parkCart } from "@/components/pos/held-carts";
 import { LineDiscountDialog } from "@/components/pos/line-discount-dialog";
 import { PaymentDialog } from "@/components/pos/payment-dialog";
 import { ReceiptPanel } from "@/components/pos/receipt-panel";
 import { useReceiptShop } from "@/components/receipt-document";
 import type { HeldCart } from "@/lib/checkout/held-carts";
 import { findByCode } from "@/lib/checkout/lookup";
-import { staleRegister } from "@/lib/checkout/register-status";
+import { saleBlockReason, staleRegister } from "@/lib/checkout/register-status";
 import { cartTotals, formatItemCount } from "@/lib/checkout/pricing";
 import { completeSale, type CheckoutLine, useDemoStore, useShopContext } from "@/lib/demo-store";
 import { formatAED, type Product, type Sale } from "@/lib/domain";
@@ -85,7 +85,26 @@ export function PosWorkspace() {
   /** Keyboard shortcuts (F2/F3, scanning) only work with focus inside the POS, so dialogs hand focus back to search. */
   function closeDialog(close: (value: null) => void) {
     close(null);
+    focusSearch();
+  }
+
+  /** Hold, Clear and Remove disable or unmount the focused button; without this, focus falls to <body>. */
+  function focusSearch() {
     window.setTimeout(() => searchInput.current?.focus(), 0);
+  }
+
+  function heldLines() {
+    return { customerId, lines: cart.map(({ productId, name, sku, quantity, unitGrossFils, listUnitGrossFils }) => ({ productId, name, sku, quantity, unitGrossFils, listUnitGrossFils })) };
+  }
+
+  /** Leaving for /inventory unmounts the POS; hold the sale first so it can be resumed on return. */
+  function holdBeforeAddingProduct(event: MouseEvent<HTMLAnchorElement>) {
+    if (!cart.length) return;
+    const parked = parkCart(device?.id ?? null, heldLines());
+    if (!parked.ok) {
+      event.preventDefault();
+      setError(parked.error);
+    }
   }
 
   function resumeHeld(held: HeldCart, notices: string[]) {
@@ -93,7 +112,7 @@ export function PosWorkspace() {
     setCustomerId(held.customerId);
     setError(notices.join(" "));
     // The held-sales modal unmounts with focus inside it; hand focus back so F2/F3 work.
-    window.setTimeout(() => searchInput.current?.focus(), 0);
+    focusSearch();
   }
 
   function applyDiscount(key: string, unitGrossFils: number) {
@@ -132,6 +151,9 @@ export function PosWorkspace() {
   }
 
   function pay(method: "cash" | "card") {
+    // canSell is from the last render; an idle till may have crossed Dubai midnight since.
+    const blocked = saleBlockReason(store.register, new Date());
+    if (blocked) return setError(blocked);
     setError("");
     setPayment({ method });
   }
@@ -194,7 +216,7 @@ export function PosWorkspace() {
       <div className="pos-layout">
         <section className="panel catalog-panel">
           <div className="panel-body"><div className="toolbar"><form className="search" onSubmit={scan} role="search"><MagnifyingGlass size={17} weight="bold" /><input ref={searchInput} className="input" value={query} onChange={(event) => { setQuery(event.target.value); setUnknownCode(null); }} placeholder="Search name, SKU, or scan barcode" autoFocus aria-label="Search products" aria-keyshortcuts="/" /></form><button className="button" onClick={() => setCustomOpen(true)}><Plus size={15} weight="bold" /> Custom item</button></div></div>
-          {unknownCode ? <div className="notice error-notice scan-notice" role="alert"><span>No product with code <strong>{unknownCode}</strong>.</span><Link className="button" href={`/inventory?barcode=${encodeURIComponent(unknownCode)}`}><Plus size={15} weight="bold" /> Add product</Link></div> : null}
+          {unknownCode ? <div className="notice error-notice scan-notice" role="alert"><span>No product with code <strong>{unknownCode}</strong>.</span><Link className="button" href={`/inventory?barcode=${encodeURIComponent(unknownCode)}`} onClick={holdBeforeAddingProduct}><Plus size={15} weight="bold" /> {cart.length ? "Hold sale & add product" : "Add product"}</Link></div> : null}
           <div className="product-grid">{availableProducts.map((product) => {
             const inCart = cart.find((item) => item.productId === product.id)?.quantity ?? 0;
             const soldOut = product.stock <= inCart;
@@ -204,8 +226,8 @@ export function PosWorkspace() {
         </section>
 
         {completed ? <ReceiptPanel sale={completed.sale} tenderedFils={completed.tenderedFils} shop={receiptShop} onNewSale={startNewSale} /> : <aside className={`panel cart-panel ${sheetOpen ? "sheet-open" : ""}`}>
-          <div className="panel-header"><div><div className="panel-title">Current cart</div><div className="panel-subtitle">{formatItemCount(cart)}</div></div><HeldCarts deviceId={device?.id ?? null} products={store.products} canHold={cart.length > 0} cartIsEmpty={!cart.length} onHold={() => ({ customerId, lines: cart.map(({ productId, name, sku, quantity, unitGrossFils, listUnitGrossFils }) => ({ productId, name, sku, quantity, unitGrossFils, listUnitGrossFils })) })} onHeld={() => { setCart([]); setCustomerId(undefined); }} onResume={resumeHeld} />{cart.length > 0 && <button className="button" onClick={() => setCart([])}>Clear</button>}</div>
-          <div className="cart-lines" aria-live="polite">{cart.length ? cart.map((item) => <div className="cart-line" key={item.key}><div className="cart-line-top"><div><div className="product-name">{item.name}</div><div className="product-meta">{item.sku ?? "Custom non-stock item"}</div>{item.listUnitGrossFils ? <div className="product-meta discount-meta"><s>{formatAED(item.listUnitGrossFils)}</s> {formatAED(item.unitGrossFils)} each · −{formatAED((item.listUnitGrossFils - item.unitGrossFils) * item.quantity)}</div> : null}</div><button className="cart-remove" onClick={() => setCart((current) => current.filter((line) => line.key !== item.key))} aria-label={`Remove ${item.name}`}><Trash size={15} weight="bold" /></button></div><div className="cart-line-bottom"><div className="quantity-stepper"><button onClick={() => changeQuantity(item, -1)} aria-label={`Decrease ${item.name}`}><Minus size={13} weight="bold" /></button><span>{item.quantity}</span><button onClick={() => changeQuantity(item, 1)} aria-label={`Increase ${item.name}`}><Plus size={13} weight="bold" /></button></div><button className="button discount-button" type="button" onClick={() => setDiscountFor(item.key)} aria-label={`Discount ${item.name}`}><Tag size={14} weight="bold" />{item.listUnitGrossFils ? "Edit" : "Discount"}</button><strong>{formatAED(item.unitGrossFils * item.quantity)}</strong></div></div>) : <div className="cart-empty"><ShoppingCart size={30} weight="duotone" /><p>Add a product to begin the sale.</p></div>}</div>
+          <div className="panel-header"><div><div className="panel-title">Current cart</div><div className="panel-subtitle">{formatItemCount(cart)}</div></div><HeldCarts deviceId={device?.id ?? null} products={store.products} canHold={cart.length > 0} cartIsEmpty={!cart.length} onHold={heldLines} onHeld={() => { setCart([]); setCustomerId(undefined); focusSearch(); }} onResume={resumeHeld} />{cart.length > 0 && <button className="button" onClick={() => { setCart([]); focusSearch(); }}>Clear</button>}</div>
+          <div className="cart-lines" aria-live="polite">{cart.length ? cart.map((item) => <div className="cart-line" key={item.key}><div className="cart-line-top"><div><div className="product-name">{item.name}</div><div className="product-meta">{item.sku ?? "Custom non-stock item"}</div>{item.listUnitGrossFils ? <div className="product-meta discount-meta"><s>{formatAED(item.listUnitGrossFils)}</s> {formatAED(item.unitGrossFils)} each · −{formatAED((item.listUnitGrossFils - item.unitGrossFils) * item.quantity)}</div> : null}</div><button className="cart-remove" onClick={() => { setCart((current) => current.filter((line) => line.key !== item.key)); focusSearch(); }} aria-label={`Remove ${item.name}`}><Trash size={15} weight="bold" /></button></div><div className="cart-line-bottom"><div className="quantity-stepper"><button onClick={() => changeQuantity(item, -1)} aria-label={`Decrease ${item.name}`}><Minus size={13} weight="bold" /></button><span>{item.quantity}</span><button onClick={() => changeQuantity(item, 1)} aria-label={`Increase ${item.name}`}><Plus size={13} weight="bold" /></button></div><button className="button discount-button" type="button" onClick={() => setDiscountFor(item.key)} aria-label={`Discount ${item.name}`}><Tag size={14} weight="bold" />{item.listUnitGrossFils ? "Edit" : "Discount"}</button><strong>{formatAED(item.unitGrossFils * item.quantity)}</strong></div></div>) : <div className="cart-empty"><ShoppingCart size={30} weight="duotone" /><p>Add a product to begin the sale.</p></div>}</div>
 
           <div className="checkout-block">
             <button className="customer-selector" onClick={() => setCustomerOpen(true)}><span className="customer-selector-icon">{selectedCustomer ? <IdentificationCard size={17} weight="fill" /> : <User size={17} weight="bold" />}</span><span><small>Invoice customer</small><strong>{selectedCustomer?.name ?? "Walk-in customer"}</strong></span><span className="customer-selector-action">Change</span></button>

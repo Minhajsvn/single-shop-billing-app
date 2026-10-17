@@ -19,6 +19,15 @@ function writeHeld(key: string, list: HeldCart[]) {
   try { window.localStorage.setItem(key, JSON.stringify(list)); } catch { /* storage unavailable: holding is a convenience only */ }
 }
 
+/** Park a cart without the Held UI (e.g. before leaving /sale), so it can be resumed on return. */
+export function parkCart(deviceId: string | null, cart: Omit<HeldCart, "id" | "heldAt">): { ok: true } | { ok: false; error: string } {
+  const key = heldCartsKey(deviceId);
+  const result = holdCart(readHeld(key), cart, crypto.randomUUID(), new Date());
+  if (!result.ok) return result;
+  writeHeld(key, result.list);
+  return { ok: true };
+}
+
 type Props = {
   deviceId: string | null;
   products: Product[];
