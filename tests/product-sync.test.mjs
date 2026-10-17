@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { heldStockOperations, productSyncProblems, stampSequence, supersedeProductOperations, withTaxCategories } from "../lib/store/product-sync.ts";
+import { heldStockOperations, productSyncProblems, stampSequence, supersedeProductOperations, syncOrder, withTaxCategories } from "../lib/store/product-sync.ts";
 import { rejectionText } from "../lib/sync/rejections.ts";
 
 const record = (id) => ({ id, name: id, sku: id.toUpperCase(), priceFils: 100, lowStockThreshold: 5, active: true, taxCategory: "standard" });
@@ -50,6 +50,17 @@ test("supersedeProductOperations drops earlier unsynced product operations for t
     stockOp("sa", "a"),
   ];
   assert.deepEqual(supersedeProductOperations(ops, "a").map((op) => op.id), ["p3", "p4", "sa"]);
+});
+
+test("syncOrder sends a stock operation after the latest product operation of its product, even when that product operation is newer", () => {
+  // The import's opening stock failed because its product was refused; the owner fixed the product later.
+  const ops = [
+    stockOp("open", "a", "failed", "2026-10-18T10:00:00.001Z"),
+    stockOp("other", "b", "pending", "2026-10-18T10:00:00.002Z"),
+    productOp("fixed", "a", "pending", "2026-10-18T10:05:00.000Z"),
+    productOp("pb", "b", "pending", "2026-10-18T09:59:00.000Z"),
+  ];
+  assert.deepEqual(syncOrder(ops).map((op) => op.id), ["pb", "other", "fixed", "open"]);
 });
 
 test("withTaxCategories defaults products saved before Stage 1D to standard and keeps known categories", () => {

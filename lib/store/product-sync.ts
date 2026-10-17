@@ -26,6 +26,24 @@ function latestProductOperations(ops: SyncOperation[]): Map<string, SyncOperatio
   return latest;
 }
 
+/**
+ * Oldest first, except that a stock operation never goes before the latest unsynced product operation of its
+ * product: after the owner fixes a refused product, the product's earlier opening stock must follow the fix.
+ */
+export function syncOrder(ops: SyncOperation[]): SyncOperation[] {
+  const latest = latestProductOperations(ops.filter((op) => op.status !== "synced"));
+  const key = (op: SyncOperation) => {
+    if (op.entity !== "stock" || !op.payload || !("movement" in op.payload)) return { at: op.createdAt, rank: 0 };
+    const product = latest.get(op.payload.movement.productId);
+    return product && product.createdAt > op.createdAt ? { at: product.createdAt, rank: 1 } : { at: op.createdAt, rank: 0 };
+  };
+  return [...ops].sort((left, right) => {
+    const a = key(left);
+    const b = key(right);
+    return a.at.localeCompare(b.at) || a.rank - b.rank || left.createdAt.localeCompare(right.createdAt);
+  });
+}
+
 /** Stock operations not to send yet: their product's latest product operation was rejected, so the server lacks it. */
 export function heldStockOperations(ops: SyncOperation[]): Set<string> {
   const latest = latestProductOperations(ops);

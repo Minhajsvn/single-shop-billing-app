@@ -20,6 +20,7 @@ const FIELDS: { field: ImportField; label: string; required?: boolean }[] = [
   { field: "taxCategory", label: "VAT category" },
 ];
 const VISIBLE_ROWS = 100;
+const products_ = (count: number) => `${count.toLocaleString("en-US")} ${count === 1 ? "product" : "products"}`;
 
 type Step =
   | { kind: "file" }
@@ -216,7 +217,7 @@ export function ImportDialog({ onClose, onPrintLabels }: { onClose: () => void; 
         {plan.problems.length ? <button type="button" className="button" onClick={() => download("import-problems.csv", problemsToCsv(step.rows[0], plan.problems))}><DownloadSimple size={15} weight="bold" /> Download problem rows</button> : null}
       </>
     );
-    footer = <><button type="button" className="button" onClick={() => setStep({ ...step, kind: "map" })}>Back</button><button type="button" className="button primary" disabled={count === 0} onClick={() => confirm(step)}>Import {count.toLocaleString("en-US")} products</button></>;
+    footer = <><button type="button" className="button" onClick={() => setStep({ ...step, kind: "map" })}>Back</button><button type="button" className="button primary" disabled={count === 0} onClick={() => confirm(step)}>Import {products_(count)}</button></>;
   } else {
     const ids = new Set(step.operationIds);
     const remaining = syncOperations.filter((operation) => ids.has(operation.id) && operation.status !== "synced").length;
@@ -225,12 +226,12 @@ export function ImportDialog({ onClose, onPrintLabels }: { onClose: () => void; 
     const saved = productIds.length;
     body = (
       <div className="import-done">
-        <p><strong>Saved in this browser: {saved.toLocaleString("en-US")}</strong> products ({step.createdIds.length.toLocaleString("en-US")} new, {step.updatedIds.length.toLocaleString("en-US")} updated).</p>
+        <p><strong>Saved in this browser: {products_(saved)}</strong> ({step.createdIds.length.toLocaleString("en-US")} new, {step.updatedIds.length.toLocaleString("en-US")} updated).</p>
         {mode === "hosted" ? (
           <>
             <p>Synced: {(step.operationIds.length - remaining).toLocaleString("en-US")} of {step.operationIds.length.toLocaleString("en-US")} changes{remaining && !attention ? " · syncing in the background, you can keep working" : ""}.</p>
             <progress max={Math.max(step.operationIds.length, 1)} value={step.operationIds.length - remaining} />
-            {attention ? <p className="form-error">Needs attention: {attention} products were not saved to the server. They are marked on the Inventory page.</p> : null}
+            {attention ? <p className="form-error">Needs attention: {products_(attention)} {attention === 1 ? "was" : "were"} not saved to the server. {attention === 1 ? "It is" : "They are"} marked on the Inventory page.</p> : null}
           </>
         ) : null}
       </div>
