@@ -454,6 +454,14 @@ kbd { min-width: 20px; display: inline-grid; place-items: center; padding: 2px 5
 .held-row { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--border); }
 .held-row span { display: block; color: var(--muted); font-size: 11px; }
 
+/* Catalogue: inventory rows and product form */
+.row-actions { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.status-filter { margin-bottom: 0; min-width: 190px; }
+.sync-problem { display: grid; gap: 3px; margin-top: 6px; }
+.sync-problem small { color: var(--red); font-size: 10px; max-width: 220px; }
+.stock-readonly { display: flex; align-items: center; gap: 10px; min-height: 40px; }
+.stock-readonly strong { font-size: 16px; }
+
 /* Catalogue: spreadsheet import */
 .page-actions { display: flex; flex-wrap: wrap; gap: 9px; }
 .modal.import-dialog { width: min(860px, 100%); }
@@ -480,7 +488,9 @@ kbd { min-width: 20px; display: inline-grid; place-items: center; padding: 2px 5
 @media (max-width: 760px) {
   .import-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .modal.import-dialog .modal-footer { flex-wrap: wrap; }
-  .modal.import-dialog .button, .modal.import-dialog .select { min-height: 44px; }
+  /* Touch targets on phones: dialogs, the inventory toolbar and row actions. */
+  .modal .button, .modal .input, .modal .select, .page-actions .button, .row-actions .button, .status-filter .button, .toolbar .input { min-height: 44px; }
+  .modal .button.icon-only { min-width: 44px; }
 }
 
 /* POS touch targets: at least 44 × 44 px (Stage 1C). */
