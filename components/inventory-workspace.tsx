@@ -35,18 +35,19 @@ export function InventoryWorkspace() {
     const data = new FormData(event.currentTarget);
     const sku = String(data.get("sku") ?? "").trim().toUpperCase();
     const barcode = String(data.get("barcode") ?? "").trim();
-    if (products.some((product) => product.sku === sku || (barcode && product.barcode === barcode))) {
-      setError("SKU and barcode must be unique.");
-      return;
-    }
-    addProduct({
+    const result = addProduct({
       name: String(data.get("name") ?? "").trim(),
       sku,
       barcode: barcode || undefined,
       priceFils: Math.round(Number(data.get("price")) * 100),
       stock: Number(data.get("stock")),
       lowStockThreshold: Number(data.get("threshold")),
+      taxCategory: "standard",
     });
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
     setError("");
     setDialog(null);
   }

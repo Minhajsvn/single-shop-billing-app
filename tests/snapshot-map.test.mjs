@@ -8,7 +8,7 @@ const rows = {
     { id: "dev-2", name: "Counter 2", till_number: 2, branch_id: "br", status: "active" },
     { id: "dev-1", name: "Counter 1", till_number: 1, branch_id: "br", status: "active" },
   ],
-  products: [{ id: "p1", name: "Coffee", sku: "COF", barcode: null, price_fils: 2850, stock_quantity: 4, low_stock_threshold: 5, status: "active" }],
+  products: [{ id: "p1", name: "Coffee", sku: "COF", barcode: null, price_fils: 2850, stock_quantity: 4, low_stock_threshold: 5, status: "active", tax_category: "zero" }],
   customers: [{ id: "c1", name: "Omar", phone: "+971 55", email: null, address: null, trn: null, created_at: "2026-10-01T00:00:00Z", updated_at: "2026-10-02T00:00:00Z" }],
   sales: [{
     id: "s1", device_id: "dev-1", invoice_number: "SMK-1-261013-0001", created_at: "2026-10-13T08:00:00Z", supply_date: "2026-10-13", payment_method: "cash",
@@ -40,7 +40,7 @@ test("maps business, devices sorted by till number", () => {
 
 test("maps products, customers and sales with lines and supplier", () => {
   const { state } = mapSnapshotRows(rows, "x");
-  assert.deepEqual(state.products[0], { id: "p1", name: "Coffee", sku: "COF", barcode: undefined, priceFils: 2850, stock: 4, lowStockThreshold: 5, active: true });
+  assert.deepEqual(state.products[0], { id: "p1", name: "Coffee", sku: "COF", barcode: undefined, priceFils: 2850, stock: 4, lowStockThreshold: 5, active: true, taxCategory: "zero" });
   assert.equal(state.customers[0].email, undefined);
   assert.equal(state.sales[0].lines[0].productId, "p1");
   assert.equal(state.sales[0].supplier?.name, "Smoke LLC");
@@ -84,4 +84,9 @@ test("discounted lines keep their list price", () => {
   const discounted = { ...rows, sales: [{ ...rows.sales[0], sale_items: [{ ...rows.sales[0].sale_items[0], list_unit_gross_fils: 3000 }] }] };
   assert.equal(mapSnapshotRows(discounted, "x").state.sales[0].lines[0].listUnitGrossFils, 3000);
   assert.equal(mapSnapshotRows(rows, "x").state.sales[0].lines[0].listUnitGrossFils, undefined);
+});
+
+test("import counts map to the client's import-count movement type", () => {
+  const withCount = { ...rows, stockMovements: [{ id: "m2", product_id: "p1", type: "import_count", quantity_delta: -6, reason: "Spreadsheet import", created_at: "2026-10-18T07:00:00Z" }] };
+  assert.equal(mapSnapshotRows(withCount, "x").state.stockMovements[0].type, "import-count");
 });

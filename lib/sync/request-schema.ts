@@ -110,7 +110,7 @@ const stockMovementSchema = z.object({
   id: z.string().uuid(),
   productId: z.string().trim().min(1).max(100),
   delta: z.number().int().refine((value) => value !== 0),
-  type: z.enum(["opening", "receipt", "correction-in", "correction-out"]),
+  type: z.enum(["opening", "receipt", "correction-in", "correction-out", "import-count"]),
   reason: z.string().trim().min(1).max(300),
   createdAt: z.string().min(1),
 });
@@ -120,7 +120,32 @@ const stockOperationSchema = z.object({
   entity: z.literal("stock"),
   entityId: z.string().uuid(),
   createdAt: z.string().min(1),
-  payload: z.object({ movement: stockMovementSchema, product: stockProductSchema, deviceId: deviceIdSchema }),
+  // product: only operations queued before Stage 1D carry a copy. countedStock: required for import counts.
+  payload: z.object({
+    movement: stockMovementSchema,
+    product: stockProductSchema.optional(),
+    countedStock: z.number().int().nonnegative().optional(),
+    deviceId: deviceIdSchema,
+  }).refine((payload) => payload.movement.type !== "import-count" || payload.countedStock !== undefined, { message: "An import count needs the counted stock." }),
+});
+
+const productRecordSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().trim().min(1).max(160),
+  sku: z.string().trim().min(1).max(100),
+  barcode: z.string().trim().max(100).optional(),
+  priceFils: z.number().int().positive(),
+  lowStockThreshold: z.number().int().nonnegative(),
+  active: z.boolean(),
+  taxCategory: z.enum(["standard", "zero", "exempt"]),
+});
+
+const productOperationSchema = z.object({
+  id: z.string().uuid(),
+  entity: z.literal("product"),
+  entityId: z.string().uuid(),
+  createdAt: z.string().min(1),
+  payload: z.object({ product: productRecordSchema, deviceId: deviceIdSchema }),
 });
 const customerOperationSchema = z.object({
   id: z.string().uuid(),
@@ -163,7 +188,7 @@ const creditNoteOperationSchema = z.object({
 });
 
 export const requestSchema = z.object({
-  operations: z.array(z.union([customerOperationSchema, saleOperationSchema, registerOperationSchema, creditNoteOperationSchema, stockOperationSchema])).min(1).max(50),
+  operations: z.array(z.union([customerOperationSchema, saleOperationSchema, registerOperationSchema, creditNoteOperationSchema, stockOperationSchema, productOperationSchema])).min(1).max(50),
 });
 
 export type SyncRequest = z.infer<typeof requestSchema>;

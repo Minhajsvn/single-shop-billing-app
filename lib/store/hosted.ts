@@ -1,3 +1,4 @@
+import { withTaxCategories } from "./product-sync.ts";
 import { READ_ONLY_ENTITLEMENTS, type Entitlements } from "../billing/entitlements.ts";
 import type { DemoState } from "../domain.ts";
 import type { BusinessProfile, TillDevice } from "../snapshot/types.ts";
@@ -46,7 +47,8 @@ export function parseHostedCache(raw: string | null): HostedCache | null {
   try {
     const value = JSON.parse(raw) as Partial<HostedCache>;
     if (value?.version !== 1 || !value.state || !value.context || !Array.isArray(value.state.sales)) return null;
-    return value as HostedCache;
+    // Products cached before Stage 1D have no VAT category.
+    return { ...value, state: { ...value.state, products: withTaxCategories(value.state.products ?? []) } } as HostedCache;
   } catch {
     return null;
   }

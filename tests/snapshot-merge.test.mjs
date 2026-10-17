@@ -87,3 +87,33 @@ test("R9: a pending register op with no local register keeps the server register
   const merged = mergeSnapshot({ ...server, register: serverRegister }, { ...empty, register: null, syncOperations: [op("pending", "register", { action: "open", register: serverRegister })] });
   assert.equal(merged.register?.id, "r-server");
 });
+
+const productOp = (status, record, createdAt = "2026-10-18T09:00:00.000Z") => ({ id: `op-product-${status}-${record.id}`, entity: "product", entityId: record.id, createdAt, status, payload: { product: record } });
+const coffeeRecord = Object.fromEntries(Object.entries(product).filter(([key]) => key !== "stock"));
+
+test("a pending new product missing from the server survives a refresh with stock 0 plus its opening movement", () => {
+  const record = { ...coffeeRecord, id: "p-new", sku: "NEW", name: "New tea", taxCategory: "standard" };
+  const movement = { id: "m-open", productId: "p-new", delta: 4, type: "opening", reason: "Opening stock", createdAt: "2026-10-18T09:00:00.001Z" };
+  const merged = mergeSnapshot(server, { ...empty, syncOperations: [
+    { id: "op-open", entity: "stock", entityId: "m-open", createdAt: movement.createdAt, status: "pending", payload: { movement } },
+    productOp("pending", record),
+  ] });
+  assert.equal(merged.products.find((p) => p.id === "p-new")?.stock, 4);
+  assert.equal(merged.products.find((p) => p.id === "p-new")?.name, "New tea");
+});
+
+test("a pending import count sets stock, and a later pending sale still deducts", () => {
+  const movement = { id: "m-count", productId: "p1", delta: 30, type: "import-count", reason: "Spreadsheet import", createdAt: "2026-10-18T09:00:00.000Z" };
+  const laterSale = { ...sale, id: "s-later", createdAt: "2026-10-18T09:05:00.000Z" };
+  const merged = mergeSnapshot({ ...server, products: [{ ...product, stock: 7 }] }, { ...empty, syncOperations: [
+    { id: "op-sale", entity: "sale", entityId: "s-later", createdAt: "2026-10-18T09:05:00.000Z", status: "pending", payload: { sale: laterSale } },
+    { id: "op-count", entity: "stock", entityId: "m-count", createdAt: movement.createdAt, status: "pending", payload: { movement, countedStock: 40 } },
+  ] });
+  assert.equal(merged.products[0].stock, 38);
+});
+
+test("a failed product operation keeps the local fields over the server copy, with the server's stock", () => {
+  const merged = mergeSnapshot(server, { ...empty, syncOperations: [productOp("failed", { ...coffeeRecord, name: "Local name", taxCategory: "standard" })] });
+  assert.equal(merged.products[0].name, "Local name");
+  assert.equal(merged.products[0].stock, 10);
+});

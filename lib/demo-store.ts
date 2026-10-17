@@ -12,6 +12,7 @@ import {
   type InvoiceLine,
   type PaymentMethod,
   type Product,
+  type ProductRecord,
   type Sale,
   type StockMovement,
   type SyncOperation,
@@ -35,6 +36,8 @@ import {
   type HostedContext,
 } from "@/lib/store/hosted";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
+import type { ImportPlan } from "@/lib/catalogue/classify";
+import { heldStockOperations, stampSequence, supersedeProductOperations, withTaxCategories } from "@/lib/store/product-sync";
 import { useSyncExternalStore } from "react";
 
 // Sample and unconfigured (no Supabase) modes keep using the original browser-only demo keys.
@@ -180,7 +183,7 @@ function save(next: DemoState) {
 
 function normalizeState(saved: Partial<DemoState>): DemoState {
   return {
-    products: saved.products ?? initialState.products,
+    products: withTaxCategories(saved.products ?? initialState.products),
     stockMovements: saved.stockMovements ?? [],
     sales: saved.sales ?? initialState.sales,
     customers: saved.customers ?? initialCustomers,
@@ -206,7 +209,7 @@ function hydrate() {
     } else {
       const legacyProducts = readStorage(LEGACY_PRODUCT_KEY);
       if (legacyProducts) {
-        try { state = { ...initialState, products: JSON.parse(legacyProducts) as Product[] }; } catch { state = initialState; }
+        try { state = { ...initialState, products: withTaxCategories(JSON.parse(legacyProducts) as Product[]) }; } catch { state = initialState; }
       }
     }
   }
@@ -450,13 +453,133 @@ export function updateCustomer(id: string, input: CustomerInput): { ok: true } |
   return { ok: true };
 }
 
-export function addProduct(input: Omit<Product, "id" | "active">) {
+type QueuedItem = { entity: SyncOperation["entity"]; entityId: string; payload: SyncOperation["payload"] };
+
+/** Queues several operations so they sync in exactly this order (a product before its opening stock). */
+function enqueueInOrder(next: DemoState, items: QueuedItem[]): DemoState {
+  if (mode !== "hosted" || !items.length) return next;
+  const deviceId = contextSnapshot.device?.id;
+  const ops: SyncOperation[] = stampSequence(items.map((item) => ({
+    id: crypto.randomUUID(),
+    entity: item.entity,
+    entityId: item.entityId,
+    createdAt: "",
+    status: "pending" as const,
+    ...(item.payload ? { payload: { ...item.payload, ...(deviceId ? { deviceId } : {}) } } : {}),
+  })), new Date());
+  // The outbox is kept newest first.
+  return { ...next, syncOperations: [...ops.reverse(), ...next.syncOperations] };
+}
+
+function productRecord(product: Product): ProductRecord {
+  return { id: product.id, name: product.name, sku: product.sku, barcode: product.barcode, priceFils: product.priceFils, lowStockThreshold: product.lowStockThreshold, active: product.active, taxCategory: product.taxCategory };
+}
+
+function productItem(product: Product): QueuedItem {
+  return { entity: "product", entityId: product.id, payload: { product: productRecord(product) } };
+}
+
+/** The plan's product limit for this shop; sample and unconfigured stores have none. */
+export function productLimit(): number | null {
+  return mode === "hosted" ? contextSnapshot.entitlements.limits.products ?? null : null;
+}
+
+function overLimitError(limit: number) {
+  return `Over your plan's limit of ${limit} products: upgrade to Pro`;
+}
+
+function duplicateOf(id: string | null, sku: string, barcode: string | undefined) {
+  const skuKey = sku.trim().toLowerCase();
+  return state.products.some((product) => product.id !== id && (product.sku.trim().toLowerCase() === skuKey || (barcode && product.barcode === barcode)));
+}
+
+export function addProduct(input: Omit<Product, "id" | "active">): { ok: true; product: Product } | { ok: false; error: string } {
+  if (duplicateOf(null, input.sku, input.barcode)) return { ok: false, error: "SKU and barcode must be unique." };
+  const limit = productLimit();
+  if (limit !== null && state.products.filter((product) => product.active).length >= limit) return { ok: false, error: overLimitError(limit) };
   const product: Product = { ...input, id: crypto.randomUUID(), active: true };
   const movement: StockMovement | null = input.stock > 0 ? {
     id: crypto.randomUUID(), productId: product.id, delta: input.stock, type: "opening", reason: "Opening stock", createdAt: new Date().toISOString(),
   } : null;
   const next = { ...state, products: [product, ...state.products], stockMovements: movement ? [movement, ...state.stockMovements] : state.stockMovements };
-  save(movement ? queueStockOperation(next, movement, product) : next);
+  // The product travels as its own operation, so a product with no opening stock still reaches the server.
+  save(enqueueInOrder(next, [productItem(product), ...(movement ? [{ entity: "stock" as const, entityId: movement.id, payload: { movement } }] : [])]));
+  return { ok: true, product };
+}
+
+export type ProductPatch = Partial<Pick<Product, "name" | "sku" | "barcode" | "priceFils" | "lowStockThreshold" | "taxCategory">>;
+
+export function updateProduct(id: string, patch: ProductPatch): { ok: true } | { ok: false; error: string } {
+  const current = state.products.find((product) => product.id === id);
+  if (!current) return { ok: false, error: "This product no longer exists." };
+  const updated: Product = { ...current, ...patch };
+  if (!updated.name.trim() || !updated.sku.trim()) return { ok: false, error: "Name and SKU are required." };
+  if (!Number.isInteger(updated.priceFils) || updated.priceFils < 1) return { ok: false, error: "Enter a price above 0." };
+  if (duplicateOf(id, updated.sku, updated.barcode)) return { ok: false, error: "SKU and barcode must be unique." };
+  const next = { ...state, products: state.products.map((product) => product.id === id ? updated : product), syncOperations: supersedeProductOperations(state.syncOperations, id) };
+  save(enqueueInOrder(next, [productItem(updated)]));
+  return { ok: true };
+}
+
+/** Archive (hidden from the till, kept for past invoices) or restore a product. */
+export function setProductActive(id: string, active: boolean): { ok: true } | { ok: false; error: string } {
+  const current = state.products.find((product) => product.id === id);
+  if (!current) return { ok: false, error: "This product no longer exists." };
+  if (current.active === active) return { ok: true };
+  const limit = productLimit();
+  if (active && limit !== null && state.products.filter((product) => product.active).length >= limit) return { ok: false, error: overLimitError(limit) };
+  const updated = { ...current, active };
+  const next = { ...state, products: state.products.map((product) => product.id === id ? updated : product), syncOperations: supersedeProductOperations(state.syncOperations, id) };
+  save(enqueueInOrder(next, [productItem(updated)]));
+  return { ok: true };
+}
+
+const IMPORT_REASON = "Spreadsheet import";
+
+/** Applies a confirmed import in one save: product operations first, then opening stock and stock counts. */
+export function applyImport(plan: ImportPlan): { createdIds: string[]; updatedIds: string[] } {
+  const now = new Date().toISOString();
+  const items: QueuedItem[] = [];
+  const movements: StockMovement[] = [];
+  let products = state.products;
+  let syncOperations = state.syncOperations;
+  const createdIds: string[] = [];
+  const updatedIds: string[] = [];
+
+  for (const create of plan.creates) {
+    const product: Product = { ...create.product, active: true };
+    products = [product, ...products];
+    createdIds.push(product.id);
+    items.push(productItem(product));
+    if (product.stock > 0) {
+      const movement: StockMovement = { id: crypto.randomUUID(), productId: product.id, delta: product.stock, type: "opening", reason: IMPORT_REASON, createdAt: now };
+      movements.push(movement);
+      items.push({ entity: "stock", entityId: movement.id, payload: { movement } });
+    }
+  }
+
+  for (const update of plan.updates) {
+    if (!update.changed) continue;
+    const current = products.find((product) => product.id === update.productId);
+    if (!current) continue;
+    const updated: Product = { ...current, priceFils: update.after.priceFils, barcode: update.after.barcode, stock: update.after.stock };
+    products = products.map((product) => product.id === current.id ? updated : product);
+    updatedIds.push(current.id);
+    if (current.priceFils !== updated.priceFils || current.barcode !== updated.barcode) {
+      syncOperations = supersedeProductOperations(syncOperations, current.id);
+      items.push(productItem(updated));
+    }
+    const delta = updated.stock - current.stock;
+    if (delta !== 0) {
+      // A count, not a delivery: the server sets stock to countedStock and records its own difference.
+      const movement: StockMovement = { id: crypto.randomUUID(), productId: current.id, delta, type: "import-count", reason: IMPORT_REASON, createdAt: now };
+      movements.push(movement);
+      items.push({ entity: "stock", entityId: movement.id, payload: { movement, countedStock: updated.stock } });
+    }
+  }
+
+  save(enqueueInOrder({ ...state, products, syncOperations, stockMovements: [...movements.reverse(), ...state.stockMovements] }, items));
+  return { createdIds, updatedIds };
 }
 export function adjustStock(productId: string, delta: number, reason: string) {
   const product = state.products.find((item) => item.id === productId);
@@ -668,12 +791,15 @@ async function syncPendingOperations(): Promise<ReconcileResult> {
   const pending = state.syncOperations.filter((operation) => operation.status === "pending" || operation.status === "failed");
   if (!pending.length) return { status: "idle", pendingCount: 0, message: "There are no pending operations." };
 
+  // Stock for a product the server refused waits until the product is fixed and accepted.
+  const held = heldStockOperations(state.syncOperations);
   const syncable = pending.filter((operation) => (
     (operation.entity === "customer" && Boolean(operation.payload && "customer" in operation.payload)) ||
     (operation.entity === "sale" && Boolean(operation.payload && "sale" in operation.payload)) ||
     (operation.entity === "credit-note" && Boolean(operation.payload && "creditNote" in operation.payload)) ||
     (operation.entity === "register" && Boolean(operation.payload && "action" in operation.payload)) ||
-    (operation.entity === "stock" && Boolean(operation.payload && "movement" in operation.payload))
+    (operation.entity === "stock" && Boolean(operation.payload && "movement" in operation.payload) && !held.has(operation.id)) ||
+    (operation.entity === "product" && Boolean(operation.payload && "product" in operation.payload && !("movement" in operation.payload)))
   )).sort((left, right) => left.createdAt.localeCompare(right.createdAt));
   if (!syncable.length) {
     return { status: "blocked", pendingCount: pending.length, message: "Hosted sync currently supports customer, sale, refund, register, and inventory changes only; other pending operations were kept safely." };
