@@ -12,7 +12,19 @@ export type HostedContext = {
   lastRefreshedAt: string | null;
 };
 
-export type HostedCache = { version: 1; state: DemoState; context: HostedContext };
+/** savedAt (ms) lets the loader pick the newer of this copy and the IndexedDB one; 0 for caches from before Stage 1D. */
+export type HostedCache = { version: 1; savedAt: number; state: DemoState; context: HostedContext };
+
+/**
+ * Which copy to load: localStorage can be full (a large import) and silently stop updating, while IndexedDB
+ * keeps a copy of the state and outbox. Ties go to localStorage, which is read synchronously.
+ */
+export function pickNewerCache(local: { savedAt: number } | null, indexed: { savedAt: number } | null): "local" | "indexed" | null {
+  if (!local && !indexed) return null;
+  if (!local) return "indexed";
+  if (!indexed) return "local";
+  return indexed.savedAt > local.savedAt ? "indexed" : "local";
+}
 
 /** Each signed-in user gets their own cache, so one account never sees or overwrites another's unsynced work. */
 export function hostedCacheKey(userId: string): string {
@@ -48,7 +60,7 @@ export function parseHostedCache(raw: string | null): HostedCache | null {
     const value = JSON.parse(raw) as Partial<HostedCache>;
     if (value?.version !== 1 || !value.state || !value.context || !Array.isArray(value.state.sales)) return null;
     // Products cached before Stage 1D have no VAT category.
-    return { ...value, state: { ...value.state, products: withTaxCategories(value.state.products ?? []) } } as HostedCache;
+    return { ...value, savedAt: typeof value.savedAt === "number" ? value.savedAt : 0, state: { ...value.state, products: withTaxCategories(value.state.products ?? []) } } as HostedCache;
   } catch {
     return null;
   }

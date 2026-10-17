@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { READ_ONLY_ENTITLEMENTS } from "../lib/billing/entitlements.ts";
-import { chunk, createSerialQueue, createSyncEpoch, effectiveEntitlements, emptyShopState, hostedCacheKey, parseHostedCache } from "../lib/store/hosted.ts";
+import { chunk, createSerialQueue, createSyncEpoch, effectiveEntitlements, emptyShopState, hostedCacheKey, parseHostedCache, pickNewerCache } from "../lib/store/hosted.ts";
 
 test("sync batches respect the server's 50-operation limit", () => {
   const ops = Array.from({ length: 120 }, (_, index) => index);
@@ -32,8 +32,22 @@ test("hosted cache parsing never throws and rejects foreign shapes", () => {
   assert.equal(parseHostedCache(null), null);
   assert.equal(parseHostedCache("{not json"), null);
   assert.equal(parseHostedCache(JSON.stringify({ products: [] })), null, "a legacy demo-store blob is not a hosted cache");
-  const cache = { version: 1, state: emptyShopState(), context: { business: null, devices: [], entitlementCache: null, lastRefreshedAt: null } };
+  const cache = { version: 1, savedAt: 5, state: emptyShopState(), context: { business: null, devices: [], entitlementCache: null, lastRefreshedAt: null } };
   assert.deepEqual(parseHostedCache(JSON.stringify(cache)), cache);
+});
+
+test("a hosted cache written before Stage 1D reads as savedAt 0", () => {
+  const legacy = { version: 1, state: emptyShopState(), context: { business: null, devices: [], entitlementCache: null, lastRefreshedAt: null } };
+  assert.equal(parseHostedCache(JSON.stringify(legacy))?.savedAt, 0);
+});
+
+test("pickNewerCache prefers the newer copy and falls back to whichever exists", () => {
+  assert.equal(pickNewerCache(null, { savedAt: 1 }), "indexed");
+  assert.equal(pickNewerCache({ savedAt: 5 }, { savedAt: 3 }), "local");
+  assert.equal(pickNewerCache({ savedAt: 3 }, { savedAt: 5 }), "indexed");
+  assert.equal(pickNewerCache({ savedAt: 3 }, { savedAt: 3 }), "local");
+  assert.equal(pickNewerCache({ savedAt: 3 }, null), "local");
+  assert.equal(pickNewerCache(null, null), null);
 });
 
 test("empty shop state has no demo data", () => {

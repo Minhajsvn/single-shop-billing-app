@@ -19,7 +19,7 @@ import {
 } from "@/lib/domain";
 import { saleBlockReason } from "@/lib/checkout/register-status";
 import { dubaiSupplyDate, nextCreditNoteNumber, nextInvoiceNumber } from "@/lib/invoice-numbers";
-import { clearOfflineCache, clearSyncedOutbox, loadOfflineCustomers, persistOfflineSnapshot } from "@/lib/offline-db";
+import { clearOfflineCache, clearSyncedOutbox, loadOfflineCustomers, loadOfflineSnapshot, persistOfflineSnapshot } from "@/lib/offline-db";
 import { mergeSnapshot } from "@/lib/snapshot/merge";
 import { registerTotals } from "@/lib/store/register-totals";
 import type { BusinessProfile, ShopSnapshot, TillDevice } from "@/lib/snapshot/types";
@@ -32,6 +32,7 @@ import {
   emptyShopState,
   hostedCacheKey,
   parseHostedCache,
+  pickNewerCache,
   type HostedCache,
   type HostedContext,
 } from "@/lib/store/hosted";
@@ -163,10 +164,12 @@ function persist() {
     if (mode === "hosted") {
       // Nothing is cached until we know whose shop this is (ruling R17).
       if (!activeUserId) return;
-      const cache: HostedCache = { version: 1, state: { ...state, customers: [] }, context: hostedContext };
-      window.localStorage.setItem(hostedCacheKey(activeUserId), JSON.stringify(cache));
+      const savedAt = Date.now();
+      // IndexedDB first: if localStorage is full (a large import) the outbox still survives a closed tab.
       // Customers are cached only in IndexedDB, encrypted with this device's key (ruling R10).
-      void persistOfflineSnapshot(state, activeUserId).catch(() => undefined);
+      void persistOfflineSnapshot(state, activeUserId, savedAt).catch(() => undefined);
+      const cache: HostedCache = { version: 1, savedAt, state: { ...state, customers: [] }, context: hostedContext };
+      window.localStorage.setItem(hostedCacheKey(activeUserId), JSON.stringify(cache));
     } else {
       window.localStorage.setItem(STORE_KEY, JSON.stringify(state));
     }
@@ -338,12 +341,20 @@ function clearSampleCookie() {
 function loadUserCache(userId: string) {
   const cache = parseHostedCache(readStorage(hostedCacheKey(userId)));
   state = cache?.state ?? emptyShopState();
+  const loaded = state;
   hostedContext = cache?.context ?? emptyHostedContext();
   emit();
   emitContext();
   // Remove the unscoped cache written by earlier builds; it could belong to another account.
   try { window.localStorage.removeItem(LEGACY_HOSTED_KEY); } catch { /* ignore */ }
   void clearOfflineCache(null).catch(() => undefined);
+  // localStorage may be stale or missing (quota full after a large import); IndexedDB may hold a newer copy.
+  void loadOfflineSnapshot(userId).then((indexed) => {
+    if (!indexed || mode !== "hosted" || activeUserId !== userId || state !== loaded) return;
+    if (pickNewerCache(cache, indexed) !== "indexed") return;
+    state = { ...indexed.state, products: withTaxCategories(indexed.state.products), customers: state.customers };
+    emit();
+  }).catch(() => undefined);
   void loadOfflineCustomers(userId).then((customers) => {
     if (customers && mode === "hosted" && activeUserId === userId && !state.customers.length) {
       state = { ...state, customers };

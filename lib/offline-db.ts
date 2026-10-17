@@ -50,18 +50,32 @@ async function encryptCustomers(database: IDBDatabase, customers: Customer[]): P
 /** Every cached copy belongs to one signed-in user, so accounts sharing a browser never see each other's data. */
 const scoped = (key: string, scope: string) => `${key}:${scope}`;
 
-export async function persistOfflineSnapshot(state: DemoState, scope: string) {
+export async function persistOfflineSnapshot(state: DemoState, scope: string, savedAt = Date.now()) {
   if (typeof indexedDB === "undefined") return;
   const database = await openDatabase();
   try {
     const { customers, ...nonSensitiveState } = state;
     const encryptedCustomers = await encryptCustomers(database, customers);
     const transaction = database.transaction(["snapshots", "private", "outbox"], "readwrite");
-    transaction.objectStore("snapshots").put(nonSensitiveState, scoped(SNAPSHOT_KEY, scope));
+    transaction.objectStore("snapshots").put({ ...nonSensitiveState, savedAt }, scoped(SNAPSHOT_KEY, scope));
     transaction.objectStore("private").put(encryptedCustomers, scoped(CUSTOMER_KEY, scope));
     for (const operation of state.syncOperations.filter((item) => item.status === "pending")) {
       transaction.objectStore("outbox").put(operation);
     }
+  } finally {
+    database.close();
+  }
+}
+
+/** The state (customers excluded) last written by persistOfflineSnapshot for this user, with when it was saved. */
+export async function loadOfflineSnapshot(scope: string): Promise<{ state: Omit<DemoState, "customers">; savedAt: number } | null> {
+  if (typeof indexedDB === "undefined") return null;
+  const database = await openDatabase();
+  try {
+    const stored = await requestResult(database.transaction("snapshots", "readonly").objectStore("snapshots").get(scoped(SNAPSHOT_KEY, scope))) as (Omit<DemoState, "customers"> & { savedAt?: number }) | undefined;
+    if (!stored || !Array.isArray(stored.products) || !Array.isArray(stored.syncOperations)) return null;
+    const { savedAt, ...state } = stored;
+    return { state, savedAt: typeof savedAt === "number" ? savedAt : 0 };
   } finally {
     database.close();
   }
