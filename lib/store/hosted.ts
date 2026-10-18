@@ -26,7 +26,22 @@ export function pickNewerCache(local: { savedAt: number } | null, indexed: { sav
   return indexed.savedAt > local.savedAt ? "indexed" : "local";
 }
 
-export type SyncResult = { id: string; status: "accepted" | "rejected"; error?: string };
+/**
+ * Adopts the newer IndexedDB copy (localStorage was full or stale) without losing anything done since load:
+ * the outbox is the union of both copies by operation id, and customers stay as loaded (they live encrypted
+ * elsewhere). The next snapshot refresh rebuilds products, sales and stock from the server plus this outbox.
+ */
+export function restoreFromIndexed(current: DemoState, indexed: Omit<DemoState, "customers">): DemoState {
+  const known = new Set(indexed.syncOperations.map((operation) => operation.id));
+  return {
+    ...indexed,
+    products: withTaxCategories(indexed.products),
+    customers: current.customers,
+    syncOperations: [...current.syncOperations.filter((operation) => !known.has(operation.id)), ...indexed.syncOperations],
+  };
+}
+
+export type SyncResult ={ id: string; status: "accepted" | "rejected"; error?: string };
 
 /** Applies one sync batch's results; operations not in the batch are untouched. */
 export function applySyncResults(operations: SyncOperation[], results: SyncResult[]): SyncOperation[] {

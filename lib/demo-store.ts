@@ -35,6 +35,7 @@ import {
   hostedCacheKey,
   parseHostedCache,
   pickNewerCache,
+  restoreFromIndexed,
   type HostedCache,
   type HostedContext,
 } from "@/lib/store/hosted";
@@ -340,10 +341,10 @@ function clearSampleCookie() {
   try { document.cookie = `${SAMPLE_COOKIE}=; path=/; Max-Age=0; SameSite=Lax`; } catch { /* ignore */ }
 }
 
-function loadUserCache(userId: string) {
+/** Loads this user's cached shop; the returned promise settles once the IndexedDB copy has been checked. */
+async function loadUserCache(userId: string): Promise<void> {
   const cache = parseHostedCache(readStorage(hostedCacheKey(userId)));
   state = cache?.state ?? emptyShopState();
-  const loaded = state;
   hostedContext = cache?.context ?? emptyHostedContext();
   emit();
   emitContext();
@@ -351,18 +352,20 @@ function loadUserCache(userId: string) {
   try { window.localStorage.removeItem(LEGACY_HOSTED_KEY); } catch { /* ignore */ }
   void clearOfflineCache(null).catch(() => undefined);
   // localStorage may be stale or missing (quota full after a large import); IndexedDB may hold a newer copy.
-  void loadOfflineSnapshot(userId).then((indexed) => {
-    if (!indexed || mode !== "hosted" || activeUserId !== userId || state !== loaded) return;
-    if (pickNewerCache(cache, indexed) !== "indexed") return;
-    state = { ...indexed.state, products: withTaxCategories(indexed.state.products), customers: state.customers };
-    emit();
-  }).catch(() => undefined);
-  void loadOfflineCustomers(userId).then((customers) => {
+  // Anything done meanwhile is kept: the outbox is merged by operation id, never replaced.
+  try {
+    const indexed = await loadOfflineSnapshot(userId);
+    if (indexed && mode === "hosted" && activeUserId === userId && pickNewerCache(cache, indexed) === "indexed") {
+      save(restoreFromIndexed(state, indexed.state));
+    }
+  } catch { /* IndexedDB unavailable: the localStorage copy stands */ }
+  try {
+    const customers = await loadOfflineCustomers(userId);
     if (customers && mode === "hosted" && activeUserId === userId && !state.customers.length) {
       state = { ...state, customers };
       emit();
     }
-  }).catch(() => undefined);
+  } catch { /* customers stay as loaded */ }
 }
 
 /** Switches this browser to the signed-in user's hosted shop. Called with the session's user id (also leaves sample mode). */
@@ -373,7 +376,8 @@ export async function startHostedStore(userId: string): Promise<{ ok: true } | {
     mode = "hosted";
     hydrated = true;
     activeUserId = userId;
-    loadUserCache(userId);
+    // Wait for the IndexedDB check so the snapshot refresh merges against the complete outbox.
+    await loadUserCache(userId);
   }
   const [snapshot] = await Promise.all([refreshSnapshot(), refreshEntitlements()]);
   // With a cached copy the shop keeps working offline; without one there is nothing safe to show.
