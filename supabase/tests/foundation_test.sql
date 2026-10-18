@@ -757,6 +757,23 @@ begin
   exception when others then failure := sqlerrm;
   end;
   assert failure = 'read_only', 'implicit session after the end is read_only, got ' || coalesce(failure, 'null');
+
+  -- The shift's open op never reached the server, but the sale carries the real open time (before the end).
+  perform public.apply_sale_sync(gen_random_uuid(), biz, 'a2400000-0000-4000-8000-0000000000c3', jsonb_build_object(
+    'deviceId', till, 'register', jsonb_build_object('openingCashFils', 0, 'openedAt', now() - interval '8 hours'),
+    'sale', jsonb_build_object(
+      'id', 'a2400000-0000-4000-8000-0000000000c3', 'invoiceNumber', 'T24C-3', 'status', 'completed',
+      'createdAt', now(), 'supplyDate', current_date, 'paymentMethod', 'card',
+      'netFils', 100, 'vatFils', 5, 'grossFils', 105,
+      'lines', jsonb_build_array(jsonb_build_object(
+        'id', 'a2400000-0000-4000-8000-0000000c3a01', 'name', 'Item', 'quantity', 1,
+        'unitGrossFils', 105, 'netFils', 100, 'vatFils', 5, 'grossFils', 105)))));
+  assert (select rs.opened_at from public.sales s join public.register_sessions rs on rs.id = s.register_session_id
+          where s.id = 'a2400000-0000-4000-8000-0000000000c3') = now() - interval '8 hours',
+    'implicit session from a sale keeps the real open time and is accepted';
+  perform public.apply_register_sync(gen_random_uuid(), biz, gen_random_uuid(), jsonb_build_object(
+    'deviceId', till, 'action', 'close',
+    'register', jsonb_build_object('countedCashFils', 0, 'closedAt', now())));
 end $$;
 reset role;
 update public.subscriptions set trial_ends_at = now() - interval '73 hours' where business_id = 'b2400000-0000-4000-8000-000000000001';
@@ -776,7 +793,8 @@ begin
 end $$;
 reset role;
 
--- 24d. Choosing the till that stays pauses the others; a paused till finishes its running shift but cannot open a new one.
+-- 24d. Choosing the till that stays pauses the others; a paused till finishes a shift opened before the pause
+-- (arriving within 72 hours) but cannot open a new one.
 update public.subscriptions set trial_ends_at = now() + interval '10 days' where business_id = 'b2400000-0000-4000-8000-000000000001';
 insert into public.devices (id, business_id, name) values ('d2400000-0000-4000-8000-00000000000b', 'b2400000-0000-4000-8000-000000000001', 'Till B');
 set local role authenticated;
@@ -790,14 +808,16 @@ declare
   paused integer;
   failure text;
 begin
+  paused := public.choose_active_till(biz, till_a);
+  assert paused = 1, 'one other till paused, got ' || coalesce(paused::text, 'null');
+  assert (select status::text = 'paused' and paused_at = now() from public.devices where id = till_b::uuid), 'till B is paused now';
+  assert (select status::text = 'active' and paused_at is null from public.devices where id = till_a), 'kept till stays active';
+
+  -- Till B opened its shift offline before the pause; the open op arrives after it.
   perform public.apply_register_sync(gen_random_uuid(), biz, session_b, jsonb_build_object(
     'deviceId', till_b, 'action', 'open',
     'register', jsonb_build_object('openingCashFils', 0, 'openedAt', now() - interval '1 hour')));
-
-  paused := public.choose_active_till(biz, till_a);
-  assert paused = 1, 'one other till paused, got ' || coalesce(paused::text, 'null');
-  assert (select status::text from public.devices where id = till_b::uuid) = 'paused', 'till B is paused';
-  assert (select status::text from public.devices where id = till_a) = 'active', 'kept till stays active';
+  assert exists (select 1 from public.register_sessions where id = session_b and status = 'open'), 'shift opened before the pause is accepted';
 
   perform public.apply_sale_sync(gen_random_uuid(), biz, 'a2400000-0000-4000-8000-0000000000d1', jsonb_build_object(
     'deviceId', till_b, 'register', null,
@@ -818,11 +838,27 @@ begin
   begin
     perform public.apply_register_sync(gen_random_uuid(), biz, 'e2400000-0000-4000-8000-0000000000d2', jsonb_build_object(
       'deviceId', till_b, 'action', 'open',
-      'register', jsonb_build_object('openingCashFils', 0, 'openedAt', now())));
+      'register', jsonb_build_object('openingCashFils', 0, 'openedAt', now() + interval '1 minute')));
     assert false, 'a paused till must not open a new shift';
   exception when others then failure := sqlerrm;
   end;
   assert failure = 'till_paused', 'new open on a paused till is till_paused, got ' || coalesce(failure, 'null');
+end $$;
+reset role;
+update public.devices set paused_at = now() - interval '73 hours' where id = 'd2400000-0000-4000-8000-00000000000b';
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-00000000000c","role":"authenticated"}', true);
+do $$
+declare failure text;
+begin
+  begin
+    perform public.apply_register_sync(gen_random_uuid(), 'b2400000-0000-4000-8000-000000000001', 'e2400000-0000-4000-8000-0000000000d3', jsonb_build_object(
+      'deviceId', 'd2400000-0000-4000-8000-00000000000b', 'action', 'open',
+      'register', jsonb_build_object('openingCashFils', 0, 'openedAt', now() - interval '74 hours')));
+    assert false, 'a backdated shift arriving more than 72 hours after the pause must be refused';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'till_paused', 'backdated open after 72 hours is till_paused, got ' || coalesce(failure, 'null');
 end $$;
 reset role;
 do $$ begin
@@ -841,6 +877,10 @@ do $$ begin
   exception when others then
     assert sqlerrm = 'plan_limit_reached', format('expected plan_limit_reached, got %s', sqlerrm);
   end;
+  -- With room again, re-activating the paused till clears its pause time.
+  update public.devices set status = 'revoked' where id = 'd2400000-0000-4000-8000-0000000000c3';
+  update public.devices set status = 'active' where id = 'd2400000-0000-4000-8000-00000000000b';
+  assert (select status::text = 'active' and paused_at is null from public.devices where id = 'd2400000-0000-4000-8000-00000000000b'), 're-activated till has no pause time';
 end $$;
 
 -- 24e. Only the owner chooses the till that stays.
@@ -864,8 +904,8 @@ do $$
 declare failure text;
 begin
   begin
-    perform public.choose_active_till('b2400000-0000-4000-8000-000000000001', 'd2400000-0000-4000-8000-00000000000b');
-    assert false, 'a paused till cannot be the kept till';
+    perform public.choose_active_till('b2400000-0000-4000-8000-000000000001', 'd2400000-0000-4000-8000-0000000000c3');
+    assert false, 'a till that is not active cannot be the kept till';
   exception when others then failure := sqlerrm;
   end;
   assert failure = 'till_not_found', 'kept till must be active, got ' || coalesce(failure, 'null');
