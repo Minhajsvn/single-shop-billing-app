@@ -196,7 +196,7 @@ export function InventoryWorkspace() {
             );
           })}</tbody></table></div>
         ) : status === "archived"
-          ? <div className="empty"><Archive size={28} weight="duotone" /><h3>No archived products</h3><p>Archived products are hidden from the till and listed here.</p></div>
+          ? <EmptyState icon={<Archive size={28} weight="duotone" />} title="No archived products" hint="Archived products are hidden from the till and listed here." />
           : products.length
             ? <EmptyState icon={<Archive size={28} weight="duotone" />} title={`No products match "${query}"`} hint="Try a name, SKU or barcode." />
             : <EmptyState icon={<Archive size={28} weight="duotone" />} title="No products yet" hint="Import a spreadsheet or add your first product." action={<button className="button primary" onClick={() => setDialog({ kind: "new" })}>Add product</button>} />}

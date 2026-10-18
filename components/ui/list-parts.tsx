@@ -25,8 +25,8 @@ export function SummaryStrip({ items, label }: { items: { label: string; value: 
   );
 }
 
-export function EmptyState({ icon, title, hint, action }: { icon: ReactNode; title: string; hint: string; action?: ReactNode }) {
-  return <div className="empty">{icon}<h3>{title}</h3><p>{hint}</p>{action}</div>;
+export function EmptyState({ icon, title, hint, action, compact }: { icon: ReactNode; title: string; hint: string; action?: ReactNode; compact?: boolean }) {
+  return <div className={`empty ${compact ? "compact-empty" : ""}`}>{icon}<h3>{title}</h3><p>{hint}</p>{action}</div>;
 }
 
 /** Grey placeholders in the final layout's shape while the shop loads. */

@@ -2,7 +2,7 @@
 
 import { SAMPLE_MODE_COOKIE } from "@/lib/auth/access-rules";
 import { parseEntitlements, type Entitlements } from "@/lib/billing/entitlements";
-import { getStoredDeviceId } from "@/lib/device";
+import { clearStoredDeviceId, getStoredDeviceId } from "@/lib/device";
 import {
   calculateVatInclusive,
   initialProducts,
@@ -383,6 +383,13 @@ export async function startHostedStore(userId: string): Promise<{ ok: true } | {
   // With a cached copy the shop keeps working offline; without one there is nothing safe to show.
   if (!snapshot.ok && !hostedContext.business) return snapshot;
   return { ok: true };
+}
+
+/** Forgets this browser's till so the till picker asks again. Unsynced work keeps its own till and syncs under it. */
+export function switchThisTill() {
+  if (mode !== "hosted") return;
+  clearStoredDeviceId();
+  emitContext();
 }
 
 export function startSampleStore() {

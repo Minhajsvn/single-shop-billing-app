@@ -183,6 +183,17 @@ a { color: inherit; text-decoration: none; }
 .skeleton-grid .skeleton-block { height: 120px; }
 @keyframes skeleton-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 @media (prefers-reduced-motion: reduce) { .skeleton-block { animation: none; } }
+.route-skeleton { display: grid; gap: 18px; }
+.route-skeleton .page-heading .skeleton-block { margin-bottom: 10px; }
+.skeleton-eyebrow { width: 140px; height: 11px; }
+.skeleton-title { width: min(320px, 70vw); height: 36px; }
+.route-skeleton > .skeleton-cards { padding: 0; }
+/* Settings tabs: one row that scrolls sideways within itself on phones */
+.settings-tabs { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin-bottom: 18px; border-bottom: 1px solid var(--border); }
+.settings-tabs::-webkit-scrollbar { display: none; }
+.settings-tab { flex: none; border: 0; background: none; padding: 10px 14px; min-height: 44px; font: inherit; font-weight: 600; color: var(--muted); border-bottom: 2px solid transparent; cursor: pointer; white-space: nowrap; }
+.settings-tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--ink); }
+.settings-panel { display: grid; gap: 18px; }
 @media (max-width: 760px) {
   /* Above the bottom navigation and the POS cart bar. */
   .toaster { left: 16px; right: 16px; width: auto; bottom: calc(140px + env(safe-area-inset-bottom)); }
