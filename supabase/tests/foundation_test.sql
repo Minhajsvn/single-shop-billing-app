@@ -507,4 +507,159 @@ begin
 end $$;
 reset role;
 
+-- 24a. apply_billing_event (service_role): lifecycle transitions, duplicate and out-of-order protection.
+reset role;
+insert into public.businesses (id, owner_id, legal_name, trn, address, phone)
+values ('b2400000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-00000000000c', 'Shop C LLC', '100000000000005', 'Karama, Dubai', '+971500000024');
+set local role service_role;
+do $$
+declare
+  biz constant uuid := 'b2400000-0000-4000-8000-000000000001';
+  sub public.subscriptions;
+  result text;
+begin
+  select * into sub from public.subscriptions where business_id = biz;
+  assert sub.status = 'trialing' and sub.plan_id = 'pro' and not sub.has_payment_method, 'new business starts on the Pro trial without a card';
+
+  result := public.apply_billing_event(jsonb_build_object(
+    'id', 'evt_24_checkout', 'created', now() - interval '50 minutes', 'kind', 'checkout_completed',
+    'businessId', biz, 'customerId', 'cus_24', 'subscriptionId', 'sub_24', 'status', 'trialing',
+    'trialEnd', sub.trial_ends_at, 'currentPeriodEnd', sub.trial_ends_at, 'cancelAt', null, 'interval', 'month'));
+  assert result = 'applied', 'checkout applied, got ' || coalesce(result, 'null');
+  select * into sub from public.subscriptions where business_id = biz;
+  assert sub.status = 'trialing' and sub.plan_id = 'pro', 'paying during the trial stays on the Pro trial';
+  assert sub.has_payment_method and sub.billing_interval = 'month', 'card and interval recorded';
+  assert sub.stripe_customer_id = 'cus_24' and sub.stripe_subscription_id = 'sub_24', 'Stripe ids stored';
+
+  -- Resolved by subscription id only.
+  result := public.apply_billing_event(jsonb_build_object(
+    'id', 'evt_24_paid_1', 'created', now() - interval '40 minutes', 'kind', 'invoice_paid',
+    'businessId', null, 'customerId', null, 'subscriptionId', 'sub_24', 'status', 'active',
+    'trialEnd', null, 'currentPeriodEnd', now() + interval '30 days', 'cancelAt', null, 'interval', 'month'));
+  assert result = 'applied', 'invoice_paid applied, got ' || coalesce(result, 'null');
+  select * into sub from public.subscriptions where business_id = biz;
+  assert sub.status = 'active' and sub.plan_id = 'starter', 'paid invoice makes the shop active on Starter';
+  assert sub.current_period_end = now() + interval '30 days', 'period end stored';
+
+  -- Resolved by customer id only.
+  result := public.apply_billing_event(jsonb_build_object(
+    'id', 'evt_24_failed_1', 'created', now() - interval '30 minutes', 'kind', 'payment_failed',
+    'businessId', null, 'customerId', 'cus_24', 'subscriptionId', null, 'status', 'past_due',
+    'trialEnd', null, 'currentPeriodEnd', null, 'cancelAt', null, 'interval', null));
+  assert result = 'applied', 'payment_failed applied, got ' || coalesce(result, 'null');
+  select * into sub from public.subscriptions where business_id = biz;
+  assert sub.status = 'past_due', 'failed payment makes the shop past_due';
+  assert sub.grace_ends_at between now() + interval '7 days' - interval '1 minute' and now() + interval '7 days' + interval '1 minute', 'grace is about seven days';
+end $$;
+
+-- A known grace end proves the second failure leaves it alone (now() is constant inside the transaction).
+reset role;
+update public.subscriptions set grace_ends_at = now() + interval '5 days' where business_id = 'b2400000-0000-4000-8000-000000000001';
+set local role service_role;
+do $$
+declare
+  biz constant uuid := 'b2400000-0000-4000-8000-000000000001';
+  failed_again constant jsonb := jsonb_build_object(
+    'id', 'evt_24_failed_2', 'created', now() - interval '20 minutes', 'kind', 'payment_failed',
+    'businessId', null, 'customerId', 'cus_24', 'subscriptionId', 'sub_24', 'status', 'past_due',
+    'trialEnd', null, 'currentPeriodEnd', null, 'cancelAt', null, 'interval', null);
+  sub public.subscriptions;
+  result text;
+begin
+  result := public.apply_billing_event(failed_again);
+  assert result = 'applied', 'second failure applied, got ' || coalesce(result, 'null');
+  select * into sub from public.subscriptions where business_id = biz;
+  assert sub.status = 'past_due' and sub.grace_ends_at = now() + interval '5 days', 'grace is set once per failure episode';
+
+  result := public.apply_billing_event(failed_again);
+  assert result = 'duplicate', 'same event id again is a duplicate, got ' || coalesce(result, 'null');
+
+  result := public.apply_billing_event(jsonb_build_object(
+    'id', 'evt_24_changed_old', 'created', now() - interval '45 minutes', 'kind', 'subscription_changed',
+    'businessId', null, 'customerId', 'cus_24', 'subscriptionId', 'sub_24', 'status', 'active',
+    'trialEnd', null, 'currentPeriodEnd', now() + interval '30 days', 'cancelAt', null, 'interval', 'year'));
+  assert result = 'stale', 'an event older than the last applied one is stale, got ' || coalesce(result, 'null');
+  select * into sub from public.subscriptions where business_id = biz;
+  assert sub.status = 'past_due' and sub.billing_interval = 'month', 'stale event changes nothing';
+  assert exists (select 1 from public.stripe_events where id = 'evt_24_changed_old'), 'stale event id is still recorded';
+
+  result := public.apply_billing_event(jsonb_build_object(
+    'id', 'evt_24_paid_2', 'created', now() - interval '10 minutes', 'kind', 'invoice_paid',
+    'businessId', null, 'customerId', 'cus_24', 'subscriptionId', 'sub_24', 'status', 'active',
+    'trialEnd', null, 'currentPeriodEnd', now() + interval '31 days', 'cancelAt', null, 'interval', 'month'));
+  assert result = 'applied', 'recovery invoice applied, got ' || coalesce(result, 'null');
+  select * into sub from public.subscriptions where business_id = biz;
+  assert sub.status = 'active' and sub.grace_ends_at is null, 'paying ends the grace period';
+
+  result := public.apply_billing_event(jsonb_build_object(
+    'id', 'evt_24_deleted', 'created', now() - interval '1 minute', 'kind', 'subscription_deleted',
+    'businessId', null, 'customerId', 'cus_24', 'subscriptionId', 'sub_24', 'status', 'canceled',
+    'trialEnd', null, 'currentPeriodEnd', null, 'cancelAt', null, 'interval', null));
+  assert result = 'applied', 'deletion applied, got ' || coalesce(result, 'null');
+  select * into sub from public.subscriptions where business_id = biz;
+  assert sub.status = 'canceled' and sub.canceled_at = now() - interval '1 minute' and sub.cancel_at is null, 'deleted subscription is canceled at the event time';
+  assert sub.last_event_at = now() - interval '1 minute', 'last_event_at tracks the newest applied event';
+
+  result := public.apply_billing_event(jsonb_build_object(
+    'id', 'evt_24_nobody', 'created', now(), 'kind', 'invoice_paid',
+    'businessId', null, 'customerId', 'cus_nobody', 'subscriptionId', 'sub_nobody', 'status', 'active',
+    'trialEnd', null, 'currentPeriodEnd', null, 'cancelAt', null, 'interval', null));
+  assert result = 'unknown_business', 'no matching business, got ' || coalesce(result, 'null');
+end $$;
+reset role;
+
+-- 24b. entitlements_internal uses the access end; apply_billing_event is service_role only.
+reset role;
+do $$
+declare
+  biz constant uuid := 'b2400000-0000-4000-8000-000000000001';
+  trial_end timestamptz := now() + interval '3 days';
+  grace_end timestamptz := now() + interval '7 days';
+  e jsonb;
+begin
+  update public.subscriptions set status = 'trialing', plan_id = 'pro', has_payment_method = true, trial_ends_at = trial_end,
+    grace_ends_at = null, canceled_at = null where business_id = biz;
+  e := public.entitlements_internal(biz, trial_end + interval '1 day');
+  assert e->>'access' = 'full', 'trial with a card keeps full access one day after the trial end';
+  assert (e->>'hasPaymentMethod')::boolean and (e->>'accessEndsAt')::timestamptz = trial_end + interval '2 days', 'trial with a card ends two days after the trial';
+  assert e ? 'cancelAt' and e->>'billingInterval' = 'month', 'new keys present';
+  assert e->>'access' is not null and e ? 'trialEndsAt' and e ? 'graceEndsAt' and e ? 'limits' and e ? 'features', 'existing keys kept';
+  assert public.entitlements_internal(biz, trial_end + interval '3 days')->>'access' = 'read_only', 'trial with a card is read-only three days after the trial end';
+
+  update public.subscriptions set has_payment_method = false where business_id = biz;
+  assert public.entitlements_internal(biz, trial_end + interval '1 day')->>'access' = 'read_only', 'trial without a card ends at the trial end';
+
+  update public.subscriptions set trial_ends_at = null where business_id = biz;
+  assert public.entitlements_internal(biz, now())->>'access' = 'read_only', 'trialing without a trial end is read-only';
+
+  update public.subscriptions set status = 'canceled', canceled_at = now() - interval '1 minute' where business_id = biz;
+  assert public.entitlements_internal(biz, now())->>'access' = 'read_only', 'canceled is read-only';
+  update public.subscriptions set canceled_at = null where business_id = biz;
+  assert public.entitlements_internal(biz, now())->>'access' = 'read_only', 'canceled without a date is read-only';
+
+  update public.subscriptions set status = 'past_due', grace_ends_at = grace_end where business_id = biz;
+  e := public.entitlements_internal(biz, now());
+  assert e->>'access' = 'full', 'past_due before the grace end keeps full access';
+  assert (e->>'accessEndsAt')::timestamptz = grace_end, 'accessEndsAt is the grace end for past_due';
+  assert public.entitlements_internal(biz, grace_end + interval '1 minute')->>'access' = 'read_only', 'past_due after the grace end is read-only';
+
+  update public.subscriptions set status = 'active', grace_ends_at = null where business_id = biz;
+  e := public.entitlements_internal(biz, now() + interval '10 years');
+  assert e->>'access' = 'full' and e->'accessEndsAt' = 'null'::jsonb, 'active has no access end';
+end $$;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-00000000000c","role":"authenticated"}', true);
+do $$
+declare failure text;
+begin
+  begin
+    perform public.apply_billing_event(jsonb_build_object('id', 'evt_24_forged', 'created', now(), 'kind', 'invoice_paid',
+      'businessId', 'b2400000-0000-4000-8000-000000000001'));
+    assert false, 'authenticated must not apply billing events';
+  exception when others then failure := sqlstate;
+  end;
+  assert failure = '42501', 'apply_billing_event is service_role only, got ' || coalesce(failure, 'null');
+end $$;
+reset role;
+
 rollback;
