@@ -1,5 +1,5 @@
 import type { CustomerSnapshot, DemoState, InvoiceLine, StockMovement, SupplierSnapshot } from "../domain.ts";
-import type { CountryCode, CurrencyCode } from "../fiscal/countries.ts";
+import type { CountryCode, CurrencyCode, TaxCategory } from "../fiscal/countries.ts";
 import type { ShopSnapshot, SnapshotRows } from "./types.ts";
 
 const optional = (value: string | null) => value ?? undefined;
@@ -12,11 +12,16 @@ function mapLine(row: SnapshotRows["sales"][number]["sale_items"][number]): Invo
   };
 }
 
+/** Rows written before Stage 1D (or by an older server) have no category: they are standard-rated. */
+function taxCategory(value: string | null | undefined): TaxCategory {
+  return value === "zero" || value === "exempt" ? value : "standard";
+}
+
 export function mapSnapshotRows(rows: SnapshotRows, generatedAt: string): ShopSnapshot {
   const invoiceBySale = new Map(rows.sales.map((sale) => [sale.id, sale.invoice_number]));
   const state: DemoState = {
     products: rows.products.map((p) => ({
-      id: p.id, name: p.name, sku: p.sku, barcode: optional(p.barcode), priceFils: Number(p.price_fils), stock: p.stock_quantity, lowStockThreshold: p.low_stock_threshold, active: p.status === "active",
+      id: p.id, name: p.name, sku: p.sku, barcode: optional(p.barcode), priceFils: Number(p.price_fils), stock: p.stock_quantity, lowStockThreshold: p.low_stock_threshold, active: p.status === "active", taxCategory: taxCategory(p.tax_category),
     })),
     customers: rows.customers.map((c) => ({
       id: c.id, name: c.name, phone: c.phone, email: optional(c.email), address: optional(c.address), trn: optional(c.trn), createdAt: c.created_at, updatedAt: c.updated_at,

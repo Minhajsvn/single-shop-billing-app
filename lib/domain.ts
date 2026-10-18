@@ -1,4 +1,4 @@
-import { formatMoney, splitVatInclusive } from "./fiscal/countries.ts";
+import { formatMoney, splitVatInclusive, type TaxCategory } from "./fiscal/countries.ts";
 
 export type Product = {
   id: string;
@@ -9,13 +9,15 @@ export type Product = {
   stock: number;
   lowStockThreshold: number;
   active: boolean;
+  /** Stored only (Stage 1D): checkout, invoices and reports still charge standard VAT on every product. */
+  taxCategory: TaxCategory;
 };
 
 export type StockMovement = {
   id: string;
   productId: string;
   delta: number;
-  type: "opening" | "receipt" | "correction-in" | "correction-out" | "sale" | "return";
+  type: "opening" | "receipt" | "correction-in" | "correction-out" | "sale" | "return" | "import-count";
   reason: string;
   createdAt: string;
 };
@@ -94,14 +96,21 @@ export type RegisterSyncPayload =
   | { action: "adjustment"; registerId: string; adjustment: CashAdjustment; register?: RegisterSession | null }
   | { action: "close"; register: RegisterSession };
 export type CreditNoteSyncPayload = { creditNote: CreditNote };
-export type StockSyncPayload = { movement: StockMovement; product: Product };
+/** The product without stock: stock only ever changes through stock movements, sales and refunds. */
+export type ProductRecord = Omit<Product, "stock">;
+export type ProductSyncPayload = { product: ProductRecord };
+/**
+ * product: a full copy, sent only by operations queued before Stage 1D (newer clients queue a product operation first).
+ * countedStock: the stock an import counted; the server sets stock to it and records the difference.
+ */
+export type StockSyncPayload = { movement: StockMovement; product?: Product; countedStock?: number };
 /** The till that created the operation; the server books the work to this device. Absent on operations queued before Stage 1B. */
 export type DeviceTag = { deviceId?: string };
-export type SyncPayload = (CustomerSyncPayload | SaleSyncPayload | RegisterSyncPayload | CreditNoteSyncPayload | StockSyncPayload) & DeviceTag;
+export type SyncPayload = (CustomerSyncPayload | SaleSyncPayload | RegisterSyncPayload | CreditNoteSyncPayload | StockSyncPayload | ProductSyncPayload) & DeviceTag;
 
 export type SyncOperation = {
   id: string;
-  entity: "sale" | "credit-note" | "customer" | "register" | "stock";
+  entity: "sale" | "credit-note" | "customer" | "register" | "stock" | "product";
   entityId: string;
   createdAt: string;
   status: "pending" | "synced" | "failed";
@@ -139,11 +148,11 @@ export type DemoState = {
 };
 
 export const initialProducts: Product[] = [
-  { id: "prd-001", name: "Arabic Coffee 250g", sku: "COF-250", barcode: "6291100211014", priceFils: 2850, stock: 18, lowStockThreshold: 6, active: true },
-  { id: "prd-002", name: "Saffron Tea Selection", sku: "TEA-SAF", barcode: "6291100211021", priceFils: 4200, stock: 4, lowStockThreshold: 5, active: true },
-  { id: "prd-003", name: "Date Syrup 400ml", sku: "DAT-400", barcode: "6291100211038", priceFils: 1850, stock: 9, lowStockThreshold: 4, active: true },
-  { id: "prd-004", name: "Ceramic Serving Cup", sku: "CUP-CRM", barcode: "6291100211045", priceFils: 3200, stock: 3, lowStockThreshold: 4, active: true },
-  { id: "prd-005", name: "Premium Date Box", sku: "DAT-PRM", barcode: "6291100211052", priceFils: 6800, stock: 12, lowStockThreshold: 5, active: true },
+  { id: "prd-001", name: "Arabic Coffee 250g", sku: "COF-250", barcode: "6291100211014", priceFils: 2850, stock: 18, lowStockThreshold: 6, active: true, taxCategory: "standard" },
+  { id: "prd-002", name: "Saffron Tea Selection", sku: "TEA-SAF", barcode: "6291100211021", priceFils: 4200, stock: 4, lowStockThreshold: 5, active: true, taxCategory: "standard" },
+  { id: "prd-003", name: "Date Syrup 400ml", sku: "DAT-400", barcode: "6291100211038", priceFils: 1850, stock: 9, lowStockThreshold: 4, active: true, taxCategory: "standard" },
+  { id: "prd-004", name: "Ceramic Serving Cup", sku: "CUP-CRM", barcode: "6291100211045", priceFils: 3200, stock: 3, lowStockThreshold: 4, active: true, taxCategory: "standard" },
+  { id: "prd-005", name: "Premium Date Box", sku: "DAT-PRM", barcode: "6291100211052", priceFils: 6800, stock: 12, lowStockThreshold: 5, active: true, taxCategory: "standard" },
 ];
 
 export function formatAED(fils: number) {

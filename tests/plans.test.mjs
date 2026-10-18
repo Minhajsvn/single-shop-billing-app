@@ -5,7 +5,7 @@ import { GRACE_DAYS, PLANS, TRIAL_DAYS, TRIAL_PLAN, planHasFeature } from "../li
 import { planCatalogSql } from "../scripts/plan-catalog-sql.mjs";
 
 test("plan limits match the approved matrix", () => {
-  assert.deepEqual(PLANS.starter.limits, { branches: 1, tills: 1, members: 2, products: 1000 });
+  assert.deepEqual(PLANS.starter.limits, { branches: 1, tills: 1, members: 2, products: 5000 });
   assert.deepEqual(PLANS.pro.limits, { branches: 1, tills: 2, members: 5, products: null });
   assert.deepEqual(PLANS.business.limits, { branches: 3, tills: 6, members: 20, products: null });
   assert.deepEqual(PLANS.enterprise.limits, { branches: null, tills: null, members: null, products: null });

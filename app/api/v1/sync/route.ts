@@ -62,7 +62,9 @@ export async function POST(request: Request) {
           ? operation.payload.sale.id
           : operation.entity === "credit-note"
           ? operation.payload.creditNote.id
-          : operation.payload.movement.id;
+          : operation.entity === "product"
+            ? operation.payload.product.id
+            : operation.payload.movement.id;
 
     if (targetId !== null && operation.entityId !== targetId) {
       results.push({ id: operation.id, status: "rejected", error: "The operation and entity IDs do not match." });
@@ -77,7 +79,9 @@ export async function POST(request: Request) {
           ? "apply_credit_note_sync"
           : operation.entity === "stock"
             ? "apply_stock_sync"
-            : "apply_register_sync";
+            : operation.entity === "product"
+              ? "apply_product_sync"
+              : "apply_register_sync";
     const payload = rpcPayloadFor(operation);
 
     const { error } = await supabase.rpc(functionName, {

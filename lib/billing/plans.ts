@@ -54,7 +54,7 @@ const BUSINESS_FEATURES: FeatureKey[] = [
 ];
 
 export const PLANS: Record<PlanId, Plan> = {
-  starter: { id: "starter", name: "Starter", selfServe: true, monthlyPriceMinor: { AED: 7900, SAR: 7900 }, features: [], limits: { branches: 1, tills: 1, members: 2, products: 1000 } },
+  starter: { id: "starter", name: "Starter", selfServe: true, monthlyPriceMinor: { AED: 7900, SAR: 7900 }, features: [], limits: { branches: 1, tills: 1, members: 2, products: 5000 } },
   pro: { id: "pro", name: "Pro", selfServe: true, monthlyPriceMinor: { AED: 17900, SAR: 17900 }, features: PRO_FEATURES, limits: { branches: 1, tills: 2, members: 5, products: null } },
   business: { id: "business", name: "Business", selfServe: true, monthlyPriceMinor: { AED: 34900, SAR: 34900 }, features: BUSINESS_FEATURES, limits: { branches: 3, tills: 6, members: 20, products: null } },
   enterprise: { id: "enterprise", name: "Enterprise", selfServe: false, monthlyPriceMinor: null, features: [...BUSINESS_FEATURES, "sso"], limits: { branches: null, tills: null, members: null, products: null } },

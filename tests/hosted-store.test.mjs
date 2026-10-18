@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { READ_ONLY_ENTITLEMENTS } from "../lib/billing/entitlements.ts";
-import { chunk, createSerialQueue, createSyncEpoch, effectiveEntitlements, emptyShopState, hostedCacheKey, parseHostedCache } from "../lib/store/hosted.ts";
+import { applySyncResults, chunk, createSerialQueue, createSyncEpoch, effectiveEntitlements, emptyShopState, hostedCacheKey, parseHostedCache, pickNewerCache, restoreFromIndexed } from "../lib/store/hosted.ts";
 
 test("sync batches respect the server's 50-operation limit", () => {
   const ops = Array.from({ length: 120 }, (_, index) => index);
@@ -32,8 +32,45 @@ test("hosted cache parsing never throws and rejects foreign shapes", () => {
   assert.equal(parseHostedCache(null), null);
   assert.equal(parseHostedCache("{not json"), null);
   assert.equal(parseHostedCache(JSON.stringify({ products: [] })), null, "a legacy demo-store blob is not a hosted cache");
-  const cache = { version: 1, state: emptyShopState(), context: { business: null, devices: [], entitlementCache: null, lastRefreshedAt: null } };
+  const cache = { version: 1, savedAt: 5, state: emptyShopState(), context: { business: null, devices: [], entitlementCache: null, lastRefreshedAt: null } };
   assert.deepEqual(parseHostedCache(JSON.stringify(cache)), cache);
+});
+
+test("a hosted cache written before Stage 1D reads as savedAt 0", () => {
+  const legacy = { version: 1, state: emptyShopState(), context: { business: null, devices: [], entitlementCache: null, lastRefreshedAt: null } };
+  assert.equal(parseHostedCache(JSON.stringify(legacy))?.savedAt, 0);
+});
+
+test("applySyncResults marks one batch's accepted and rejected operations and leaves the rest pending", () => {
+  const op = (id, status = "pending") => ({ id, entity: "product", entityId: id, createdAt: "2026-10-18T10:00:00.000Z", status });
+  const next = applySyncResults(
+    [op("a"), op("b", "failed"), op("c"), op("d", "synced")],
+    [{ id: "a", status: "accepted" }, { id: "b", status: "rejected", error: "product_sku_taken" }],
+  );
+  assert.deepEqual(next.map((o) => [o.id, o.status, o.error]), [["a", "synced", undefined], ["b", "failed", "product_sku_taken"], ["c", "pending", undefined], ["d", "synced", undefined]]);
+  assert.equal(applySyncResults([op("e")], [{ id: "e", status: "rejected" }])[0].error, "The hosted service rejected this operation.");
+});
+
+test("restoreFromIndexed takes the newer IndexedDB state and keeps every outbox operation from both copies", () => {
+  const op = (id) => ({ id, entity: "product", entityId: id, createdAt: "2026-10-18T10:00:00.000Z", status: "pending" });
+  const customer = { id: "c1", name: "Omar", phone: "+971", createdAt: "x", updatedAt: "x" };
+  // Customers decrypted (or a sale was made) before the large IndexedDB read finished.
+  const current = { ...emptyShopState(), customers: [customer], syncOperations: [op("made-after-load"), op("shared")] };
+  const indexed = { ...emptyShopState(), products: [{ id: "p", name: "P", sku: "P", priceFils: 1, stock: 1, lowStockThreshold: 0, active: true }], syncOperations: [op("import-1"), op("import-2"), op("shared")] };
+  delete indexed.customers;
+  const restored = restoreFromIndexed(current, indexed);
+  assert.deepEqual(restored.syncOperations.map((o) => o.id).sort(), ["import-1", "import-2", "made-after-load", "shared"]);
+  assert.equal(restored.products[0].taxCategory, "standard");
+  assert.deepEqual(restored.customers, [customer]);
+});
+
+test("pickNewerCache prefers the newer copy and falls back to whichever exists", () => {
+  assert.equal(pickNewerCache(null, { savedAt: 1 }), "indexed");
+  assert.equal(pickNewerCache({ savedAt: 5 }, { savedAt: 3 }), "local");
+  assert.equal(pickNewerCache({ savedAt: 3 }, { savedAt: 5 }), "indexed");
+  assert.equal(pickNewerCache({ savedAt: 3 }, { savedAt: 3 }), "local");
+  assert.equal(pickNewerCache({ savedAt: 3 }, null), "local");
+  assert.equal(pickNewerCache(null, null), null);
 });
 
 test("empty shop state has no demo data", () => {

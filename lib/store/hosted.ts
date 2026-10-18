@@ -1,5 +1,6 @@
+import { withTaxCategories } from "./product-sync.ts";
 import { READ_ONLY_ENTITLEMENTS, type Entitlements } from "../billing/entitlements.ts";
-import type { DemoState } from "../domain.ts";
+import type { DemoState, SyncOperation } from "../domain.ts";
 import type { BusinessProfile, TillDevice } from "../snapshot/types.ts";
 
 export type EntitlementCache = { entitlements: Entitlements; expiresAt: string };
@@ -11,7 +12,48 @@ export type HostedContext = {
   lastRefreshedAt: string | null;
 };
 
-export type HostedCache = { version: 1; state: DemoState; context: HostedContext };
+/** savedAt (ms) lets the loader pick the newer of this copy and the IndexedDB one; 0 for caches from before Stage 1D. */
+export type HostedCache = { version: 1; savedAt: number; state: DemoState; context: HostedContext };
+
+/**
+ * Which copy to load: localStorage can be full (a large import) and silently stop updating, while IndexedDB
+ * keeps a copy of the state and outbox. Ties go to localStorage, which is read synchronously.
+ */
+export function pickNewerCache(local: { savedAt: number } | null, indexed: { savedAt: number } | null): "local" | "indexed" | null {
+  if (!local && !indexed) return null;
+  if (!local) return "indexed";
+  if (!indexed) return "local";
+  return indexed.savedAt > local.savedAt ? "indexed" : "local";
+}
+
+/**
+ * Adopts the newer IndexedDB copy (localStorage was full or stale) without losing anything done since load:
+ * the outbox is the union of both copies by operation id, and customers stay as loaded (they live encrypted
+ * elsewhere). The next snapshot refresh rebuilds products, sales and stock from the server plus this outbox.
+ */
+export function restoreFromIndexed(current: DemoState, indexed: Omit<DemoState, "customers">): DemoState {
+  const known = new Set(indexed.syncOperations.map((operation) => operation.id));
+  return {
+    ...indexed,
+    products: withTaxCategories(indexed.products),
+    customers: current.customers,
+    syncOperations: [...current.syncOperations.filter((operation) => !known.has(operation.id)), ...indexed.syncOperations],
+  };
+}
+
+export type SyncResult ={ id: string; status: "accepted" | "rejected"; error?: string };
+
+/** Applies one sync batch's results; operations not in the batch are untouched. */
+export function applySyncResults(operations: SyncOperation[], results: SyncResult[]): SyncOperation[] {
+  const byId = new Map(results.map((result) => [result.id, result]));
+  return operations.map((operation) => {
+    const result = byId.get(operation.id);
+    if (!result) return operation;
+    return result.status === "accepted"
+      ? { ...operation, status: "synced" as const, error: undefined }
+      : { ...operation, status: "failed" as const, error: result.error ?? "The hosted service rejected this operation." };
+  });
+}
 
 /** Each signed-in user gets their own cache, so one account never sees or overwrites another's unsynced work. */
 export function hostedCacheKey(userId: string): string {
@@ -46,7 +88,8 @@ export function parseHostedCache(raw: string | null): HostedCache | null {
   try {
     const value = JSON.parse(raw) as Partial<HostedCache>;
     if (value?.version !== 1 || !value.state || !value.context || !Array.isArray(value.state.sales)) return null;
-    return value as HostedCache;
+    // Products cached before Stage 1D have no VAT category.
+    return { ...value, savedAt: typeof value.savedAt === "number" ? value.savedAt : 0, state: { ...value.state, products: withTaxCategories(value.state.products ?? []) } } as HostedCache;
   } catch {
     return null;
   }

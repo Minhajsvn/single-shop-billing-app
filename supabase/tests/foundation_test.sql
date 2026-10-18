@@ -303,4 +303,166 @@ do $$ begin
   end;
 end $$;
 
+-- 18. Many products may have no barcode; a real barcode is still unique per business.
+reset role;
+insert into public.products (id, business_id, name, sku, barcode, price_fils) values
+  ('c1800000-0000-4000-8000-000000000001', 'b0000000-0000-4000-8000-00000000000a', 'No code 1', 'NC-1', null, 100),
+  ('c1800000-0000-4000-8000-000000000002', 'b0000000-0000-4000-8000-00000000000a', 'No code 2', 'NC-2', null, 100),
+  ('c1800000-0000-4000-8000-000000000003', 'b0000000-0000-4000-8000-00000000000a', 'Coded', 'CD-1', '4006381333931', 100);
+do $$ begin
+  assert (select count(*) from public.products where sku in ('NC-1', 'NC-2') and barcode is null) = 2, 'two blank barcodes allowed';
+  begin
+    insert into public.products (business_id, name, sku, barcode, price_fils) values ('b0000000-0000-4000-8000-00000000000a', 'Dup', 'CD-2', '4006381333931', 100);
+    assert false, 'duplicate barcode must be rejected';
+  exception when unique_violation then null;
+  end;
+end $$;
+
+-- 19. apply_product_sync: create at stock 0, update fields but never stock, idempotent, named rejections.
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-00000000000a","role":"authenticated"}', true);
+select public.apply_product_sync(
+  'e1900000-0000-4000-8000-000000000001', 'b0000000-0000-4000-8000-00000000000a', 'c1900000-0000-4000-8000-000000000001',
+  jsonb_build_object('deviceId', 'd0000000-0000-4000-8000-00000000000a', 'product', jsonb_build_object(
+    'id', 'c1900000-0000-4000-8000-000000000001', 'name', 'Synced tea', 'sku', 'TEA-19', 'priceFils', 500,
+    'lowStockThreshold', 2, 'active', true, 'taxCategory', 'standard'))
+);
+reset role;
+update public.products set stock_quantity = 9 where id = 'c1900000-0000-4000-8000-000000000001';
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-00000000000a","role":"authenticated"}', true);
+select public.apply_product_sync(
+  'e1900000-0000-4000-8000-000000000002', 'b0000000-0000-4000-8000-00000000000a', 'c1900000-0000-4000-8000-000000000001',
+  jsonb_build_object('product', jsonb_build_object(
+    'id', 'c1900000-0000-4000-8000-000000000001', 'name', 'Green tea', 'sku', 'TEA-19', 'barcode', '', 'priceFils', 650,
+    'lowStockThreshold', 3, 'active', true, 'taxCategory', 'zero'))
+);
+-- Same operation again is a no-op.
+select public.apply_product_sync(
+  'e1900000-0000-4000-8000-000000000002', 'b0000000-0000-4000-8000-00000000000a', 'c1900000-0000-4000-8000-000000000001',
+  jsonb_build_object('product', jsonb_build_object(
+    'id', 'c1900000-0000-4000-8000-000000000001', 'name', 'Green tea', 'sku', 'TEA-19', 'barcode', '', 'priceFils', 650,
+    'lowStockThreshold', 3, 'active', true, 'taxCategory', 'zero'))
+);
+do $$
+declare failure text;
+begin
+  assert (select name = 'Green tea' and price_fils = 650 and tax_category = 'zero' and stock_quantity = 9 and barcode is null
+    from public.products where id = 'c1900000-0000-4000-8000-000000000001'), 'update applied, stock untouched';
+  begin
+    perform public.apply_product_sync(gen_random_uuid(), 'b0000000-0000-4000-8000-00000000000a', 'c1900000-0000-4000-8000-000000000002',
+      jsonb_build_object('product', jsonb_build_object('id', 'c1900000-0000-4000-8000-000000000002', 'name', 'Clash', 'sku', 'tea-19',
+        'priceFils', 100, 'lowStockThreshold', 0, 'active', true, 'taxCategory', 'standard')));
+    assert false, 'SKU clash must be rejected';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'product_sku_taken', 'named sku rejection, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin
+    perform public.apply_product_sync(gen_random_uuid(), 'b0000000-0000-4000-8000-00000000000a', 'c1900000-0000-4000-8000-000000000003',
+      jsonb_build_object('product', jsonb_build_object('id', 'c1900000-0000-4000-8000-000000000003', 'name', 'Clash', 'sku', 'CL-19',
+        'barcode', '4006381333931', 'priceFils', 100, 'lowStockThreshold', 0, 'active', true, 'taxCategory', 'standard')));
+    assert false, 'barcode clash must be rejected';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'product_barcode_taken', 'named barcode rejection, got ' || coalesce(failure, 'null');
+end $$;
+reset role;
+insert into public.products (id, business_id, name, sku, price_fils) values ('c1900000-0000-4000-8000-0000000000bb', 'b0000000-0000-4000-8000-00000000000b', 'B item', 'B-19', 100);
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-00000000000a","role":"authenticated"}', true);
+do $$
+declare failure text;
+begin
+  begin
+    perform public.apply_product_sync(gen_random_uuid(), 'b0000000-0000-4000-8000-00000000000a', 'c1900000-0000-4000-8000-0000000000bb',
+      jsonb_build_object('product', jsonb_build_object('id', 'c1900000-0000-4000-8000-0000000000bb', 'name', 'Steal', 'sku', 'ST-19',
+        'priceFils', 100, 'lowStockThreshold', 0, 'active', true, 'taxCategory', 'standard')));
+    assert false, 'cross-business id must be rejected';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'product_belongs_to_another_business', 'cross-business rejection, got ' || coalesce(failure, 'null');
+end $$;
+
+-- 20. Import counts set absolute stock even after another till's sale.
+reset role;
+update public.products set stock_quantity = 10 where id = 'c1900000-0000-4000-8000-000000000001';
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-00000000000a","role":"authenticated"}', true);
+select public.apply_sale_sync(
+  gen_random_uuid(), 'b0000000-0000-4000-8000-00000000000a', 'a2000000-0000-4000-8000-000000000020',
+  jsonb_build_object(
+    'deviceId', 'd0000000-0000-4000-8000-00000000000a', 'register', null,
+    'sale', jsonb_build_object(
+      'id', 'a2000000-0000-4000-8000-000000000020', 'invoiceNumber', 'T20-1', 'status', 'completed',
+      'createdAt', now(), 'supplyDate', current_date, 'paymentMethod', 'card',
+      'netFils', 1857, 'vatFils', 93, 'grossFils', 1950,
+      'lines', jsonb_build_array(jsonb_build_object(
+        'id', 'a2000000-0000-4000-8000-0000000020a1', 'productId', 'c1900000-0000-4000-8000-000000000001', 'name', 'Green tea',
+        'sku', 'TEA-19', 'quantity', 3, 'unitGrossFils', 650, 'netFils', 1857, 'vatFils', 93, 'grossFils', 1950
+      ))
+    )
+  )
+);
+select public.apply_stock_sync(
+  'e2000000-0000-4000-8000-000000000001', 'b0000000-0000-4000-8000-00000000000a', 'f2000000-0000-4000-8000-000000000001',
+  jsonb_build_object('countedStock', 40, 'movement', jsonb_build_object(
+    'id', 'f2000000-0000-4000-8000-000000000001', 'productId', 'c1900000-0000-4000-8000-000000000001', 'delta', 30,
+    'type', 'import-count', 'reason', 'Spreadsheet import', 'createdAt', now()))
+);
+select public.apply_stock_sync(
+  'e2000000-0000-4000-8000-000000000002', 'b0000000-0000-4000-8000-00000000000a', 'f2000000-0000-4000-8000-000000000002',
+  jsonb_build_object('countedStock', 40, 'movement', jsonb_build_object(
+    'id', 'f2000000-0000-4000-8000-000000000002', 'productId', 'c1900000-0000-4000-8000-000000000001', 'delta', 1,
+    'type', 'import-count', 'reason', 'Spreadsheet import', 'createdAt', now()))
+);
+do $$ begin
+  assert (select stock_quantity from public.products where id = 'c1900000-0000-4000-8000-000000000001') = 40, 'stock set to the count';
+  assert (select quantity_delta from public.stock_movements where id = 'f2000000-0000-4000-8000-000000000001') = 33, 'difference recorded against server stock';
+  assert (select type::text from public.stock_movements where id = 'f2000000-0000-4000-8000-000000000001') = 'import_count', 'import_count type';
+  assert not exists (select 1 from public.stock_movements where id = 'f2000000-0000-4000-8000-000000000002'), 'unchanged count writes no movement';
+  assert exists (select 1 from public.sync_operations where operation_id = 'e2000000-0000-4000-8000-000000000002' and status = 'accepted'), 'unchanged count still accepted';
+end $$;
+
+-- 22. A stock movement without a product copy resolves the product by id.
+select public.apply_stock_sync(
+  gen_random_uuid(), 'b0000000-0000-4000-8000-00000000000a', 'f2200000-0000-4000-8000-000000000001',
+  jsonb_build_object('movement', jsonb_build_object(
+    'id', 'f2200000-0000-4000-8000-000000000001', 'productId', 'c1900000-0000-4000-8000-000000000001', 'delta', 5,
+    'type', 'receipt', 'reason', 'Delivery', 'createdAt', now()))
+);
+do $$ begin
+  assert (select stock_quantity from public.products where id = 'c1900000-0000-4000-8000-000000000001') = 45, 'slim receipt applied';
+end $$;
+
+-- 21. The Starter product limit surfaces through apply_product_sync.
+reset role;
+update public.subscriptions set plan_id = 'starter', status = 'active' where business_id = 'b0000000-0000-4000-8000-00000000000a';
+update public.plan_catalog set max_products = (select count(*) from public.products where business_id = 'b0000000-0000-4000-8000-00000000000a' and status = 'active') where id = 'starter';
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-00000000000a","role":"authenticated"}', true);
+do $$
+declare failure text;
+begin
+  begin
+    perform public.apply_product_sync(gen_random_uuid(), 'b0000000-0000-4000-8000-00000000000a', 'c2100000-0000-4000-8000-000000000001',
+      jsonb_build_object('product', jsonb_build_object('id', 'c2100000-0000-4000-8000-000000000001', 'name', 'One too many', 'sku', 'OVER-21',
+        'priceFils', 100, 'lowStockThreshold', 0, 'active', true, 'taxCategory', 'standard')));
+    assert false, 'over the plan limit must be rejected';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'plan_limit_reached', 'plan limit rejection, got ' || coalesce(failure, 'null');
+end $$;
+-- At the limit, editing an existing active product must still work (an upsert's INSERT trigger must not fire).
+select public.apply_product_sync(
+  gen_random_uuid(), 'b0000000-0000-4000-8000-00000000000a', 'c1900000-0000-4000-8000-000000000001',
+  jsonb_build_object('product', jsonb_build_object(
+    'id', 'c1900000-0000-4000-8000-000000000001', 'name', 'Green tea', 'sku', 'TEA-19', 'priceFils', 700,
+    'lowStockThreshold', 3, 'active', true, 'taxCategory', 'zero'))
+);
+do $$ begin
+  assert (select price_fils from public.products where id = 'c1900000-0000-4000-8000-000000000001') = 700, 'edit at the plan limit applied';
+end $$;
+reset role;
+
 rollback;

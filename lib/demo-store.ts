@@ -12,18 +12,21 @@ import {
   type InvoiceLine,
   type PaymentMethod,
   type Product,
+  type ProductRecord,
   type Sale,
   type StockMovement,
   type SyncOperation,
 } from "@/lib/domain";
 import { saleBlockReason } from "@/lib/checkout/register-status";
 import { dubaiSupplyDate, nextCreditNoteNumber, nextInvoiceNumber } from "@/lib/invoice-numbers";
-import { clearOfflineCache, clearSyncedOutbox, loadOfflineCustomers, persistOfflineSnapshot } from "@/lib/offline-db";
+import { clearOfflineCache, clearSyncedOutbox, loadOfflineCustomers, loadOfflineSnapshot, persistOfflineSnapshot } from "@/lib/offline-db";
 import { mergeSnapshot } from "@/lib/snapshot/merge";
 import { registerTotals } from "@/lib/store/register-totals";
 import type { BusinessProfile, ShopSnapshot, TillDevice } from "@/lib/snapshot/types";
 import {
+  applySyncResults,
   chunk,
+  type SyncResult,
   createSerialQueue,
   createSyncEpoch,
   effectiveEntitlements,
@@ -31,10 +34,14 @@ import {
   emptyShopState,
   hostedCacheKey,
   parseHostedCache,
+  pickNewerCache,
+  restoreFromIndexed,
   type HostedCache,
   type HostedContext,
 } from "@/lib/store/hosted";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
+import type { ImportPlan } from "@/lib/catalogue/classify";
+import { heldStockOperations, stampSequence, supersedeProductOperations, syncOrder, withTaxCategories } from "@/lib/store/product-sync";
 import { useSyncExternalStore } from "react";
 
 // Sample and unconfigured (no Supabase) modes keep using the original browser-only demo keys.
@@ -160,10 +167,12 @@ function persist() {
     if (mode === "hosted") {
       // Nothing is cached until we know whose shop this is (ruling R17).
       if (!activeUserId) return;
-      const cache: HostedCache = { version: 1, state: { ...state, customers: [] }, context: hostedContext };
-      window.localStorage.setItem(hostedCacheKey(activeUserId), JSON.stringify(cache));
+      const savedAt = Date.now();
+      // IndexedDB first: if localStorage is full (a large import) the outbox still survives a closed tab.
       // Customers are cached only in IndexedDB, encrypted with this device's key (ruling R10).
-      void persistOfflineSnapshot(state, activeUserId).catch(() => undefined);
+      void persistOfflineSnapshot(state, activeUserId, savedAt).catch(() => undefined);
+      const cache: HostedCache = { version: 1, savedAt, state: { ...state, customers: [] }, context: hostedContext };
+      window.localStorage.setItem(hostedCacheKey(activeUserId), JSON.stringify(cache));
     } else {
       window.localStorage.setItem(STORE_KEY, JSON.stringify(state));
     }
@@ -180,7 +189,7 @@ function save(next: DemoState) {
 
 function normalizeState(saved: Partial<DemoState>): DemoState {
   return {
-    products: saved.products ?? initialState.products,
+    products: withTaxCategories(saved.products ?? initialState.products),
     stockMovements: saved.stockMovements ?? [],
     sales: saved.sales ?? initialState.sales,
     customers: saved.customers ?? initialCustomers,
@@ -206,7 +215,7 @@ function hydrate() {
     } else {
       const legacyProducts = readStorage(LEGACY_PRODUCT_KEY);
       if (legacyProducts) {
-        try { state = { ...initialState, products: JSON.parse(legacyProducts) as Product[] }; } catch { state = initialState; }
+        try { state = { ...initialState, products: withTaxCategories(JSON.parse(legacyProducts) as Product[]) }; } catch { state = initialState; }
       }
     }
   }
@@ -332,7 +341,8 @@ function clearSampleCookie() {
   try { document.cookie = `${SAMPLE_COOKIE}=; path=/; Max-Age=0; SameSite=Lax`; } catch { /* ignore */ }
 }
 
-function loadUserCache(userId: string) {
+/** Loads this user's cached shop; the returned promise settles once the IndexedDB copy has been checked. */
+async function loadUserCache(userId: string): Promise<void> {
   const cache = parseHostedCache(readStorage(hostedCacheKey(userId)));
   state = cache?.state ?? emptyShopState();
   hostedContext = cache?.context ?? emptyHostedContext();
@@ -341,12 +351,21 @@ function loadUserCache(userId: string) {
   // Remove the unscoped cache written by earlier builds; it could belong to another account.
   try { window.localStorage.removeItem(LEGACY_HOSTED_KEY); } catch { /* ignore */ }
   void clearOfflineCache(null).catch(() => undefined);
-  void loadOfflineCustomers(userId).then((customers) => {
+  // localStorage may be stale or missing (quota full after a large import); IndexedDB may hold a newer copy.
+  // Anything done meanwhile is kept: the outbox is merged by operation id, never replaced.
+  try {
+    const indexed = await loadOfflineSnapshot(userId);
+    if (indexed && mode === "hosted" && activeUserId === userId && pickNewerCache(cache, indexed) === "indexed") {
+      save(restoreFromIndexed(state, indexed.state));
+    }
+  } catch { /* IndexedDB unavailable: the localStorage copy stands */ }
+  try {
+    const customers = await loadOfflineCustomers(userId);
     if (customers && mode === "hosted" && activeUserId === userId && !state.customers.length) {
       state = { ...state, customers };
       emit();
     }
-  }).catch(() => undefined);
+  } catch { /* customers stay as loaded */ }
 }
 
 /** Switches this browser to the signed-in user's hosted shop. Called with the session's user id (also leaves sample mode). */
@@ -357,7 +376,8 @@ export async function startHostedStore(userId: string): Promise<{ ok: true } | {
     mode = "hosted";
     hydrated = true;
     activeUserId = userId;
-    loadUserCache(userId);
+    // Wait for the IndexedDB check so the snapshot refresh merges against the complete outbox.
+    await loadUserCache(userId);
   }
   const [snapshot] = await Promise.all([refreshSnapshot(), refreshEntitlements()]);
   // With a cached copy the shop keeps working offline; without one there is nothing safe to show.
@@ -450,13 +470,136 @@ export function updateCustomer(id: string, input: CustomerInput): { ok: true } |
   return { ok: true };
 }
 
-export function addProduct(input: Omit<Product, "id" | "active">) {
+type QueuedItem = { entity: SyncOperation["entity"]; entityId: string; payload: SyncOperation["payload"] };
+
+/** Queues several operations so they sync in exactly this order (a product before its opening stock). */
+function enqueueInOrder(next: DemoState, items: QueuedItem[]): DemoState {
+  if (mode !== "hosted" || !items.length) return next;
+  const deviceId = contextSnapshot.device?.id;
+  const ops: SyncOperation[] = stampSequence(items.map((item) => ({
+    id: crypto.randomUUID(),
+    entity: item.entity,
+    entityId: item.entityId,
+    createdAt: "",
+    status: "pending" as const,
+    ...(item.payload ? { payload: { ...item.payload, ...(deviceId ? { deviceId } : {}) } } : {}),
+  })), new Date());
+  // The outbox is kept newest first.
+  return { ...next, syncOperations: [...ops.reverse(), ...next.syncOperations] };
+}
+
+function productRecord(product: Product): ProductRecord {
+  return { id: product.id, name: product.name, sku: product.sku, barcode: product.barcode, priceFils: product.priceFils, lowStockThreshold: product.lowStockThreshold, active: product.active, taxCategory: product.taxCategory };
+}
+
+function productItem(product: Product): QueuedItem {
+  return { entity: "product", entityId: product.id, payload: { product: productRecord(product) } };
+}
+
+/** The plan's product limit for this shop; sample and unconfigured stores have none. */
+export function productLimit(): number | null {
+  return mode === "hosted" ? contextSnapshot.entitlements.limits.products ?? null : null;
+}
+
+function overLimitError(limit: number) {
+  return `Over your plan's limit of ${limit} products: upgrade to Pro`;
+}
+
+function duplicateOf(id: string | null, sku: string, barcode: string | undefined) {
+  const skuKey = sku.trim().toLowerCase();
+  return state.products.some((product) => product.id !== id && (product.sku.trim().toLowerCase() === skuKey || (barcode && product.barcode === barcode)));
+}
+
+export function addProduct(input: Omit<Product, "id" | "active">): { ok: true; product: Product } | { ok: false; error: string } {
+  if (duplicateOf(null, input.sku, input.barcode)) return { ok: false, error: "SKU and barcode must be unique." };
+  const limit = productLimit();
+  if (limit !== null && state.products.filter((product) => product.active).length >= limit) return { ok: false, error: overLimitError(limit) };
   const product: Product = { ...input, id: crypto.randomUUID(), active: true };
   const movement: StockMovement | null = input.stock > 0 ? {
     id: crypto.randomUUID(), productId: product.id, delta: input.stock, type: "opening", reason: "Opening stock", createdAt: new Date().toISOString(),
   } : null;
   const next = { ...state, products: [product, ...state.products], stockMovements: movement ? [movement, ...state.stockMovements] : state.stockMovements };
-  save(movement ? queueStockOperation(next, movement, product) : next);
+  // The product travels as its own operation, so a product with no opening stock still reaches the server.
+  save(enqueueInOrder(next, [productItem(product), ...(movement ? [{ entity: "stock" as const, entityId: movement.id, payload: { movement } }] : [])]));
+  return { ok: true, product };
+}
+
+export type ProductPatch = Partial<Pick<Product, "name" | "sku" | "barcode" | "priceFils" | "lowStockThreshold" | "taxCategory">>;
+
+export function updateProduct(id: string, patch: ProductPatch): { ok: true } | { ok: false; error: string } {
+  const current = state.products.find((product) => product.id === id);
+  if (!current) return { ok: false, error: "This product no longer exists." };
+  const updated: Product = { ...current, ...patch };
+  if (!updated.name.trim() || !updated.sku.trim()) return { ok: false, error: "Name and SKU are required." };
+  if (!Number.isInteger(updated.priceFils) || updated.priceFils < 1) return { ok: false, error: "Enter a price above 0." };
+  if (duplicateOf(id, updated.sku, updated.barcode)) return { ok: false, error: "SKU and barcode must be unique." };
+  const next = { ...state, products: state.products.map((product) => product.id === id ? updated : product), syncOperations: supersedeProductOperations(state.syncOperations, id) };
+  save(enqueueInOrder(next, [productItem(updated)]));
+  return { ok: true };
+}
+
+/** Archive (hidden from the till, kept for past invoices) or restore a product. */
+export function setProductActive(id: string, active: boolean): { ok: true } | { ok: false; error: string } {
+  const current = state.products.find((product) => product.id === id);
+  if (!current) return { ok: false, error: "This product no longer exists." };
+  if (current.active === active) return { ok: true };
+  const limit = productLimit();
+  if (active && limit !== null && state.products.filter((product) => product.active).length >= limit) return { ok: false, error: overLimitError(limit) };
+  const updated = { ...current, active };
+  const next = { ...state, products: state.products.map((product) => product.id === id ? updated : product), syncOperations: supersedeProductOperations(state.syncOperations, id) };
+  save(enqueueInOrder(next, [productItem(updated)]));
+  return { ok: true };
+}
+
+const IMPORT_REASON = "Spreadsheet import";
+
+/** Applies a confirmed import in one save: product operations first, then opening stock and stock counts. */
+export function applyImport(plan: ImportPlan): { createdIds: string[]; updatedIds: string[]; operationIds: string[] } {
+  const now = new Date().toISOString();
+  const items: QueuedItem[] = [];
+  const movements: StockMovement[] = [];
+  let products = state.products;
+  let syncOperations = state.syncOperations;
+  const createdIds: string[] = [];
+  const updatedIds: string[] = [];
+
+  for (const create of plan.creates) {
+    const product: Product = { ...create.product, active: true };
+    products = [product, ...products];
+    createdIds.push(product.id);
+    items.push(productItem(product));
+    if (product.stock > 0) {
+      const movement: StockMovement = { id: crypto.randomUUID(), productId: product.id, delta: product.stock, type: "opening", reason: IMPORT_REASON, createdAt: now };
+      movements.push(movement);
+      items.push({ entity: "stock", entityId: movement.id, payload: { movement } });
+    }
+  }
+
+  for (const update of plan.updates) {
+    if (!update.changed) continue;
+    const current = products.find((product) => product.id === update.productId);
+    if (!current) continue;
+    const updated: Product = { ...current, priceFils: update.after.priceFils, barcode: update.after.barcode, stock: update.after.stock };
+    products = products.map((product) => product.id === current.id ? updated : product);
+    updatedIds.push(current.id);
+    if (current.priceFils !== updated.priceFils || current.barcode !== updated.barcode) {
+      syncOperations = supersedeProductOperations(syncOperations, current.id);
+      items.push(productItem(updated));
+    }
+    const delta = updated.stock - current.stock;
+    if (delta !== 0) {
+      // A count, not a delivery: the server sets stock to countedStock and records its own difference.
+      const movement: StockMovement = { id: crypto.randomUUID(), productId: current.id, delta, type: "import-count", reason: IMPORT_REASON, createdAt: now };
+      movements.push(movement);
+      items.push({ entity: "stock", entityId: movement.id, payload: { movement, countedStock: updated.stock } });
+    }
+  }
+
+  const next = enqueueInOrder({ ...state, products, syncOperations, stockMovements: [...movements.reverse(), ...state.stockMovements] }, items);
+  // enqueueInOrder prepends this import's operations (none outside hosted mode).
+  const operationIds = next.syncOperations.length > syncOperations.length ? next.syncOperations.slice(0, items.length).map((operation) => operation.id) : [];
+  save(next);
+  return { createdIds, updatedIds, operationIds };
 }
 export function adjustStock(productId: string, delta: number, reason: string) {
   const product = state.products.find((item) => item.id === productId);
@@ -631,7 +774,6 @@ export async function reconcilePendingOperations(): Promise<ReconcileResult> {
 }
 
 const SYNC_BATCH_SIZE = 50;
-type SyncResult = { id: string; status: "accepted" | "rejected"; error?: string };
 
 async function postSyncBatch(batch: SyncOperation[]): Promise<{ ok: true; results: SyncResult[] } | { ok: false; message: string }> {
   let response: Response;
@@ -668,13 +810,16 @@ async function syncPendingOperations(): Promise<ReconcileResult> {
   const pending = state.syncOperations.filter((operation) => operation.status === "pending" || operation.status === "failed");
   if (!pending.length) return { status: "idle", pendingCount: 0, message: "There are no pending operations." };
 
-  const syncable = pending.filter((operation) => (
+  // Stock, sales and refunds of a product the server refused wait until the product is fixed and accepted.
+  const held = heldStockOperations(state.syncOperations);
+  const syncable = syncOrder(pending.filter((operation) => (
     (operation.entity === "customer" && Boolean(operation.payload && "customer" in operation.payload)) ||
     (operation.entity === "sale" && Boolean(operation.payload && "sale" in operation.payload)) ||
     (operation.entity === "credit-note" && Boolean(operation.payload && "creditNote" in operation.payload)) ||
     (operation.entity === "register" && Boolean(operation.payload && "action" in operation.payload)) ||
-    (operation.entity === "stock" && Boolean(operation.payload && "movement" in operation.payload))
-  )).sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+    (operation.entity === "stock" && Boolean(operation.payload && "movement" in operation.payload)) ||
+    (operation.entity === "product" && Boolean(operation.payload && "product" in operation.payload && !("movement" in operation.payload)))
+  ) && !held.has(operation.id)));
   if (!syncable.length) {
     return { status: "blocked", pendingCount: pending.length, message: "Hosted sync currently supports customer, sale, refund, register, and inventory changes only; other pending operations were kept safely." };
   }
@@ -682,9 +827,11 @@ async function syncPendingOperations(): Promise<ReconcileResult> {
     return { status: "blocked", pendingCount: pending.length, message: "This browser is not connected to a hosted shop. Pending operations were kept safely." };
   }
 
-  // The sync API accepts at most 50 operations per request; send oldest-first batches and keep every
-  // batch's results, stopping at the first failure so nothing already accepted is lost.
-  const results: SyncResult[] = [];
+  // The sync API accepts at most 50 operations per request; send oldest-first batches, stopping at the
+  // first failure. Each batch's results are saved as they arrive, so a large import shows real progress
+  // and a closed tab re-sends only what the server has not acknowledged (operations are idempotent).
+  let acceptedCount = 0;
+  let rejectedCount = 0;
   let blockedMessage: string | null = null;
   for (const batch of chunk(syncable, SYNC_BATCH_SIZE)) {
     const outcome = await postSyncBatch(batch);
@@ -692,25 +839,18 @@ async function syncPendingOperations(): Promise<ReconcileResult> {
       blockedMessage = outcome.message;
       break;
     }
-    results.push(...outcome.results);
+    if (!outcome.results.length) continue;
+    acceptedCount += outcome.results.filter((result) => result.status === "accepted").length;
+    rejectedCount += outcome.results.filter((result) => result.status === "rejected").length;
+    syncEpoch.bump();
+    const nextOperations = applySyncResults(state.syncOperations, outcome.results);
+    save({ ...state, syncOperations: nextOperations });
+    void clearSyncedOutbox(nextOperations).catch(() => undefined);
   }
-  const acceptedIds = new Set(results.filter((result) => result.status === "accepted").map((result) => result.id));
-  const rejected = new Map(results.filter((result) => result.status === "rejected").map((result) => [result.id, result.error ?? "The hosted service rejected this operation."]));
-  if (!acceptedIds.size && !rejected.size) {
+  if (!acceptedCount && !rejectedCount) {
     return { status: "blocked", pendingCount: pending.length, message: blockedMessage ?? "The hosted service did not acknowledge any operation. Pending operations were kept safely." };
   }
-  syncEpoch.bump();
-
-  const nextOperations = state.syncOperations.map((operation) => {
-    if (acceptedIds.has(operation.id)) return { ...operation, status: "synced" as const, error: undefined };
-    if (rejected.has(operation.id)) return { ...operation, status: "failed" as const, error: rejected.get(operation.id) };
-    return operation;
-  });
-  save({ ...state, syncOperations: nextOperations });
-  void clearSyncedOutbox(nextOperations).catch(() => undefined);
-
-  const acceptedCount = acceptedIds.size;
-  const rejectedCount = rejected.size;
+  const nextOperations = state.syncOperations;
   const status = rejectedCount ? acceptedCount ? "partial" as const : "failed" as const : "synced" as const;
   return {
     status,

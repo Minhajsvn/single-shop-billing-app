@@ -46,3 +46,24 @@ test("sale lines keep their list price through validation", () => {
   const parsed = requestSchema.parse({ operations: [base("sale", sale.id, { sale, deviceId })] });
   assert.equal(parsed.operations[0].payload.sale.lines[0].listUnitGrossFils, 285);
 });
+
+const productRecord = { id: "c1900000-0000-4000-8000-000000000001", name: "Green tea", sku: "TEA-19", priceFils: 650, lowStockThreshold: 3, active: true, taxCategory: "zero" };
+const movement = (type, extra = {}) => ({ id: "f2000000-0000-4000-8000-000000000001", productId: productRecord.id, delta: 30, type, reason: "Spreadsheet import", createdAt: "2026-10-18T08:00:00Z", ...extra });
+
+test("a product operation parses and passes through to apply_product_sync", () => {
+  const parsed = requestSchema.parse({ operations: [base("product", productRecord.id, { product: productRecord, deviceId })] });
+  assert.deepEqual(rpcPayloadFor(parsed.operations[0]), { product: productRecord, deviceId });
+});
+
+test("a product operation with an unknown VAT category is rejected", () => {
+  assert.equal(requestSchema.safeParse({ operations: [base("product", productRecord.id, { product: { ...productRecord, taxCategory: "reduced" } })] }).success, false);
+});
+
+test("an import-count needs countedStock; a stock operation may omit the product copy", () => {
+  const withoutCount = base("stock", movement("import-count").id, { movement: movement("import-count") });
+  assert.equal(requestSchema.safeParse({ operations: [withoutCount] }).success, false);
+  const withCount = base("stock", movement("import-count").id, { movement: movement("import-count"), countedStock: 40 });
+  assert.equal(requestSchema.parse({ operations: [withCount] }).operations[0].payload.countedStock, 40);
+  const slimReceipt = base("stock", movement("receipt").id, { movement: movement("receipt", { delta: 5 }) });
+  assert.equal(requestSchema.safeParse({ operations: [slimReceipt] }).success, true);
+});
