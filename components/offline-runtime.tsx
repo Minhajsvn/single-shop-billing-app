@@ -18,6 +18,11 @@ function onlineSnapshot() { return navigator.onLine; }
 function onlineServerSnapshot() { return true; }
 const notSyncing = () => false;
 
+/** Whether this device reports a network connection. */
+export function useOnline() {
+  return useSyncExternalStore(subscribeOnline, onlineSnapshot, onlineServerSnapshot);
+}
+
 /** The plain sync status line ("Online · all synced", "Offline · 8 waiting", "2 need attention") and where to look. */
 export function useSyncStatusText() {
   const store = useDemoStore();

@@ -165,6 +165,11 @@ a { color: inherit; text-decoration: none; }
 .toast-close { border: 0; background: transparent; color: inherit; min-width: 32px; min-height: 32px; cursor: pointer; }
 .pager { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 16px; border-top: 1px solid var(--border); }
 .pager-position { color: var(--muted); font-size: 12px; }
+.list-controls { display: grid; gap: 10px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { min-height: 32px; padding: 0 12px; border: 1px solid var(--border-strong); border-radius: 999px; background: white; color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; }
+.chip.on { background: var(--dark); border-color: var(--dark); color: white; }
+.list-notice { margin: 0; }
 .summary-strip { display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 10px 14px; margin-bottom: 14px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-subtle); font-size: 12px; }
 .summary-label { color: var(--muted); }
 .skeleton { display: grid; gap: 10px; padding: 16px; }
@@ -178,7 +183,7 @@ a { color: inherit; text-decoration: none; }
 @media (max-width: 760px) {
   /* Above the bottom navigation and the POS cart bar. */
   .toaster { left: 16px; right: 16px; width: auto; bottom: calc(140px + env(safe-area-inset-bottom)); }
-  .pager .button { min-height: 44px; }
+  .pager .button, .chip { min-height: 44px; }
 }
 .button.danger { color: var(--red); }
 .button.icon-only { width: 40px; padding: 0; }
