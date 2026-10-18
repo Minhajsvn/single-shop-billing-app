@@ -1,7 +1,8 @@
 "use client";
 
-import { WarningCircle } from "@phosphor-icons/react";
+import { CheckCircle, Receipt, WarningCircle } from "@phosphor-icons/react";
 import Link from "next/link";
+import { EmptyState } from "@/components/ui/list-parts";
 import { getRegisterTotals, useDemoStore, useShopContext } from "@/lib/demo-store";
 import { formatAED, formatTime } from "@/lib/domain";
 
@@ -38,12 +39,12 @@ export default function OverviewPage() {
       <div className="grid-two">
         <section className="panel">
           <div className="panel-header"><div><div className="panel-title">Recent invoices</div><div className="panel-subtitle">Latest completed sales</div></div><Link href="/sales" className="button">View all</Link></div>
-          <div className="table-wrap"><table><thead><tr><th>Invoice</th><th>Time</th><th>Payment</th><th className="numeric">Total</th></tr></thead><tbody>{store.sales.slice(0, 5).map((sale) => <tr key={sale.id}><td><Link className="invoice-link" href={`/sales/${sale.id}`}>{sale.invoiceNumber}</Link></td><td>{formatTime(sale.createdAt)}</td><td><span className={`badge ${sale.paymentMethod === "cash" ? "green" : "blue"}`}>{sale.paymentMethod}</span></td><td className="numeric">{formatAED(sale.grossFils)}</td></tr>)}</tbody></table></div>
+          {store.sales.length ? <div className="table-wrap"><table><thead><tr><th>Invoice</th><th>Time</th><th>Payment</th><th className="numeric">Total</th></tr></thead><tbody>{store.sales.slice(0, 5).map((sale) => <tr key={sale.id}><td><Link className="invoice-link" href={`/sales/${sale.id}`}>{sale.invoiceNumber}</Link></td><td>{formatTime(sale.createdAt)}</td><td><span className={`badge ${sale.paymentMethod === "cash" ? "green" : "blue"}`}>{sale.paymentMethod}</span></td><td className="numeric">{formatAED(sale.grossFils)}</td></tr>)}</tbody></table></div> : <EmptyState compact icon={<Receipt size={28} weight="duotone" />} title="No sales yet" hint="Completed sales appear here." action={<Link className="button primary" href="/sale">New sale</Link>} />}
         </section>
 
         <section className="panel">
           <div className="panel-header"><div><div className="panel-title">Low stock</div><div className="panel-subtitle">At or below reorder level</div></div><span className="badge red">{lowStock.length} items</span></div>
-          <div className="panel-body"><div className="low-stock-list">{lowStock.map((product) => <div className="low-stock-item" key={product.id}><div><div className="product-name">{product.name}</div><div className="product-meta">{product.sku} · threshold {product.lowStockThreshold}</div></div><div className="stock-number">{product.stock} left</div></div>)}</div></div>
+          {lowStock.length ? <div className="panel-body"><div className="low-stock-list">{lowStock.map((product) => <div className="low-stock-item" key={product.id}><div><div className="product-name">{product.name}</div><div className="product-meta">{product.sku} · threshold {product.lowStockThreshold}</div></div><div className="stock-number">{product.stock} left</div></div>)}</div></div> : <EmptyState compact icon={<CheckCircle size={28} weight="duotone" />} title="Stock levels are fine" hint="Products at or below their reorder level appear here." />}
         </section>
       </div>
     </>

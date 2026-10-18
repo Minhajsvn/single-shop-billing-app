@@ -5,10 +5,15 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { ImportDialog } from "@/components/catalogue/import-dialog";
 import { LabelPrintDialog } from "@/components/catalogue/label-print-dialog";
 import { ProductForm, type ProductFormValues } from "@/components/catalogue/product-form";
+import { EmptyState, Pager, SummaryStrip } from "@/components/ui/list-parts";
+import { useListParams } from "@/components/ui/use-list-params";
+import { paginate } from "@/lib/lists/paging";
 import { useDemoProducts } from "@/hooks/use-demo-products";
 import { productsToCsv } from "@/lib/catalogue/csv";
 import { formatAED, type Product } from "@/lib/domain";
 import { dubaiSupplyDate } from "@/lib/invoice-numbers";
+import { requestConfirm } from "@/lib/ui/confirm-store";
+import { toast } from "@/lib/ui/toast-store";
 
 type Dialog =
   | { kind: "new"; barcode?: string }
@@ -30,8 +35,9 @@ function downloadCsv(name: string, text: string) {
 
 export function InventoryWorkspace() {
   const { products, addProduct, updateProduct, setProductActive, adjustStock, syncProblems } = useDemoProducts();
-  const [query, setQuery] = useState("");
-  const [status, setStatus] = useState<StatusFilter>("active");
+  const [params, setParams] = useListParams({ q: "", status: "active", page: "1" });
+  const query = params.q;
+  const status: StatusFilter = params.status === "archived" ? "archived" : "active";
   const [dialog, setDialog] = useState<Dialog>(null);
   const [error, setError] = useState("");
   const [pageError, setPageError] = useState("");
@@ -53,11 +59,15 @@ export function InventoryWorkspace() {
     const term = query.trim().toLowerCase();
     return products.filter((product) => product.active === (status === "active") && (!term || [product.name, product.sku, product.barcode].some((value) => value?.toLowerCase().includes(term))));
   }, [products, query, status]);
+  // Pages of 50; archiving the last row of the last page steps back a page (paginate clamps).
+  const paged = paginate(filtered, Number(params.page) || 1);
+  const lowStock = products.filter((product) => product.active && product.stock <= product.lowStockThreshold).length;
 
   function saveNew(values: ProductFormValues) {
     const result = addProduct(values);
     if (!result.ok) return result.error;
     setDialog(null);
+    toast("Product saved");
     return null;
   }
 
@@ -65,22 +75,26 @@ export function InventoryWorkspace() {
     const result = updateProduct(product.id, { name: values.name, sku: values.sku, barcode: values.barcode, priceFils: values.priceFils, lowStockThreshold: values.lowStockThreshold, taxCategory: values.taxCategory });
     if (!result.ok) return result.error;
     setDialog(null);
+    toast("Product saved");
     return null;
   }
 
-  function archive(product: Product) {
-    if (!window.confirm(`Archive ${product.name}? Archived products are hidden from the till. Past invoices are kept.`)) return;
+  async function archive(product: Product) {
+    if (!(await requestConfirm({ title: `Archive ${product.name}?`, body: "Archived products are hidden from the till. Past invoices are kept.", confirmLabel: "Archive" }))) return;
     const result = setProductActive(product.id, false);
     setPageError(result.ok ? "" : result.error);
+    if (result.ok) toast("Product archived");
   }
 
   function restore(product: Product) {
     const result = setProductActive(product.id, true);
     setPageError(result.ok ? "" : result.error);
+    if (result.ok) toast("Product restored");
   }
 
   function exportCatalogue() {
     downloadCsv(`products-${dubaiSupplyDate(new Date())}.csv`, productsToCsv(products));
+    toast("Export ready");
   }
 
   function submitAdjustment(event: FormEvent<HTMLFormElement>, product: Product) {
@@ -110,7 +124,7 @@ export function InventoryWorkspace() {
     return products.filter((product) => ids.has(product.id));
   }, [dialog, products]);
   const selectedVisible = filtered.filter((product) => selected.has(product.id));
-  const allSelected = filtered.length > 0 && selectedVisible.length === filtered.length;
+  const allSelected = paged.items.length > 0 && paged.items.every((product) => selected.has(product.id));
 
   function toggle(productId: string) {
     const next = new Set(selected);
@@ -120,7 +134,12 @@ export function InventoryWorkspace() {
   }
 
   function toggleAll() {
-    setSelected(allSelected ? new Set() : new Set(filtered.map((product) => product.id)));
+    const next = new Set(selected);
+    for (const product of paged.items) {
+      if (allSelected) next.delete(product.id);
+      else next.add(product.id);
+    }
+    setSelected(next);
   }
 
   return (
@@ -137,20 +156,20 @@ export function InventoryWorkspace() {
       {attention ? <div className="notice error-notice" role="status"><WarningCircle size={18} weight="fill" /><span><strong>{attention} {attention === 1 ? "product needs" : "products need"} attention.</strong> The server did not accept {attention === 1 ? "it" : "them"}; edit the marked products to fix the problem shown.</span></div> : null}
       {pageError ? <div className="notice error-notice" role="alert"><WarningCircle size={18} weight="fill" /><span>{pageError}</span></div> : null}
 
+      <SummaryStrip label="Inventory summary" items={[{ label: "Products", value: products.filter((product) => product.active).length.toLocaleString("en-US") }, { label: "Low stock", value: lowStock.toLocaleString("en-US") }, { label: "Archived", value: products.filter((product) => !product.active).length.toLocaleString("en-US") }]} />
       <section className="panel">
         <div className="panel-body">
           <div className="toolbar">
-            <div className="search"><MagnifyingGlass size={16} weight="bold" /><input className="input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search name, SKU, or barcode" aria-label="Search inventory" /></div>
+            <div className="search"><MagnifyingGlass size={16} weight="bold" /><input className="input" value={query} onChange={(event) => setParams({ q: event.target.value, page: "1" })} placeholder="Search name, SKU, or barcode" aria-label="Search inventory" /></div>
             <div className="segmented status-filter" role="radiogroup" aria-label="Show products">
-              <button type="button" role="radio" aria-checked={status === "active"} className={`button ${status === "active" ? "primary" : ""}`} onClick={() => setStatus("active")}>Active</button>
-              <button type="button" role="radio" aria-checked={status === "archived"} className={`button ${status === "archived" ? "primary" : ""}`} onClick={() => setStatus("archived")}>Archived</button>
+              <button type="button" role="radio" aria-checked={status === "active"} className={`button ${status === "active" ? "primary" : ""}`} onClick={() => setParams({ status: "active", page: "1" })}>Active</button>
+              <button type="button" role="radio" aria-checked={status === "archived"} className={`button ${status === "archived" ? "primary" : ""}`} onClick={() => setParams({ status: "archived", page: "1" })}>Archived</button>
             </div>
-            <span className="button" aria-label="Product count">{filtered.length} products</span>
             <button type="button" className="button" disabled={!selectedVisible.length} onClick={() => setDialog({ kind: "labels", productIds: selectedVisible.map((product) => product.id) })}><Barcode size={15} weight="bold" /> Print labels ({selectedVisible.length})</button>
           </div>
         </div>
-        {filtered.length ? (
-          <div className="table-wrap"><table><thead><tr><th className="select-column"><input type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Select all shown products" /></th><th>Product</th><th>Status</th><th className="numeric">Stock</th><th className="numeric">Price incl. VAT</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>{filtered.map((product) => {
+        {paged.items.length ? (
+          <div className="table-wrap"><table><thead><tr><th className="select-column"><input type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Select all products on this page" /></th><th>Product</th><th>Status</th><th className="numeric">Stock</th><th className="numeric">Price incl. VAT</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>{paged.items.map((product) => {
             const low = product.stock <= product.lowStockThreshold;
             const problem = syncProblems.get(product.id);
             return (
@@ -177,8 +196,11 @@ export function InventoryWorkspace() {
             );
           })}</tbody></table></div>
         ) : status === "archived"
-          ? <div className="empty"><Archive size={28} weight="duotone" /><h3>No archived products</h3><p>Archived products are hidden from the till and listed here.</p></div>
-          : <div className="empty"><Archive size={28} weight="duotone" /><h3>No matching products</h3><p>Change the search, import a spreadsheet, or add a new product to the catalog.</p><button className="button primary" onClick={() => setDialog({ kind: "new" })}>Add product</button></div>}
+          ? <EmptyState icon={<Archive size={28} weight="duotone" />} title="No archived products" hint="Archived products are hidden from the till and listed here." />
+          : products.length
+            ? <EmptyState icon={<Archive size={28} weight="duotone" />} title={`No products match "${query}"`} hint="Try a name, SKU or barcode." />
+            : <EmptyState icon={<Archive size={28} weight="duotone" />} title="No products yet" hint="Import a spreadsheet or add your first product." action={<button className="button primary" onClick={() => setDialog({ kind: "new" })}>Add product</button>} />}
+        <Pager {...paged} onPage={(next) => setParams({ page: String(next) })} />
       </section>
 
       {dialog?.kind === "new" && <ProductForm mode="add" barcode={dialog.barcode} onSubmit={saveNew} onCancel={closeDialog} />}

@@ -5,6 +5,8 @@ import { FormEvent, useState } from "react";
 import { staleRegister } from "@/lib/checkout/register-status";
 import { addCashAdjustment, closeRegister, getRegisterTotals, openRegister, useDemoStore } from "@/lib/demo-store";
 import { formatAED, formatDateTime } from "@/lib/domain";
+import { toast } from "@/lib/ui/toast-store";
+import { EmptyState } from "@/components/ui/list-parts";
 
 type Dialog = "open" | "adjust" | "close" | null;
 
@@ -24,6 +26,7 @@ export function RegisterWorkspace() {
       setError("Enter a valid opening balance.");
       return;
     }
+    toast("Register opened");
     setError("");
     setDialog(null);
   }
@@ -50,6 +53,7 @@ export function RegisterWorkspace() {
       setError("Enter the counted cash before closing.");
       return;
     }
+    toast("Register closed");
     setError("");
     setDialog(null);
   }
@@ -83,7 +87,7 @@ export function RegisterWorkspace() {
       <div className="grid-two register-grid">
         <section className="panel">
           <div className="panel-header"><div><div className="panel-title">Cash movements</div><div className="panel-subtitle">Non-sale additions and removals</div></div><button className="button" onClick={() => setDialog("adjust")}>Record adjustment</button></div>
-          {register.adjustments.length ? <div className="table-wrap"><table><thead><tr><th>Time</th><th>Reason</th><th>Direction</th><th className="numeric">Amount</th></tr></thead><tbody>{register.adjustments.map((item) => <tr key={item.id}><td>{formatDateTime(item.createdAt)}</td><td className="product-name">{item.reason}</td><td><span className={`badge ${item.amountFils > 0 ? "green" : "red"}`}>{item.amountFils > 0 ? "Cash in" : "Cash out"}</span></td><td className="numeric">{formatAED(item.amountFils)}</td></tr>)}</tbody></table></div> : <div className="empty compact-empty"><CheckCircle size={28} weight="duotone" /><h3>No manual movements</h3><p>Sales are tracked automatically. Record only non-sale cash additions or removals.</p></div>}
+          {register.adjustments.length ? <div className="table-wrap"><table><thead><tr><th>Time</th><th>Reason</th><th>Direction</th><th className="numeric">Amount</th></tr></thead><tbody>{register.adjustments.map((item) => <tr key={item.id}><td>{formatDateTime(item.createdAt)}</td><td className="product-name">{item.reason}</td><td><span className={`badge ${item.amountFils > 0 ? "green" : "red"}`}>{item.amountFils > 0 ? "Cash in" : "Cash out"}</span></td><td className="numeric">{formatAED(item.amountFils)}</td></tr>)}</tbody></table></div> : <EmptyState compact icon={<CheckCircle size={28} weight="duotone" />} title="No manual movements" hint="Sales are tracked automatically. Record only non-sale cash additions or removals." />}
         </section>
         {stale.stale && <div className="notice error-notice" role="alert"><CashRegister size={18} weight="fill" /><div><strong>This register was opened on {stale.openedOn} and is still open.</strong> Count the drawer and close it before the next sale.</div></div>}
         <section className="panel close-panel"><div className="panel-body"><div className="eyebrow">End of day</div><h2>Ready to count?</h2><p>Closing locks this register session. Enter the physical cash count to calculate the variance.</p><button className="button primary" onClick={() => setDialog("close")}>Close register</button></div></section>

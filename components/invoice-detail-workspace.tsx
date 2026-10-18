@@ -4,8 +4,10 @@ import { ArrowCounterClockwise, ArrowLeft, FilePdf, Printer, Receipt, X } from "
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
+import { useOnline } from "@/components/offline-runtime";
 import { ReceiptDocument, lineSaving, useReceiptShop } from "@/components/receipt-document";
-import { createCreditNote, useDemoStore } from "@/lib/demo-store";
+import { useRemoteSale } from "@/components/sales/use-remote-sale";
+import { createCreditNote, useDemoStore, useShopContext } from "@/lib/demo-store";
 import { formatAED, formatDateTime } from "@/lib/domain";
 import { printDocument } from "@/lib/print";
 
@@ -13,7 +15,13 @@ export function InvoiceDetailWorkspace({ id }: { id: string }) {
   const store = useDemoStore();
   const pathname = usePathname();
   const routeId = pathname.split("/").filter(Boolean).at(-1) ?? id;
-  const sale = store.sales.find((item) => item.id === routeId);
+  const localSale = store.sales.find((item) => item.id === routeId);
+  const online = useOnline();
+  // Sales older than the browser's 90-day history are loaded from the server to view and reprint only.
+  const { mode } = useShopContext();
+  const remote = useRemoteSale(routeId, !localSale && mode === "hosted", online);
+  const sale = localSale ?? remote.sale ?? undefined;
+  const viewOnly = !localSale && Boolean(remote.sale);
   const shop = useReceiptShop(sale);
   const [returnOpen, setReturnOpen] = useState(false);
   const [returnQuantities, setReturnQuantities] = useState<Record<string, number>>({});
@@ -23,13 +31,15 @@ export function InvoiceDetailWorkspace({ id }: { id: string }) {
   const print = printDocument;
 
   if (!sale) {
-    return <section className="panel"><div className="empty"><Receipt size={32} weight="duotone" /><h3>Invoice not found</h3><p>The invoice may not exist in this browser’s local demo data.</p><Link className="button" href="/sales">Return to sales</Link></div></section>;
+    if (mode === "hosted" && (remote.status === "loading" || (online && remote.status === "idle"))) return <section className="panel"><div className="empty"><Receipt size={32} weight="duotone" /><h3>Loading invoice…</h3><p>Fetching this older invoice from the server.</p></div></section>;
+    return <section className="panel"><div className="empty"><Receipt size={32} weight="duotone" /><h3>Invoice not found</h3><p>{online ? "The invoice may not exist in this shop." : "Connect to the internet to open older invoices."}</p><Link className="button" href="/sales">Return to sales</Link></div></section>;
   }
 
   const creditNotes = store.creditNotes.filter((note) => note.saleId === sale.id);
   const returned = new Map<string, number>();
   for (const note of creditNotes) for (const item of note.lines) returned.set(item.originalLineId, (returned.get(item.originalLineId) ?? 0) + item.quantity);
-  const hasReturnableLines = sale.lines.some((item) => item.quantity > (returned.get(item.id) ?? 0));
+  // Refunds only for sales this browser holds (owner's decision: older invoices are view and reprint only).
+  const hasReturnableLines = !viewOnly && sale.lines.some((item) => item.quantity > (returned.get(item.id) ?? 0));
 
   function createReturn() {
     const result = createCreditNote(sale!.id, returnQuantities);
@@ -41,7 +51,7 @@ export function InvoiceDetailWorkspace({ id }: { id: string }) {
 
   return (
     <>
-      <div className="page-heading no-print"><div><Link className="back-link" href="/sales"><ArrowLeft size={14} weight="bold" /> Sales ledger</Link><h1 className="page-title invoice-title">{sale.invoiceNumber}</h1><p className="page-copy">Issued {formatDateTime(sale.createdAt)} · immutable completed invoice</p></div><div className="invoice-actions">{hasReturnableLines && <button className="button" onClick={() => setReturnOpen(true)}><ArrowCounterClockwise size={16} weight="bold" /> Return items</button>}<button className="button" onClick={() => print("receipt")}><Printer size={16} weight="bold" /> Print 80mm</button><button className="button primary" onClick={() => print("a4")}><FilePdf size={16} weight="bold" /> Print / Save A4 PDF</button></div></div>
+      <div className="page-heading no-print"><div><Link className="back-link" href="/sales"><ArrowLeft size={14} weight="bold" /> Sales ledger</Link><h1 className="page-title invoice-title">{sale.invoiceNumber}</h1><p className="page-copy">Issued {formatDateTime(sale.createdAt)} · immutable completed invoice</p>{viewOnly ? <p className="field-hint">Refunds are available for sales in the last 90 days.</p> : null}</div><div className="invoice-actions">{hasReturnableLines && <button className="button" onClick={() => setReturnOpen(true)}><ArrowCounterClockwise size={16} weight="bold" /> Return items</button>}<button className="button" onClick={() => print("receipt")}><Printer size={16} weight="bold" /> Print 80mm</button><button className="button primary" onClick={() => print("a4")}><FilePdf size={16} weight="bold" /> Print / Save A4 PDF</button></div></div>
 
       <article className="panel invoice-document a4-document">
         <header className="invoice-header"><div><div className="invoice-wordmark">{shop.name}</div><div className="invoice-address">{shop.address}<br />{shop.phone}<br />TRN {shop.trn}</div></div><div className="invoice-heading"><span>{sale.customer?.trn ? "Full Tax Invoice" : "Tax Invoice"}</span><strong>{sale.invoiceNumber}</strong><small>Supply date {sale.supplyDate}</small></div></header>

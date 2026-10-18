@@ -8,9 +8,10 @@ import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
-type GateState = { status: "checking" } | { status: "ready" } | { status: "error"; message: string };
+// checking: no session known yet; loading: signed in, the shop is loading (skeletons, never for signed-out visitors).
+type GateState = { status: "checking" } | { status: "loading" } | { status: "ready" } | { status: "error"; message: string };
 
-export function AuthGate({ children }: { children: ReactNode }) {
+export function AuthGate({ children, loading }: { children: ReactNode; loading?: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const pathRef = useRef(pathname);
@@ -40,6 +41,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
         return;
       }
     }
+    setGate({ status: "loading" });
     // A signed-in session always wins over a leftover sample-shop choice (startHostedStore leaves sample mode).
     const result = await startHostedStore(data.session.user.id);
     if (!active()) return;
@@ -62,6 +64,9 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   if (gate.status === "checking") {
     return <div className="auth-loading" role="status">Loading your shop…</div>;
+  }
+  if (gate.status === "loading") {
+    return loading ?? <div className="auth-loading" role="status">Loading your shop…</div>;
   }
   if (gate.status === "error") {
     return (

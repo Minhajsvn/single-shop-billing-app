@@ -14,6 +14,7 @@ import { saleBlockReason, staleRegister } from "@/lib/checkout/register-status";
 import { cartTotals, formatItemCount } from "@/lib/checkout/pricing";
 import { completeSale, type CheckoutLine, useDemoStore, useShopContext } from "@/lib/demo-store";
 import { formatAED, type Product, type Sale } from "@/lib/domain";
+import { EmptyState } from "@/components/ui/list-parts";
 
 type CartItem = CheckoutLine & { key: string };
 
@@ -222,7 +223,7 @@ export function PosWorkspace() {
             const soldOut = product.stock <= inCart;
             return <button className="product-card" key={product.id} onClick={() => addProduct(product)} disabled={soldOut}><div><span className={`badge ${product.stock <= product.lowStockThreshold ? "red" : "green"}`}>{soldOut ? "Unavailable" : `${product.stock - inCart} available`}</span><h3>{product.name}</h3><p>{product.sku}</p></div><strong>{formatAED(product.priceFils)}</strong></button>;
           })}</div>
-          {!availableProducts.length && <div className="empty"><MagnifyingGlass size={28} weight="duotone" /><h3>No products found</h3><p>Try a different name, SKU, or barcode.</p></div>}
+          {!availableProducts.length && <EmptyState icon={<MagnifyingGlass size={28} weight="duotone" />} title="No products found" hint="Try a different name, SKU, or barcode." />}
         </section>
 
         {completed ? <ReceiptPanel sale={completed.sale} tenderedFils={completed.tenderedFils} shop={receiptShop} onNewSale={startNewSale} /> : <aside className={`panel cart-panel ${sheetOpen ? "sheet-open" : ""}`}>

@@ -9,6 +9,7 @@ import { parseCsv, problemsToCsv } from "@/lib/catalogue/csv";
 import type { Cell, ColumnMapping, ImportField } from "@/lib/catalogue/types";
 import { useShopContext } from "@/lib/demo-store";
 import { formatAED } from "@/lib/domain";
+import { toast } from "@/lib/ui/toast-store";
 
 const FIELDS: { field: ImportField; label: string; required?: boolean }[] = [
   { field: "name", label: "Product name", required: true },
@@ -114,7 +115,9 @@ export function ImportDialog({ onClose, onPrintLabels }: { onClose: () => void; 
 
   function confirm(current: Extract<Step, { kind: "preview" }>) {
     const plan = { ...current.plan, creates: current.plan.creates.filter((row) => !current.skipped.has(row.rowNumber)) };
-    setStep({ kind: "done", ...applyImport(plan) });
+    const result = applyImport(plan);
+    setStep({ kind: "done", ...result });
+    toast(`Import finished: ${products_(result.createdIds.length + result.updatedIds.length)}`);
   }
 
   const header = (
