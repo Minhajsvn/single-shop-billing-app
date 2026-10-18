@@ -515,11 +515,20 @@ set local role service_role;
 do $$
 declare
   biz constant uuid := 'b2400000-0000-4000-8000-000000000001';
+  -- Stripe's $0 trial-start invoice; it can arrive before checkout links the subscription id.
+  trial_invoice constant jsonb := jsonb_build_object(
+    'id', 'evt_24_trial_invoice', 'created', now() - interval '45 minutes', 'kind', 'invoice_paid',
+    'businessId', null, 'customerId', null, 'subscriptionId', 'sub_24', 'status', 'trialing',
+    'trialEnd', null, 'currentPeriodEnd', now() + interval '20 days', 'cancelAt', null, 'interval', 'month');
   sub public.subscriptions;
   result text;
 begin
   select * into sub from public.subscriptions where business_id = biz;
   assert sub.status = 'trialing' and sub.plan_id = 'pro' and not sub.has_payment_method, 'new business starts on the Pro trial without a card';
+
+  result := public.apply_billing_event(trial_invoice);
+  assert result = 'unknown_business', 'unlinked subscription id is unknown, got ' || coalesce(result, 'null');
+  assert not exists (select 1 from public.stripe_events where id = 'evt_24_trial_invoice'), 'unknown-business event is not kept, so a redelivery is applied';
 
   result := public.apply_billing_event(jsonb_build_object(
     'id', 'evt_24_checkout', 'created', now() - interval '50 minutes', 'kind', 'checkout_completed',
@@ -531,6 +540,24 @@ begin
   assert sub.has_payment_method and sub.billing_interval = 'month', 'card and interval recorded';
   assert sub.stripe_customer_id = 'cus_24' and sub.stripe_subscription_id = 'sub_24', 'Stripe ids stored';
 
+  -- Redelivery after checkout linked the ids is applied; the $0 invoice keeps the Pro trial.
+  result := public.apply_billing_event(trial_invoice);
+  assert result = 'applied', 'redelivered trial invoice applied, got ' || coalesce(result, 'null');
+  select * into sub from public.subscriptions where business_id = biz;
+  assert sub.status = 'trialing' and sub.plan_id = 'pro' and sub.has_payment_method, 'trial-start invoice keeps the Pro trial';
+  assert sub.current_period_end = now() + interval '20 days' and sub.last_event_at = now() - interval '45 minutes', 'trial invoice stores only the period end';
+end $$;
+
+-- The trial has ended; the first real invoice moves the shop to Starter.
+reset role;
+update public.subscriptions set trial_ends_at = now() - interval '1 hour' where business_id = 'b2400000-0000-4000-8000-000000000001';
+set local role service_role;
+do $$
+declare
+  biz constant uuid := 'b2400000-0000-4000-8000-000000000001';
+  sub public.subscriptions;
+  result text;
+begin
   -- Resolved by subscription id only.
   result := public.apply_billing_event(jsonb_build_object(
     'id', 'evt_24_paid_1', 'created', now() - interval '40 minutes', 'kind', 'invoice_paid',
@@ -605,6 +632,7 @@ begin
     'businessId', null, 'customerId', 'cus_nobody', 'subscriptionId', 'sub_nobody', 'status', 'active',
     'trialEnd', null, 'currentPeriodEnd', null, 'cancelAt', null, 'interval', null));
   assert result = 'unknown_business', 'no matching business, got ' || coalesce(result, 'null');
+  assert not exists (select 1 from public.stripe_events where id = 'evt_24_nobody'), 'unknown-business event is not recorded';
 end $$;
 reset role;
 
@@ -635,7 +663,14 @@ begin
   update public.subscriptions set status = 'canceled', canceled_at = now() - interval '1 minute' where business_id = biz;
   assert public.entitlements_internal(biz, now())->>'access' = 'read_only', 'canceled is read-only';
   update public.subscriptions set canceled_at = null where business_id = biz;
-  assert public.entitlements_internal(biz, now())->>'access' = 'read_only', 'canceled without a date is read-only';
+  e := public.entitlements_internal(biz, now());
+  assert e->>'access' = 'read_only', 'canceled without a date is read-only';
+  assert (e->>'accessEndsAt')::timestamptz = '1970-01-01T00:00:00Z'::timestamptz, 'missing cancel date is emitted as the epoch, got ' || coalesce(e->>'accessEndsAt', 'null');
+
+  update public.subscriptions set status = 'past_due', grace_ends_at = null where business_id = biz;
+  e := public.entitlements_internal(biz, now());
+  assert e->>'access' = 'read_only', 'past_due without a grace end is read-only';
+  assert (e->>'accessEndsAt')::timestamptz = '1970-01-01T00:00:00Z'::timestamptz, 'missing grace end is emitted as the epoch, got ' || coalesce(e->>'accessEndsAt', 'null');
 
   update public.subscriptions set status = 'past_due', grace_ends_at = grace_end where business_id = biz;
   e := public.entitlements_internal(biz, now());

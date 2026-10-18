@@ -56,7 +56,8 @@ begin
     'access', access,
     'trialEndsAt', sub.trial_ends_at,
     'graceEndsAt', sub.grace_ends_at,
-    'accessEndsAt', access_end,
+    -- Always a parseable instant or null: an already-ended (-infinity) access end is sent as the epoch.
+    'accessEndsAt', case when access_end is null or isfinite(access_end) then to_jsonb(access_end) else to_jsonb('1970-01-01T00:00:00Z'::text) end,
     'cancelAt', sub.cancel_at,
     'hasPaymentMethod', sub.has_payment_method,
     'billingInterval', sub.billing_interval,
@@ -107,12 +108,8 @@ begin
     v_interval := null;
   end if;
 
-  insert into public.stripe_events (id, type) values (v_id, v_kind) on conflict (id) do nothing;
-  get diagnostics inserted = row_count;
-  if inserted = 0 then
-    return 'duplicate';
-  end if;
-
+  -- Resolve first: an event for no known business is not recorded, so a redelivery after checkout
+  -- links the Stripe ids is applied.
   if v_business is not null then
     select * into sub from public.subscriptions where business_id = v_business for update;
   end if;
@@ -124,6 +121,12 @@ begin
   end if;
   if sub.business_id is null then
     return 'unknown_business';
+  end if;
+
+  insert into public.stripe_events (id, type) values (v_id, v_kind) on conflict (id) do nothing;
+  get diagnostics inserted = row_count;
+  if inserted = 0 then
+    return 'duplicate';
   end if;
 
   if sub.last_event_at > v_created then
@@ -163,6 +166,11 @@ begin
       current_period_end = coalesce(v_period_end, current_period_end),
       cancel_at = v_cancel_at,
       billing_interval = coalesce(v_interval, billing_interval)
+    where business_id = sub.business_id;
+
+  elsif v_kind = 'invoice_paid' and sub.status = 'trialing' and sub.trial_ends_at > now() then
+    -- Stripe's $0 trial-start invoice must not end the Pro trial.
+    update public.subscriptions set current_period_end = coalesce(v_period_end, current_period_end)
     where business_id = sub.business_id;
 
   elsif v_kind = 'invoice_paid' then
