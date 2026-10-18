@@ -2,13 +2,15 @@ import type { DemoState } from "../domain.ts";
 import type { CountryCode, CurrencyCode } from "../fiscal/countries.ts";
 
 export type BusinessProfile = { id: string; legalName: string; trn: string; address: string; phone: string; invoicePrefix: string; receiptFooter: string; country: CountryCode; currency: CurrencyCode };
-export type TillDevice = { id: string; name: string; tillNumber: number; branchId: string; branchName: string; status: "active" | "revoked" };
-export type ShopSnapshot = { business: BusinessProfile; devices: TillDevice[]; state: DemoState; generatedAt: string };
+export type TillDevice = { id: string; name: string; tillNumber: number; branchId: string; branchName: string; status: "active" | "paused" | "revoked" };
+export type MemberRole = "owner" | "manager" | "cashier";
+export type ShopSnapshot = { business: BusinessProfile; devices: TillDevice[]; role: MemberRole | null; state: DemoState; generatedAt: string };
 
 type Money = { net_fils: number; vat_fils: number; gross_fils: number };
 type LineRow = Money & { id: string; product_id: string | null; description: string; sku: string | null; quantity: number; unit_gross_fils: number; list_unit_gross_fils?: number | null };
 
 export type SnapshotRows = {
+  role: string | null;
   business: { id: string; legal_name: string; trn: string; address: string; phone: string; invoice_prefix: string; receipt_footer: string; country: string; currency: string };
   devices: { id: string; name: string; till_number: number; branch_id: string; status: string; branch?: { name: string } | null }[];
   products: { id: string; name: string; sku: string; barcode: string | null; price_fils: number; stock_quantity: number; low_stock_threshold: number; status: string; tax_category?: string | null }[];

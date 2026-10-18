@@ -62,8 +62,9 @@ export function mapSnapshotRows(rows: SnapshotRows, generatedAt: string): ShopSn
       id: rows.business.id, legalName: rows.business.legal_name, trn: rows.business.trn, address: rows.business.address, phone: rows.business.phone,
       invoicePrefix: rows.business.invoice_prefix, receiptFooter: rows.business.receipt_footer, country: rows.business.country as CountryCode, currency: rows.business.currency as CurrencyCode,
     },
-    devices: rows.devices.map((d) => ({ id: d.id, name: d.name, tillNumber: d.till_number, branchId: d.branch_id, branchName: d.branch?.name ?? "Main branch", status: d.status === "active" ? "active" as const : "revoked" as const }))
+    devices: rows.devices.map((d) => ({ id: d.id, name: d.name, tillNumber: d.till_number, branchId: d.branch_id, branchName: d.branch?.name ?? "Main branch", status: d.status === "active" ? "active" as const : d.status === "paused" ? "paused" as const : "revoked" as const }))
       .sort((left, right) => left.tillNumber - right.tillNumber),
+    role: rows.role === "owner" || rows.role === "manager" || rows.role === "cashier" ? rows.role : null,
     state,
     generatedAt,
   };

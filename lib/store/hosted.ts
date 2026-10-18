@@ -1,7 +1,7 @@
 import { withTaxCategories } from "./product-sync.ts";
 import { READ_ONLY_ENTITLEMENTS, type Entitlements } from "../billing/entitlements.ts";
 import type { DemoState, SyncOperation } from "../domain.ts";
-import type { BusinessProfile, TillDevice } from "../snapshot/types.ts";
+import type { BusinessProfile, MemberRole, TillDevice } from "../snapshot/types.ts";
 
 export type EntitlementCache = { entitlements: Entitlements; expiresAt: string };
 
@@ -9,6 +9,8 @@ export type HostedContext = {
   business: BusinessProfile | null;
   devices: TillDevice[];
   entitlementCache: EntitlementCache | null;
+  /** The signed-in member's role; absent in caches written before Stage 1F. */
+  role?: MemberRole | null;
   lastRefreshedAt: string | null;
 };
 
@@ -75,12 +77,16 @@ export function emptyHostedContext(): HostedContext {
   return { business: null, devices: [], entitlementCache: null, lastRefreshedAt: null };
 }
 
-/** Cached entitlements are trusted until their signed expiry; after that the shop is read-only until it reconnects. */
-export function effectiveEntitlements(cache: EntitlementCache | null, now = new Date()): Entitlements {
-  if (!cache) return READ_ONLY_ENTITLEMENTS;
+/**
+ * Cached entitlements are fresh until their signed expiry. After that (offline more than 72 hours) the last known
+ * entitlements still apply but are flagged stale, so the app asks to reconnect instead of going read-only.
+ * With no cache at all there is nothing to trust: read-only.
+ */
+export function effectiveEntitlements(cache: EntitlementCache | null, now = new Date()): { entitlements: Entitlements; stale: boolean } {
+  if (!cache) return { entitlements: READ_ONLY_ENTITLEMENTS, stale: true };
   const expiresAt = new Date(cache.expiresAt).getTime();
-  if (!Number.isFinite(expiresAt) || expiresAt <= now.getTime()) return READ_ONLY_ENTITLEMENTS;
-  return cache.entitlements;
+  const stale = !Number.isFinite(expiresAt) || expiresAt <= now.getTime();
+  return { entitlements: cache.entitlements, stale };
 }
 
 export function parseHostedCache(raw: string | null): HostedCache | null {

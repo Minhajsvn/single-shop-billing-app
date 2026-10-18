@@ -8,6 +8,7 @@ const rows = {
     { id: "dev-2", name: "Counter 2", till_number: 2, branch_id: "br", status: "active" },
     { id: "dev-1", name: "Counter 1", till_number: 1, branch_id: "br", status: "active" },
   ],
+  role: "manager",
   products: [{ id: "p1", name: "Coffee", sku: "COF", barcode: null, price_fils: 2850, stock_quantity: 4, low_stock_threshold: 5, status: "active", tax_category: "zero" }],
   customers: [{ id: "c1", name: "Omar", phone: "+971 55", email: null, address: null, trn: null, created_at: "2026-10-01T00:00:00Z", updated_at: "2026-10-02T00:00:00Z" }],
   sales: [{
@@ -36,6 +37,14 @@ test("maps business, devices sorted by till number", () => {
   const s = mapSnapshotRows(rows, "2026-10-13T10:00:00Z");
   assert.equal(s.business.invoicePrefix, "SMK");
   assert.deepEqual(s.devices.map((d) => d.tillNumber), [1, 2]);
+  assert.equal(s.role, "manager");
+  assert.equal(mapSnapshotRows({ ...rows, role: null }, "2026-10-13T10:00:00Z").role, null);
+});
+
+test("paused tills stay in the snapshot as paused; anything else not active is revoked", () => {
+  const withStatuses = { ...rows, devices: [{ ...rows.devices[0], status: "paused" }, { ...rows.devices[1], status: "revoked" }] };
+  const s = mapSnapshotRows(withStatuses, "2026-10-13T10:00:00Z");
+  assert.deepEqual(s.devices.map((d) => d.status), ["revoked", "paused"]);
 });
 
 test("mapSaleRow maps one sale row exactly as the snapshot does (used for old sales fetched on demand)", () => {
