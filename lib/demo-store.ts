@@ -24,7 +24,9 @@ import { mergeSnapshot } from "@/lib/snapshot/merge";
 import { registerTotals } from "@/lib/store/register-totals";
 import type { BusinessProfile, ShopSnapshot, TillDevice } from "@/lib/snapshot/types";
 import {
+  applySyncResults,
   chunk,
+  type SyncResult,
   createSerialQueue,
   createSyncEpoch,
   effectiveEntitlements,
@@ -768,7 +770,6 @@ export async function reconcilePendingOperations(): Promise<ReconcileResult> {
 }
 
 const SYNC_BATCH_SIZE = 50;
-type SyncResult = { id: string; status: "accepted" | "rejected"; error?: string };
 
 async function postSyncBatch(batch: SyncOperation[]): Promise<{ ok: true; results: SyncResult[] } | { ok: false; message: string }> {
   let response: Response;
@@ -822,9 +823,11 @@ async function syncPendingOperations(): Promise<ReconcileResult> {
     return { status: "blocked", pendingCount: pending.length, message: "This browser is not connected to a hosted shop. Pending operations were kept safely." };
   }
 
-  // The sync API accepts at most 50 operations per request; send oldest-first batches and keep every
-  // batch's results, stopping at the first failure so nothing already accepted is lost.
-  const results: SyncResult[] = [];
+  // The sync API accepts at most 50 operations per request; send oldest-first batches, stopping at the
+  // first failure. Each batch's results are saved as they arrive, so a large import shows real progress
+  // and a closed tab re-sends only what the server has not acknowledged (operations are idempotent).
+  let acceptedCount = 0;
+  let rejectedCount = 0;
   let blockedMessage: string | null = null;
   for (const batch of chunk(syncable, SYNC_BATCH_SIZE)) {
     const outcome = await postSyncBatch(batch);
@@ -832,25 +835,18 @@ async function syncPendingOperations(): Promise<ReconcileResult> {
       blockedMessage = outcome.message;
       break;
     }
-    results.push(...outcome.results);
+    if (!outcome.results.length) continue;
+    acceptedCount += outcome.results.filter((result) => result.status === "accepted").length;
+    rejectedCount += outcome.results.filter((result) => result.status === "rejected").length;
+    syncEpoch.bump();
+    const nextOperations = applySyncResults(state.syncOperations, outcome.results);
+    save({ ...state, syncOperations: nextOperations });
+    void clearSyncedOutbox(nextOperations).catch(() => undefined);
   }
-  const acceptedIds = new Set(results.filter((result) => result.status === "accepted").map((result) => result.id));
-  const rejected = new Map(results.filter((result) => result.status === "rejected").map((result) => [result.id, result.error ?? "The hosted service rejected this operation."]));
-  if (!acceptedIds.size && !rejected.size) {
+  if (!acceptedCount && !rejectedCount) {
     return { status: "blocked", pendingCount: pending.length, message: blockedMessage ?? "The hosted service did not acknowledge any operation. Pending operations were kept safely." };
   }
-  syncEpoch.bump();
-
-  const nextOperations = state.syncOperations.map((operation) => {
-    if (acceptedIds.has(operation.id)) return { ...operation, status: "synced" as const, error: undefined };
-    if (rejected.has(operation.id)) return { ...operation, status: "failed" as const, error: rejected.get(operation.id) };
-    return operation;
-  });
-  save({ ...state, syncOperations: nextOperations });
-  void clearSyncedOutbox(nextOperations).catch(() => undefined);
-
-  const acceptedCount = acceptedIds.size;
-  const rejectedCount = rejected.size;
+  const nextOperations = state.syncOperations;
   const status = rejectedCount ? acceptedCount ? "partial" as const : "failed" as const : "synced" as const;
   return {
     status,

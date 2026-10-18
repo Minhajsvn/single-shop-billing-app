@@ -1,6 +1,6 @@
 import { withTaxCategories } from "./product-sync.ts";
 import { READ_ONLY_ENTITLEMENTS, type Entitlements } from "../billing/entitlements.ts";
-import type { DemoState } from "../domain.ts";
+import type { DemoState, SyncOperation } from "../domain.ts";
 import type { BusinessProfile, TillDevice } from "../snapshot/types.ts";
 
 export type EntitlementCache = { entitlements: Entitlements; expiresAt: string };
@@ -24,6 +24,20 @@ export function pickNewerCache(local: { savedAt: number } | null, indexed: { sav
   if (!local) return "indexed";
   if (!indexed) return "local";
   return indexed.savedAt > local.savedAt ? "indexed" : "local";
+}
+
+export type SyncResult = { id: string; status: "accepted" | "rejected"; error?: string };
+
+/** Applies one sync batch's results; operations not in the batch are untouched. */
+export function applySyncResults(operations: SyncOperation[], results: SyncResult[]): SyncOperation[] {
+  const byId = new Map(results.map((result) => [result.id, result]));
+  return operations.map((operation) => {
+    const result = byId.get(operation.id);
+    if (!result) return operation;
+    return result.status === "accepted"
+      ? { ...operation, status: "synced" as const, error: undefined }
+      : { ...operation, status: "failed" as const, error: result.error ?? "The hosted service rejected this operation." };
+  });
 }
 
 /** Each signed-in user gets their own cache, so one account never sees or overwrites another's unsynced work. */
