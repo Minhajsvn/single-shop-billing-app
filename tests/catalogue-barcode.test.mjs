@@ -32,6 +32,12 @@ test("Code 128B modules for ABC", () => {
   assert.throws(() => code128Modules(""), RangeError);
 });
 
+test("barcodeFor returns null (never throws) for codes Code 128 cannot print", () => {
+  assert.equal(barcodeFor({ sku: "مياه" }), null);
+  assert.equal(barcodeFor({ sku: "ABC 123" }), null);
+  assert.equal(barcodeFor({ barcode: "ABC 123", sku: "OK-1" }), null);
+});
+
 test("barcodeFor picks EAN-13 for valid codes, else Code 128 of the barcode or the SKU", () => {
   assert.equal(barcodeFor({ barcode: "4006381333931", sku: "X" }).symbology, "ean13");
   const invalid = barcodeFor({ barcode: "6291100211014", sku: "X" });

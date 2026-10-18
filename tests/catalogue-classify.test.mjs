@@ -122,11 +122,12 @@ test("round trip: planImport(parseCsv(productsToCsv(products))) has 0 creates, 0
     product({ id: "a", name: "Water", sku: "WAT-6", barcode: "6291100211014", priceFils: 2850, stock: 10 }),
     product({ id: "b", name: "مياه", sku: "P-0001", priceFils: 125, stock: 0 }),
     { ...product({ id: "c", name: "Old cable", sku: "CAB-1", barcode: "0012345678905", stock: 3, active: false }), taxCategory: "exempt" },
+    product({ id: "d", name: "Loose nuts", sku: "00123", priceFils: 900, stock: 2 }),
   ];
   const rows = parseCsv(productsToCsv(products));
   const result = planImport(rows, guessMapping(rows[0]), products, options(5000));
   assert.equal(result.ok, true);
   assert.equal(result.plan.creates.length, 0);
   assert.equal(result.plan.problems.length, 0);
-  assert.deepEqual(result.plan.updates.map((u) => [u.productId, u.changed]), [["a", false], ["b", false], ["c", false]]);
+  assert.deepEqual(result.plan.updates.map((u) => [u.productId, u.changed]), [["a", false], ["b", false], ["c", false], ["d", false]]);
 });

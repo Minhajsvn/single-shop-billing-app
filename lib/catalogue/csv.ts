@@ -58,6 +58,18 @@ export function toCsv(rows: (string | number)[][]): string {
 
 const TAX_LABEL: Record<TaxCategory, string> = { standard: "Standard", zero: "Zero-rated", exempt: "Exempt" };
 
+/** Values Excel would silently turn into a number or a date ("00123" → 123, "3-4" → 04-Mar, "1E5" → 100000). */
+function excelWouldCoerce(text: string): boolean {
+  return /^[-+]?\d+([.,]\d+)?$/.test(text)
+    || /^\d+(\.\d+)?e[+-]?\d+$/i.test(text)
+    || /^\d{1,4}[-/.]\d{1,2}([-/.]\d{1,4})?$/.test(text);
+}
+
+/** Written as ="…" so Excel keeps it as text; the import unwraps it (parseBarcodeCell, parseTextCell). */
+function excelText(text: string): string {
+  return excelWouldCoerce(text) ? `="${text}"` : text;
+}
+
 function formatFils(fils: number): string {
   return `${Math.floor(fils / 100)}.${String(fils % 100).padStart(2, "0")}`;
 }
@@ -68,7 +80,7 @@ export function productsToCsv(products: (Product & { taxCategory?: TaxCategory }
     [...EXPORT_HEADINGS],
     ...products.map((product) => [
       product.name,
-      product.sku,
+      excelText(product.sku),
       product.barcode ? `="${product.barcode}"` : "",
       formatFils(product.priceFils),
       product.stock,

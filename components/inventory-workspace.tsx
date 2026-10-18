@@ -103,6 +103,12 @@ export function InventoryWorkspace() {
   }
 
   const attention = products.filter((product) => syncProblems.has(product.id)).length;
+  // A Set keeps "print labels for these 5,000 imported products" linear.
+  const labelProducts = useMemo(() => {
+    if (dialog?.kind !== "labels") return [];
+    const ids = new Set(dialog.productIds);
+    return products.filter((product) => ids.has(product.id));
+  }, [dialog, products]);
   const selectedVisible = filtered.filter((product) => selected.has(product.id));
   const allSelected = filtered.length > 0 && selectedVisible.length === filtered.length;
 
@@ -189,7 +195,7 @@ export function InventoryWorkspace() {
 
       {dialog?.kind === "import" && <ImportDialog onClose={closeDialog} onPrintLabels={(productIds) => setDialog({ kind: "labels", productIds })} />}
 
-      {dialog?.kind === "labels" && <LabelPrintDialog products={products.filter((product) => dialog.productIds.includes(product.id))} onClose={closeDialog} />}
+      {dialog?.kind === "labels" && <LabelPrintDialog products={labelProducts} onClose={closeDialog} />}
 
       {dialog?.kind === "adjust" && (
         <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeDialog(); }}>

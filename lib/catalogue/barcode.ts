@@ -55,9 +55,13 @@ export function code128Modules(text: string): string {
   return [START_B, ...values, check, STOP].map((value) => widthsToModules(CODE128_WIDTHS[value])).join("");
 }
 
-/** What a product's label prints: its EAN-13 when valid, otherwise Code 128 of the barcode, or of the SKU when it has none. */
-export function barcodeFor(product: { barcode?: string; sku: string }): { symbology: "ean13" | "code128"; value: string; modules: string } {
+/**
+ * What a product's label prints: its EAN-13 when valid, otherwise Code 128 of the barcode, or of the SKU when it
+ * has none. Null when the code has characters a label barcode cannot carry (Arabic, a non-breaking space…).
+ */
+export function barcodeFor(product: { barcode?: string; sku: string }): { symbology: "ean13" | "code128"; value: string; modules: string } | null {
   const value = product.barcode?.trim() || product.sku.trim();
   if (isValidEan13(value)) return { symbology: "ean13", value, modules: ean13Modules(value) };
+  if (!/^[\x20-\x7E]+$/.test(value)) return null;
   return { symbology: "code128", value, modules: code128Modules(value) };
 }

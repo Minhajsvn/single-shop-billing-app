@@ -81,7 +81,8 @@ export function parseTaxCategoryCell(cell: Cell): Parsed<TaxCategory | null> {
 
 /** Trimmed text; null when blank. Over-long names are a problem, never truncated. */
 export function parseTextCell(cell: Cell, max: number, label = "Name"): Parsed<string | null> {
-  const raw = text(cell);
+  // The export writes number-like SKUs as ="00123" so Excel keeps them as text.
+  const raw = text(cell).replace(/^="(.*)"$/, "$1").trim();
   if (!raw) return ok(null);
   return raw.length > max ? problem(`${label} is longer than ${max} characters`) : ok(raw);
 }

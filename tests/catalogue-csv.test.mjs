@@ -27,6 +27,11 @@ test("productsToCsv writes the export layout with Excel-safe barcodes", () => {
   assert.deepEqual(second, ["Old", "OLD", "", "5.00", "10", "5", "Zero-rated", "Archived"]);
 });
 
+test("SKUs Excel would turn into numbers or dates are written as text; ordinary SKUs are not", () => {
+  const rows = parseCsv(productsToCsv(["00123", "3-4", "1E5", "12/10", "WAT-6"].map((sku, i) => ({ ...water, id: `s${i}`, sku, barcode: undefined }))));
+  assert.deepEqual(rows.slice(1).map((row) => row[1]), ['="00123"', '="3-4"', '="1E5"', '="12/10"', "WAT-6"]);
+});
+
 test("Arabic names survive export and re-read", () => {
   const [, row] = parseCsv(productsToCsv([{ ...water, name: "مياه العين" }]));
   assert.equal(row[0], "مياه العين");
