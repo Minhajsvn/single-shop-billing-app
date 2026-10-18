@@ -6,6 +6,7 @@ import { createDemoStateBackup, reconcilePendingOperations, refreshSnapshot, res
 import { formatDateTime } from "@/lib/domain";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 import { syncCatalogToSupabase } from "@/lib/supabase/catalog-sync";
+import { requestConfirm } from "@/lib/ui/confirm-store";
 
 const SETTINGS_KEY = "shop-ledger-demo-settings-v1";
 const defaults = {
@@ -104,7 +105,7 @@ export default function SettingsPage() {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
-    if (!window.confirm("Restore this backup? Current local shop data will be replaced.")) return;
+    if (!(await requestConfirm({ title: "Restore this backup?", body: "Current local shop data will be replaced.", confirmLabel: "Restore", destructive: true }))) return;
     try {
       const parsed = JSON.parse(await file.text()) as { schemaVersion?: number; settings?: typeof defaults; state?: unknown };
       if (parsed.schemaVersion !== 3) return setBackupMessage("Restore stopped: this backup version is not supported.");

@@ -14,8 +14,11 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { OfflineRuntime } from "@/components/offline-runtime";
+import { ConfirmHost } from "@/components/ui/confirm-host";
+import { Toaster } from "@/components/ui/toaster";
 import { clearHostedStore, useDemoStore, useShopContext } from "@/lib/demo-store";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import { requestConfirm } from "@/lib/ui/confirm-store";
 
 const links = [
   { href: "/overview", label: "Overview", icon: House },
@@ -44,7 +47,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   async function signOut() {
     // Unsynced work is never discarded: it stays in this user's own cache and syncs when they sign in here again.
     const pending = store.syncOperations.filter((operation) => operation.status !== "synced").length;
-    if (mode === "hosted" && pending && !window.confirm(`${pending} change${pending === 1 ? " has" : "s have"} not synced yet. They stay saved on this browser and sync when you sign in here again. Sign out anyway?`)) return;
+    if (mode === "hosted" && pending && !(await requestConfirm({
+      title: "Sign out with unsynced changes?",
+      body: `${pending} change${pending === 1 ? " has" : "s have"} not synced yet. They stay saved on this browser and sync when you sign in here again.`,
+      confirmLabel: "Sign out",
+      destructive: true,
+    }))) return;
     clearHostedStore();
     if (isSupabaseConfigured()) await createClient().auth.signOut();
     document.cookie = "shop-ledger-mode=; path=/; Max-Age=0; SameSite=Lax";
@@ -104,6 +112,8 @@ export function AppShell({ children }: { children: ReactNode }) {
         </header>
         <div className="content">{children}</div>
       </main>
+      <ConfirmHost />
+      <Toaster />
     </div>
   );
 }

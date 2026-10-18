@@ -9,6 +9,8 @@ import { useDemoProducts } from "@/hooks/use-demo-products";
 import { productsToCsv } from "@/lib/catalogue/csv";
 import { formatAED, type Product } from "@/lib/domain";
 import { dubaiSupplyDate } from "@/lib/invoice-numbers";
+import { requestConfirm } from "@/lib/ui/confirm-store";
+import { toast } from "@/lib/ui/toast-store";
 
 type Dialog =
   | { kind: "new"; barcode?: string }
@@ -58,6 +60,7 @@ export function InventoryWorkspace() {
     const result = addProduct(values);
     if (!result.ok) return result.error;
     setDialog(null);
+    toast("Product saved");
     return null;
   }
 
@@ -65,22 +68,26 @@ export function InventoryWorkspace() {
     const result = updateProduct(product.id, { name: values.name, sku: values.sku, barcode: values.barcode, priceFils: values.priceFils, lowStockThreshold: values.lowStockThreshold, taxCategory: values.taxCategory });
     if (!result.ok) return result.error;
     setDialog(null);
+    toast("Product saved");
     return null;
   }
 
-  function archive(product: Product) {
-    if (!window.confirm(`Archive ${product.name}? Archived products are hidden from the till. Past invoices are kept.`)) return;
+  async function archive(product: Product) {
+    if (!(await requestConfirm({ title: `Archive ${product.name}?`, body: "Archived products are hidden from the till. Past invoices are kept.", confirmLabel: "Archive" }))) return;
     const result = setProductActive(product.id, false);
     setPageError(result.ok ? "" : result.error);
+    if (result.ok) toast("Product archived");
   }
 
   function restore(product: Product) {
     const result = setProductActive(product.id, true);
     setPageError(result.ok ? "" : result.error);
+    if (result.ok) toast("Product restored");
   }
 
   function exportCatalogue() {
     downloadCsv(`products-${dubaiSupplyDate(new Date())}.csv`, productsToCsv(products));
+    toast("Export ready");
   }
 
   function submitAdjustment(event: FormEvent<HTMLFormElement>, product: Product) {

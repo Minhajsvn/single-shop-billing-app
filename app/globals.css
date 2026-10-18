@@ -131,6 +131,33 @@ a { color: inherit; text-decoration: none; }
 .button:active { transform: scale(.98); }
 .button.primary { background: var(--dark); color: white; border-color: var(--dark); }
 .button.primary:hover { background: #383a37; }
+.button.danger { background: var(--red); color: white; border-color: var(--red); }
+
+/* 1E shared UI: confirm dialog, toasts, pager, summary strip, skeletons */
+.confirm-backdrop { z-index: 70; }
+.modal.confirm-dialog { width: min(440px, 100%); }
+.confirm-body { margin: 10px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.toaster { position: fixed; right: 20px; bottom: 20px; z-index: 80; display: grid; gap: 8px; width: min(360px, calc(100vw - 32px)); pointer-events: none; }
+.toast { pointer-events: auto; display: flex; align-items: center; gap: 10px; padding: 11px 12px; border-radius: 9px; background: var(--dark); color: white; font-size: 13px; box-shadow: 0 8px 24px rgba(0,0,0,.18); }
+.toast span { flex: 1; }
+.toast-close { border: 0; background: transparent; color: inherit; min-width: 32px; min-height: 32px; cursor: pointer; }
+.pager { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 16px; border-top: 1px solid var(--border); }
+.pager-position { color: var(--muted); font-size: 12px; }
+.summary-strip { display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 10px 14px; margin-bottom: 14px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-subtle); font-size: 12px; }
+.summary-label { color: var(--muted); }
+.skeleton { display: grid; gap: 10px; padding: 16px; }
+.skeleton-cards { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+.skeleton-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+.skeleton-block { display: block; height: 16px; border-radius: 6px; background: linear-gradient(90deg, var(--border) 0%, var(--surface-subtle) 50%, var(--border) 100%); background-size: 200% 100%; animation: skeleton-shimmer 1.3s ease-in-out infinite; }
+.skeleton-cards .skeleton-block { height: 96px; }
+.skeleton-grid .skeleton-block { height: 120px; }
+@keyframes skeleton-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .skeleton-block { animation: none; } }
+@media (max-width: 760px) {
+  /* Above the bottom navigation and the POS cart bar. */
+  .toaster { left: 16px; right: 16px; width: auto; bottom: calc(140px + env(safe-area-inset-bottom)); }
+  .pager .button { min-height: 44px; }
+}
 .button.danger { color: var(--red); }
 .button.icon-only { width: 40px; padding: 0; }
 

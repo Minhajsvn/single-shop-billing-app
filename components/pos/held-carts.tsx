@@ -5,6 +5,8 @@ import { useEffect, useState } from "react";
 import { MAX_HELD_CARTS, heldCartsKey, holdCart, resumeCart, type HeldCart } from "@/lib/checkout/held-carts";
 import { cartTotals, formatItemCount } from "@/lib/checkout/pricing";
 import { formatAED, formatTime, type Product } from "@/lib/domain";
+import { requestConfirm } from "@/lib/ui/confirm-store";
+import { toast } from "@/lib/ui/toast-store";
 
 function readHeld(key: string): HeldCart[] {
   try {
@@ -62,12 +64,14 @@ export function HeldCarts({ deviceId, products, canHold, cartIsEmpty, onHold, on
     save(result.list);
     setMessage("");
     onHeld();
+    toast("Sale held");
   }
 
-  function resume(id: string) {
+  async function resume(id: string) {
     let current = readHeld(key);
     if (!cartIsEmpty) {
-      if (!window.confirm("Hold the current sale first? Choose Cancel to keep working on it.")) return;
+      if (!(await requestConfirm({ title: "Hold the current sale first?", body: "The sale in the cart is held so you can resume this one. Cancel keeps you working on the current sale.", confirmLabel: "Hold and resume" }))) return;
+      current = readHeld(key);
       const parked = holdCart(current, onHold(), crypto.randomUUID(), new Date());
       if (!parked.ok) return setMessage(parked.error);
       current = parked.list;
@@ -78,10 +82,11 @@ export function HeldCarts({ deviceId, products, canHold, cartIsEmpty, onHold, on
     save(result.list);
     setOpen(false);
     onResume(result.cart, result.notices);
+    toast("Sale resumed");
   }
 
-  function discard(id: string) {
-    if (!window.confirm("Discard this held sale? It has not been charged.")) return;
+  async function discard(id: string) {
+    if (!(await requestConfirm({ title: "Discard this held sale?", body: "It has not been charged. This cannot be undone.", confirmLabel: "Discard", destructive: true }))) return;
     save(readHeld(key).filter((cart) => cart.id !== id));
   }
 

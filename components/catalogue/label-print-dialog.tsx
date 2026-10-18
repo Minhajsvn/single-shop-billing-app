@@ -6,6 +6,7 @@ import { LABEL_PAGE_SIZE, LabelSheet, type LabelItem, type LabelSize } from "@/c
 import { barcodeFor } from "@/lib/catalogue/barcode";
 import type { Product } from "@/lib/domain";
 import { printDocument } from "@/lib/print";
+import { requestConfirm } from "@/lib/ui/confirm-store";
 
 const SIZE_KEY = "shop-ledger-label-size-v1";
 const MAX_COPIES = 999;
@@ -42,8 +43,8 @@ export function LabelPrintDialog({ products, onClose }: { products: Product[]; o
     try { window.localStorage.setItem(SIZE_KEY, next); } catch { /* remembered size is a convenience only */ }
   }
 
-  function print() {
-    if (total > CONFIRM_ABOVE && !window.confirm(`Print ${total.toLocaleString("en-US")} labels? Large print jobs can take a while to prepare.`)) return;
+  async function print() {
+    if (total > CONFIRM_ABOVE && !(await requestConfirm({ title: `Print ${total.toLocaleString("en-US")} labels?`, body: "Large print jobs can take a while to prepare.", confirmLabel: "Print" }))) return;
     setPrinting(true);
   }
 

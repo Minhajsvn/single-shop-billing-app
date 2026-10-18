@@ -5,6 +5,7 @@ import { FormEvent, useState } from "react";
 import { staleRegister } from "@/lib/checkout/register-status";
 import { addCashAdjustment, closeRegister, getRegisterTotals, openRegister, useDemoStore } from "@/lib/demo-store";
 import { formatAED, formatDateTime } from "@/lib/domain";
+import { toast } from "@/lib/ui/toast-store";
 
 type Dialog = "open" | "adjust" | "close" | null;
 
@@ -24,6 +25,7 @@ export function RegisterWorkspace() {
       setError("Enter a valid opening balance.");
       return;
     }
+    toast("Register opened");
     setError("");
     setDialog(null);
   }
@@ -50,6 +52,7 @@ export function RegisterWorkspace() {
       setError("Enter the counted cash before closing.");
       return;
     }
+    toast("Register closed");
     setError("");
     setDialog(null);
   }
