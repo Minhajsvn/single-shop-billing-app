@@ -83,31 +83,39 @@ begin
   end if;
 
   begin
-    insert into public.products (
-      id, business_id, name, sku, barcode, price_fils,
-      stock_quantity, low_stock_threshold, status, tax_category
-    )
-    values (
-      target_id,
-      p_business_id,
-      btrim(product_payload->>'name'),
-      product_sku,
-      product_barcode,
-      (product_payload->>'priceFils')::bigint,
-      0,
-      (product_payload->>'lowStockThreshold')::integer,
-      case when (product_payload->>'active')::boolean then 'active'::public.product_status else 'inactive'::public.product_status end,
-      coalesce(nullif(product_payload->>'taxCategory', ''), 'standard')::public.tax_category
-    )
-    on conflict (id) do update
-    set name = excluded.name,
-        sku = excluded.sku,
-        barcode = excluded.barcode,
-        price_fils = excluded.price_fils,
-        low_stock_threshold = excluded.low_stock_threshold,
-        status = excluded.status,
-        tax_category = excluded.tax_category,
-        updated_at = now();
+    -- Update first, insert only when new: an upsert fires the INSERT plan-limit trigger even when it ends up
+    -- updating, which would refuse every edit once a shop is at its product limit. (Re-activating an archived
+    -- product still goes through the trigger's "update of status" check.)
+    update public.products p
+    set name = btrim(product_payload->>'name'),
+        sku = product_sku,
+        barcode = product_barcode,
+        price_fils = (product_payload->>'priceFils')::bigint,
+        low_stock_threshold = (product_payload->>'lowStockThreshold')::integer,
+        status = case when (product_payload->>'active')::boolean then 'active'::public.product_status else 'inactive'::public.product_status end,
+        tax_category = coalesce(nullif(product_payload->>'taxCategory', ''), 'standard')::public.tax_category,
+        updated_at = now()
+    where p.id = target_id
+      and p.business_id = p_business_id;
+
+    if not found then
+      insert into public.products (
+        id, business_id, name, sku, barcode, price_fils,
+        stock_quantity, low_stock_threshold, status, tax_category
+      )
+      values (
+        target_id,
+        p_business_id,
+        btrim(product_payload->>'name'),
+        product_sku,
+        product_barcode,
+        (product_payload->>'priceFils')::bigint,
+        0,
+        (product_payload->>'lowStockThreshold')::integer,
+        case when (product_payload->>'active')::boolean then 'active'::public.product_status else 'inactive'::public.product_status end,
+        coalesce(nullif(product_payload->>'taxCategory', ''), 'standard')::public.tax_category
+      );
+    end if;
   exception when unique_violation then
     -- A concurrent write won the race after the checks above.
     get stacked diagnostics violated = constraint_name;

@@ -453,6 +453,16 @@ begin
   end;
   assert failure = 'plan_limit_reached', 'plan limit rejection, got ' || coalesce(failure, 'null');
 end $$;
+-- At the limit, editing an existing active product must still work (an upsert's INSERT trigger must not fire).
+select public.apply_product_sync(
+  gen_random_uuid(), 'b0000000-0000-4000-8000-00000000000a', 'c1900000-0000-4000-8000-000000000001',
+  jsonb_build_object('product', jsonb_build_object(
+    'id', 'c1900000-0000-4000-8000-000000000001', 'name', 'Green tea', 'sku', 'TEA-19', 'priceFils', 700,
+    'lowStockThreshold', 3, 'active', true, 'taxCategory', 'zero'))
+);
+do $$ begin
+  assert (select price_fils from public.products where id = 'c1900000-0000-4000-8000-000000000001') = 700, 'edit at the plan limit applied';
+end $$;
 reset role;
 
 rollback;
