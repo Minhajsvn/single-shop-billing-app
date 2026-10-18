@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mapSnapshotRows } from "../lib/snapshot/map-rows.ts";
+import { mapSaleRow, mapSnapshotRows } from "../lib/snapshot/map-rows.ts";
 
 const rows = {
   business: { id: "biz", legal_name: "Smoke LLC", trn: "100000000000003", address: "Dubai", phone: "+971", invoice_prefix: "SMK", receipt_footer: "Thanks", country: "AE", currency: "AED" },
@@ -36,6 +36,10 @@ test("maps business, devices sorted by till number", () => {
   const s = mapSnapshotRows(rows, "2026-10-13T10:00:00Z");
   assert.equal(s.business.invoicePrefix, "SMK");
   assert.deepEqual(s.devices.map((d) => d.tillNumber), [1, 2]);
+});
+
+test("mapSaleRow maps one sale row exactly as the snapshot does (used for old sales fetched on demand)", () => {
+  assert.deepEqual(mapSaleRow(rows.sales[0]), mapSnapshotRows(rows, "x").state.sales[0]);
 });
 
 test("tills carry their branch name, or Main branch when the snapshot has none", () => {

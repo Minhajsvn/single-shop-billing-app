@@ -465,4 +465,46 @@ do $$ begin
 end $$;
 reset role;
 
+-- 23. Server sales search (owner only): invoice, customer name, phone in any format, date range; sale detail.
+reset role;
+update public.sales set customer_snapshot = jsonb_build_object('id', 'c2300000-0000-4000-8000-000000000001', 'name', 'Omar Hassan', 'phone', '+971 55 555 0198')
+where invoice_number = 'T17-1';
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-00000000000a","role":"authenticated"}', true);
+do $$
+declare found_count bigint;
+begin
+  select total_count into found_count from public.search_sales('b0000000-0000-4000-8000-00000000000a', 'T17', null, current_date, 50, 0) limit 1;
+  assert found_count = 1, 'invoice search finds T17-1, got ' || coalesce(found_count::text, 'null');
+  assert (select invoice_number from public.search_sales('b0000000-0000-4000-8000-00000000000a', 'omar', null, current_date, 50, 0) limit 1) = 'T17-1', 'name search';
+  assert (select invoice_number from public.search_sales('b0000000-0000-4000-8000-00000000000a', '0555550198', null, current_date, 50, 0) limit 1) = 'T17-1', 'phone search ignores formatting';
+  assert (select customer_phone from public.search_sales('b0000000-0000-4000-8000-00000000000a', '55-555-0198', null, current_date, 50, 0) limit 1) = '+971 55 555 0198', 'phone returned as stored';
+  assert not exists (select 1 from public.search_sales('b0000000-0000-4000-8000-00000000000a', '', current_date + 1, current_date + 1, 50, 0)), 'date range excludes everything';
+  assert (select count(*) from public.search_sales('b0000000-0000-4000-8000-00000000000a', '', null, current_date, 500, 0)) <= 50, 'limit capped at 50';
+  assert (public.get_sale_detail('b0000000-0000-4000-8000-00000000000a', 'a1000000-0000-4000-8000-000000000017')->>'invoice_number') = 'T17-1', 'detail returns the sale';
+  assert jsonb_array_length(public.get_sale_detail('b0000000-0000-4000-8000-00000000000a', 'a1000000-0000-4000-8000-000000000017')->'sale_items') = 1, 'detail returns its items';
+  assert public.get_sale_detail('b0000000-0000-4000-8000-00000000000a', gen_random_uuid()) is null, 'unknown sale is null';
+end $$;
+reset role;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-00000000000b","role":"authenticated"}', true);
+do $$
+declare failure text;
+begin
+  begin
+    perform public.search_sales('b0000000-0000-4000-8000-00000000000a', '', null, current_date, 50, 0);
+    assert false, 'another owner must not search business A';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'not_authorized', 'search guard, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin
+    perform public.get_sale_detail('b0000000-0000-4000-8000-00000000000a', 'a1000000-0000-4000-8000-000000000017');
+    assert false, 'another owner must not read business A sales';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'not_authorized', 'detail guard, got ' || coalesce(failure, 'null');
+end $$;
+reset role;
+
 rollback;
