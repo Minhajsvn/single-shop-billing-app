@@ -806,16 +806,16 @@ async function syncPendingOperations(): Promise<ReconcileResult> {
   const pending = state.syncOperations.filter((operation) => operation.status === "pending" || operation.status === "failed");
   if (!pending.length) return { status: "idle", pendingCount: 0, message: "There are no pending operations." };
 
-  // Stock for a product the server refused waits until the product is fixed and accepted.
+  // Stock, sales and refunds of a product the server refused wait until the product is fixed and accepted.
   const held = heldStockOperations(state.syncOperations);
   const syncable = syncOrder(pending.filter((operation) => (
     (operation.entity === "customer" && Boolean(operation.payload && "customer" in operation.payload)) ||
     (operation.entity === "sale" && Boolean(operation.payload && "sale" in operation.payload)) ||
     (operation.entity === "credit-note" && Boolean(operation.payload && "creditNote" in operation.payload)) ||
     (operation.entity === "register" && Boolean(operation.payload && "action" in operation.payload)) ||
-    (operation.entity === "stock" && Boolean(operation.payload && "movement" in operation.payload) && !held.has(operation.id)) ||
+    (operation.entity === "stock" && Boolean(operation.payload && "movement" in operation.payload)) ||
     (operation.entity === "product" && Boolean(operation.payload && "product" in operation.payload && !("movement" in operation.payload)))
-  )));
+  ) && !held.has(operation.id)));
   if (!syncable.length) {
     return { status: "blocked", pendingCount: pending.length, message: "Hosted sync currently supports customer, sale, refund, register, and inventory changes only; other pending operations were kept safely." };
   }

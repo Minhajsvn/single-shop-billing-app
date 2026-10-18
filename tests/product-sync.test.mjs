@@ -52,7 +52,7 @@ test("supersedeProductOperations drops earlier unsynced product operations for t
   assert.deepEqual(supersedeProductOperations(ops, "a").map((op) => op.id), ["p3", "p4", "sa"]);
 });
 
-test("syncOrder sends a stock operation after the latest product operation of its product, even when that product operation is newer", () => {
+test("syncOrder sends a product operation before the earliest unsynced stock or sale that needs it", () => {
   // The import's opening stock failed because its product was refused; the owner fixed the product later.
   const ops = [
     stockOp("open", "a", "failed", "2026-10-18T10:00:00.001Z"),
@@ -60,7 +60,23 @@ test("syncOrder sends a stock operation after the latest product operation of it
     productOp("fixed", "a", "pending", "2026-10-18T10:05:00.000Z"),
     productOp("pb", "b", "pending", "2026-10-18T09:59:00.000Z"),
   ];
-  assert.deepEqual(syncOrder(ops).map((op) => op.id), ["pb", "other", "fixed", "open"]);
+  assert.deepEqual(syncOrder(ops).map((op) => op.id), ["pb", "fixed", "open", "other"]);
+});
+
+test("syncOrder keeps stock counts and sales in their own order around a later product edit", () => {
+  // Count 40 at t1, sale of 3 at t2, price edit at t3: the server must end at 37, as the till shows.
+  const count = { ...stockOp("count", "a", "pending", "2026-10-18T10:00:01.000Z") };
+  const sale = { id: "sale", entity: "sale", entityId: "s1", createdAt: "2026-10-18T10:00:02.000Z", status: "pending", payload: { sale: { id: "s1", lines: [{ productId: "a", quantity: 3 }] } } };
+  const edit = productOp("edit", "a", "pending", "2026-10-18T10:00:03.000Z");
+  assert.deepEqual(syncOrder([edit, sale, count]).map((op) => op.id), ["edit", "count", "sale"]);
+});
+
+test("a sale of a product the server refused is held with its stock", () => {
+  const ops = [
+    productOp("pa", "a", "failed", "2026-10-18T10:00:00.000Z", "product_sku_taken"),
+    { id: "sale", entity: "sale", entityId: "s1", createdAt: "2026-10-18T10:01:00.000Z", status: "pending", payload: { sale: { id: "s1", lines: [{ productId: "a", quantity: 1 }] } } },
+  ];
+  assert.deepEqual([...heldStockOperations(ops)], ["sale"]);
 });
 
 test("withTaxCategories defaults products saved before Stage 1D to standard and keeps known categories", () => {

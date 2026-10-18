@@ -26,16 +26,35 @@ function latestProductOperations(ops: SyncOperation[]): Map<string, SyncOperatio
   return latest;
 }
 
+/** Product ids whose stock this operation changes (stock movements, sale and refund lines). */
+function referencedProducts(op: SyncOperation): string[] {
+  const payload = op.payload;
+  if (!payload) return [];
+  if (op.entity === "stock" && "movement" in payload) return [payload.movement.productId];
+  if (op.entity === "sale" && "sale" in payload) return payload.sale.lines.flatMap((line) => line.productId ? [line.productId] : []);
+  if (op.entity === "credit-note" && "creditNote" in payload) return payload.creditNote.lines.flatMap((line) => line.productId ? [line.productId] : []);
+  return [];
+}
+
 /**
- * Oldest first, except that a stock operation never goes before the latest unsynced product operation of its
- * product: after the owner fixes a refused product, the product's earlier opening stock must follow the fix.
+ * Oldest first, except that a product operation moves ahead of the earliest unsynced stock movement, sale or
+ * refund of that product. Product operations never change stock, so moving them earlier is safe, while
+ * stock counts and sales keep their own order (a count then a sale must end at count − sale on the server).
+ * After an owner fixes a refused product, the fix therefore reaches the server before its earlier opening stock.
  */
 export function syncOrder(ops: SyncOperation[]): SyncOperation[] {
-  const latest = latestProductOperations(ops.filter((op) => op.status !== "synced"));
+  const earliestNeed = new Map<string, string>();
+  for (const op of ops) {
+    if (op.status === "synced") continue;
+    for (const productId of referencedProducts(op)) {
+      const current = earliestNeed.get(productId);
+      if (!current || op.createdAt < current) earliestNeed.set(productId, op.createdAt);
+    }
+  }
   const key = (op: SyncOperation) => {
-    if (op.entity !== "stock" || !op.payload || !("movement" in op.payload)) return { at: op.createdAt, rank: 0 };
-    const product = latest.get(op.payload.movement.productId);
-    return product && product.createdAt > op.createdAt ? { at: product.createdAt, rank: 1 } : { at: op.createdAt, rank: 0 };
+    if (op.entity !== "product") return { at: op.createdAt, rank: 0 };
+    const need = earliestNeed.get(op.entityId);
+    return need && need < op.createdAt ? { at: need, rank: -1 } : { at: op.createdAt, rank: 0 };
   };
   return [...ops].sort((left, right) => {
     const a = key(left);
@@ -44,13 +63,16 @@ export function syncOrder(ops: SyncOperation[]): SyncOperation[] {
   });
 }
 
-/** Stock operations not to send yet: their product's latest product operation was rejected, so the server lacks it. */
+/**
+ * Operations not to send yet: stock movements, sales and refunds of a product whose latest product operation was
+ * refused, so the server lacks it. They go once the owner fixes the product.
+ */
 export function heldStockOperations(ops: SyncOperation[]): Set<string> {
   const latest = latestProductOperations(ops);
   const held = new Set<string>();
   for (const op of ops) {
-    if (op.entity !== "stock" || op.status === "synced" || !op.payload || !("movement" in op.payload)) continue;
-    if (latest.get(op.payload.movement.productId)?.status === "failed") held.add(op.id);
+    if (op.status === "synced" || op.entity === "product") continue;
+    if (referencedProducts(op).some((productId) => latest.get(productId)?.status === "failed")) held.add(op.id);
   }
   return held;
 }
