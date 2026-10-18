@@ -766,11 +766,32 @@ export function createCreditNote(saleId: string, requestedQuantities: Record<str
 
 type ReconcileResult = { status: "idle" | "blocked" | "synced" | "partial" | "failed"; pendingCount: number; message: string };
 
+// Whether a sync run is in flight, for the "Syncing · N left" status line.
+let syncing = false;
+const syncingListeners = new Set<() => void>();
+function setSyncing(next: boolean) {
+  if (syncing === next) return;
+  syncing = next;
+  syncingListeners.forEach((listener) => listener());
+}
+export function isSyncing() {
+  return syncing;
+}
+export function subscribeSyncing(listener: () => void) {
+  syncingListeners.add(listener);
+  return () => { syncingListeners.delete(listener); };
+}
+
 export async function reconcilePendingOperations(): Promise<ReconcileResult> {
-  const result = await runSerial(syncPendingOperations);
-  // Refresh only after the sync has finished, through the same serial queue (ruling R8).
-  if (result.status === "synced" || result.status === "partial") void refreshSnapshot();
-  return result;
+  setSyncing(true);
+  try {
+    const result = await runSerial(syncPendingOperations);
+    // Refresh only after the sync has finished, through the same serial queue (ruling R8).
+    if (result.status === "synced" || result.status === "partial") void refreshSnapshot();
+    return result;
+  } finally {
+    setSyncing(false);
+  }
 }
 
 const SYNC_BATCH_SIZE = 50;

@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useSyncExternalStore } from "react";
-import { reconcilePendingOperations, useDemoStore } from "@/lib/demo-store";
+import { useEffect, useMemo, useSyncExternalStore } from "react";
+import { isSyncing, reconcilePendingOperations, subscribeSyncing, useDemoStore, useShopContext } from "@/lib/demo-store";
+import { productSyncProblems } from "@/lib/store/product-sync";
+import { syncStatus } from "@/lib/sync/status-text";
 
 function subscribeOnline(listener: () => void) {
   window.addEventListener("online", listener);
@@ -14,7 +16,25 @@ function subscribeOnline(listener: () => void) {
 
 function onlineSnapshot() { return navigator.onLine; }
 function onlineServerSnapshot() { return true; }
+const notSyncing = () => false;
 
+/** The plain sync status line ("Online · all synced", "Offline · 8 waiting", "2 need attention") and where to look. */
+export function useSyncStatusText() {
+  const store = useDemoStore();
+  const { mode } = useShopContext();
+  const online = useSyncExternalStore(subscribeOnline, onlineSnapshot, onlineServerSnapshot);
+  const syncing = useSyncExternalStore(subscribeSyncing, isSyncing, notSyncing);
+  return useMemo(() => {
+    const pending = store.syncOperations.filter((operation) => operation.status === "pending").length;
+    const productProblems = productSyncProblems(store.syncOperations).size;
+    const otherFailed = store.syncOperations.filter((operation) => operation.status === "failed" && operation.entity !== "product" && operation.entity !== "stock").length;
+    const status = syncStatus({ mode, online, pending, needAttention: productProblems + otherFailed, syncing });
+    // Refused products are explained on Inventory; anything else under Settings → Data.
+    return { ...status, href: productProblems ? "/inventory" : "/settings?tab=data" };
+  }, [mode, online, store.syncOperations, syncing]);
+}
+
+/** Registers the service worker and syncs pending changes whenever this device is online. Renders nothing. */
 export function OfflineRuntime() {
   const store = useDemoStore();
   const online = useSyncExternalStore(subscribeOnline, onlineSnapshot, onlineServerSnapshot);
@@ -29,12 +49,11 @@ export function OfflineRuntime() {
     }
   }, []);
 
-
   useEffect(() => {
     if (!online || pending === 0) return;
     const timer = window.setTimeout(() => { void reconcilePendingOperations(); }, 900);
     return () => window.clearTimeout(timer);
   }, [online, pending]);
 
-  return <div className={`sync-state ${online ? "" : "offline"}`} title={online ? "This device is connected; supported changes sync automatically when available." : "Sales are being saved to this device."}><span className="sync-dot" />{online ? pending ? `${pending} pending · syncing when available` : "Device ready · local cache" : `${pending} pending · working offline`}</div>;
+  return null;
 }

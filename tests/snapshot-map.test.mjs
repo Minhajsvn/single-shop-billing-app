@@ -38,6 +38,12 @@ test("maps business, devices sorted by till number", () => {
   assert.deepEqual(s.devices.map((d) => d.tillNumber), [1, 2]);
 });
 
+test("tills carry their branch name, or Main branch when the snapshot has none", () => {
+  const withBranch = { ...rows, devices: [{ ...rows.devices[0], branch: { name: "Deira" } }, rows.devices[1]] };
+  const s = mapSnapshotRows(withBranch, "2026-10-13T10:00:00Z");
+  assert.deepEqual(s.devices.map((d) => [d.tillNumber, d.branchName]), [[1, "Main branch"], [2, "Deira"]]);
+});
+
 test("maps products, customers and sales with lines and supplier", () => {
   const { state } = mapSnapshotRows(rows, "x");
   assert.deepEqual(state.products[0], { id: "p1", name: "Coffee", sku: "COF", barcode: undefined, priceFils: 2850, stock: 4, lowStockThreshold: 5, active: true, taxCategory: "zero" });

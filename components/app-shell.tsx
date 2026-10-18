@@ -4,6 +4,7 @@ import {
   Archive,
   CashRegister,
   ChartBar,
+  DotsThreeOutline,
   Gear,
   House,
   IdentificationCard,
@@ -13,6 +14,8 @@ import {
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
+import { MORE_LINKS, MoreSheet } from "@/components/nav/more-sheet";
+import { UserMenu } from "@/components/nav/user-menu";
 import { OfflineRuntime } from "@/components/offline-runtime";
 import { ConfirmHost } from "@/components/ui/confirm-host";
 import { Toaster } from "@/components/ui/toaster";
@@ -30,11 +33,20 @@ const links = [
   { href: "/reports", label: "Reports", icon: ChartBar },
 ];
 
+// Phone bar (owner's choice): Overview · Sales · New sale (centre, highlighted) · Inventory · More.
+const phoneTabs = [
+  { href: "/overview", label: "Overview", icon: House },
+  { href: "/sales", label: "Sales", icon: Receipt },
+  { href: "/sale", label: "New sale", icon: ShoppingCart, primary: true },
+  { href: "/inventory", label: "Inventory", icon: Archive },
+];
+
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const active = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
   const [email, setEmail] = useState<string | null>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
   const { mode, business, device } = useShopContext();
   const store = useDemoStore();
 
@@ -58,6 +70,11 @@ export function AppShell({ children }: { children: ReactNode }) {
     document.cookie = "shop-ledger-mode=; path=/; Max-Age=0; SameSite=Lax";
     router.replace("/login");
   }
+
+  const shopName = business?.legalName ?? (mode === "sample" ? "Sample shop" : "Shop Ledger");
+  const tillLabel = mode === "sample" ? "This browser" : device ? `Till ${device.tillNumber} · ${device.branchName}` : "No till selected";
+  const signOutLabel = isSupabaseConfigured() ? (mode === "sample" ? "Leave sample" : "Sign out") : null;
+  const moreActive = MORE_LINKS.some(({ href }) => active(href));
 
   return (
     <div className="app-shell">
@@ -90,23 +107,27 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         <div className="sidebar-bottom">
           <OfflineRuntime />
-          <div className="operator"><strong>{mode === "sample" ? "Sample shop" : device ? `Till ${device.tillNumber}` : "Till"}</strong><span>{device?.name ?? (mode === "hosted" ? "Not selected" : "This browser")}</span></div>
+          <UserMenu tillLabel={tillLabel} email={email} signOutLabel={signOutLabel} onSignOut={() => void signOut()} />
         </div>
       </aside>
 
       <nav className="mobile-nav" aria-label="Mobile navigation">
-        {links.map(({ href, label, icon: Icon }) => <Link href={href} key={href} className={active(href) ? "active" : ""} aria-current={active(href) ? "page" : undefined}><Icon size={18} weight={active(href) ? "fill" : "bold"} /><span>{label}</span></Link>)}
-        <Link href="/settings" className={active("/settings") ? "active" : ""} aria-current={active("/settings") ? "page" : undefined}><Gear size={18} weight={active("/settings") ? "fill" : "bold"} /><span>Settings</span></Link>
+        {phoneTabs.map(({ href, label, icon: Icon, primary }) => (
+          <Link href={href} key={href} className={`${active(href) ? "active" : ""} ${primary ? "nav-primary" : ""}`} aria-current={active(href) ? "page" : undefined}>
+            <Icon size={primary ? 20 : 18} weight={active(href) || primary ? "fill" : "bold"} /><span>{label}</span>
+          </Link>
+        ))}
+        <button type="button" className={moreActive || moreOpen ? "active" : ""} onClick={() => setMoreOpen(true)} aria-haspopup="dialog" aria-expanded={moreOpen}>
+          <DotsThreeOutline size={18} weight={moreActive ? "fill" : "bold"} /><span>More</span>
+        </button>
       </nav>
+      <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} shopName={shopName} tillLabel={tillLabel} email={email} signOutLabel={signOutLabel} onSignOut={() => void signOut()} />
 
       <main className="main">
         <header className="topbar">
-          <div className="topbar-title">{business?.legalName ?? "Shop Ledger"}</div>
+          <div className="topbar-title" title={shopName}>{shopName}</div>
           <div className="topbar-actions">
-            {mode === "hosted" && device ? <span className="badge">Till {device.tillNumber}</span> : null}
-            {mode === "sample" ? <span className="badge yellow">Sample shop</span> : null}
-            {email ? <span className="auth-user" title={email}>{email}</span> : null}
-            {isSupabaseConfigured() ? <button className="button" type="button" onClick={signOut}>{mode === "sample" ? "Leave sample" : "Sign out"}</button> : null}
+            {mode === "sample" ? <span className="badge yellow">Sample shop</span> : device ? <span className="topbar-till">{tillLabel}</span> : null}
             <Link className="button primary" href="/sale"><ShoppingCart size={15} weight="bold" /> New sale</Link>
           </div>
         </header>
