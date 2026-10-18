@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useSyncExternalStore } from "react";
+import { shouldAutoSync } from "@/lib/sync/auto-sync";
 import { isSyncing, reconcilePendingOperations, subscribeSyncing, useDemoStore, useShopContext } from "@/lib/demo-store";
 import { productSyncProblems } from "@/lib/store/product-sync";
 import { syncStatus } from "@/lib/sync/status-text";
@@ -40,7 +41,7 @@ export function useSyncStatusText() {
 }
 
 /** Registers the service worker and syncs pending changes whenever this device is online. Renders nothing. */
-export function OfflineRuntime() {
+export function OfflineRuntime({ ready = true }: { ready?: boolean }) {
   const store = useDemoStore();
   const online = useSyncExternalStore(subscribeOnline, onlineSnapshot, onlineServerSnapshot);
   const pending = store.syncOperations.filter((operation) => operation.status === "pending").length;
@@ -55,10 +56,10 @@ export function OfflineRuntime() {
   }, []);
 
   useEffect(() => {
-    if (!online || pending === 0) return;
+    if (!shouldAutoSync({ ready, online, pending })) return;
     const timer = window.setTimeout(() => { void reconcilePendingOperations(); }, 900);
     return () => window.clearTimeout(timer);
-  }, [online, pending]);
+  }, [ready, online, pending]);
 
   return null;
 }

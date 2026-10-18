@@ -41,7 +41,7 @@ const phoneTabs = [
   { href: "/inventory", label: "Inventory", icon: Archive },
 ];
 
-export function AppShell({ children }: { children: ReactNode }) {
+export function AppShell({ children, loading = false }: { children: ReactNode; loading?: boolean }) {
   const pathname = usePathname();
   const router = useRouter();
   const active = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
@@ -106,7 +106,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </nav>
 
         <div className="sidebar-bottom">
-          <OfflineRuntime />
+          <OfflineRuntime ready={!loading} />
           <UserMenu tillLabel={tillLabel} email={email} signOutLabel={signOutLabel} onSignOut={() => void signOut()} />
         </div>
       </aside>

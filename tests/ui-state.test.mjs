@@ -42,3 +42,11 @@ test("requestConfirm resolves with the answer and leaves the queue", async () =>
   assert.equal(await no, false);
   assert.equal(getConfirms().length, 0);
 });
+
+test("auto-sync waits until the shop has loaded (final review I1)", async () => {
+  const { shouldAutoSync } = await import("../lib/sync/auto-sync.ts");
+  assert.equal(shouldAutoSync({ ready: false, online: true, pending: 3 }), false);
+  assert.equal(shouldAutoSync({ ready: true, online: true, pending: 3 }), true);
+  assert.equal(shouldAutoSync({ ready: true, online: false, pending: 3 }), false);
+  assert.equal(shouldAutoSync({ ready: true, online: true, pending: 0 }), false);
+});

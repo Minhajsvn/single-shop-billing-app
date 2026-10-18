@@ -109,7 +109,7 @@ a { color: inherit; text-decoration: none; }
 .user-menu-popover a, .user-menu-popover button { display: flex; align-items: center; gap: 8px; min-height: 38px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; color: var(--ink); font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
 .user-menu-popover a:hover, .user-menu-popover button:hover { background: var(--surface-subtle); }
 .user-menu-email { padding: 6px 8px; color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-bottom: 1px solid var(--border); margin-bottom: 2px; }
-.topbar-till { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.topbar-till { color: var(--muted); font-size: 12px; white-space: nowrap; min-width: 0; max-width: 32ch; overflow: hidden; text-overflow: ellipsis; }
 .more-backdrop, .more-sheet { display: none; }
 
 .main { margin-left: 232px; min-height: 100vh; }
@@ -119,7 +119,8 @@ a { color: inherit; text-decoration: none; }
   position: sticky; top: 0; z-index: 10; backdrop-filter: blur(12px);
 }
 .topbar-title { font-size: 13px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.topbar-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.topbar-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; min-width: 0; max-width: 60%; }
+.topbar-actions > .button { flex: none; }
 .topbar { gap: 16px; }
 .content { padding: 36px 32px 64px; max-width: 1480px; margin: 0 auto; }
 
