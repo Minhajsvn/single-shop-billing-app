@@ -34,6 +34,11 @@ export function stripeConfigured(env: Env = process.env): boolean {
   return STRIPE_VARIABLES.every((name) => Boolean(env[name]));
 }
 
+/** True when at least one Stripe variable is set: a partial config is a broken Stripe setup, not "no Stripe". */
+function anyStripeVariable(env: Env): boolean {
+  return STRIPE_VARIABLES.some((name) => Boolean(env[name]));
+}
+
 /** Stripe refuses a trial_end less than 48 hours away. */
 const MIN_TRIAL_END_MS = 48 * 60 * 60 * 1000;
 
@@ -108,9 +113,12 @@ const noProvider: BillingProvider = {
   },
 };
 
-/** Stripe when fully configured; the pretend provider only outside production; otherwise none. */
+/**
+ * Stripe when fully configured; the pretend provider only outside production and with no Stripe variable set;
+ * otherwise none (a partial Stripe config is "billing not set up" in every NODE_ENV).
+ */
 export function billingProvider(env: Env = process.env): BillingProvider {
   if (stripeConfigured(env)) return stripeProvider(env);
-  if (env.NODE_ENV !== "production") return pretendProvider;
+  if (env.NODE_ENV !== "production" && !anyStripeVariable(env)) return pretendProvider;
   return noProvider;
 }

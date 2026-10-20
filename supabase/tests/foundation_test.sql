@@ -848,7 +848,10 @@ begin
   assert failure = 'till_paused', 'new open on a paused till is till_paused, got ' || coalesce(failure, 'null');
 end $$;
 reset role;
+-- Fixture only: move the pause 73 hours back. The trigger keeps paused_at server-stamped, so it is bypassed here.
+alter table public.devices disable trigger device_paused_at;
 update public.devices set paused_at = now() - interval '73 hours' where id = 'd2400000-0000-4000-8000-00000000000b';
+alter table public.devices enable trigger device_paused_at;
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-00000000000c","role":"authenticated"}', true);
 do $$
@@ -956,5 +959,170 @@ do $$ begin
   assert (select name from public.devices where id = 'd2400000-0000-4000-8000-00000000000a') = (select till_a_name from t24f_expected), 'till name unchanged after the cashier''s attempt';
   assert (select count(*) from public.devices where business_id = 'b2400000-0000-4000-8000-000000000001') = (select own_devices from t24f_expected), 'no till was added by the cashier';
 end $$;
+
+-- 24g. Canceled is final for the stored subscription: Stripe sends payment_failed and subscription.deleted in the
+-- same second after the last retry, in either order. Only a new checkout reactivates. Also the applied paths of
+-- subscription_changed (trialing, active, past_due with grace set once, cancel_at set and cleared).
+reset role;
+insert into auth.users (id, instance_id, aud, role, email) values
+  ('00000000-0000-4000-8000-00000000000e', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'owner-e@test.local');
+insert into public.businesses (id, owner_id, legal_name, trn, address, phone)
+values ('b2400000-0000-4000-8000-000000000007', '00000000-0000-4000-8000-00000000000e', 'Shop E LLC', '100000000000007', 'Deira, Dubai', '+971500000247');
+update public.subscriptions set status = 'active', plan_id = 'starter', has_payment_method = true,
+  stripe_customer_id = 'cus_24g', stripe_subscription_id = 'sub_24g', billing_interval = 'month',
+  trial_ends_at = now() - interval '1 day', grace_ends_at = null, last_event_at = now() - interval '1 hour'
+where business_id = 'b2400000-0000-4000-8000-000000000007';
+set local role service_role;
+do $$
+declare
+  biz constant uuid := 'b2400000-0000-4000-8000-000000000007';
+  t constant timestamptz := date_trunc('second', now()) - interval '30 minutes';
+  failed constant jsonb := jsonb_build_object(
+    'id', 'evt_24g_failed', 'created', t, 'kind', 'payment_failed',
+    'businessId', null, 'customerId', 'cus_24g', 'subscriptionId', 'sub_24g', 'status', 'past_due',
+    'trialEnd', null, 'currentPeriodEnd', null, 'cancelAt', null, 'interval', null);
+  sub public.subscriptions;
+  result text;
+begin
+  result := public.apply_billing_event(jsonb_build_object(
+    'id', 'evt_24g_deleted', 'created', t, 'kind', 'subscription_deleted',
+    'businessId', null, 'customerId', 'cus_24g', 'subscriptionId', 'sub_24g', 'status', 'canceled',
+    'trialEnd', null, 'currentPeriodEnd', null, 'cancelAt', null, 'interval', null));
+  assert result = 'applied', 'deletion applied, got ' || coalesce(result, 'null');
+
+  -- Same created second, delivered after the deletion.
+  result := public.apply_billing_event(failed);
+  assert result = 'stale', 'payment_failed after the deletion is ignored, got ' || coalesce(result, 'null');
+  select * into sub from public.subscriptions where business_id = biz;
+  assert sub.status = 'canceled' and sub.canceled_at = t, 'still canceled at the deletion time, got ' || sub.status::text;
+  assert sub.grace_ends_at is null, 'no new grace period for a canceled subscription';
+  result := public.apply_billing_event(failed);
+  assert result = 'duplicate', 'the ignored event id is recorded, so redelivery is a duplicate, got ' || coalesce(result, 'null');
+
+  result := public.apply_billing_event(jsonb_build_object(
+    'id', 'evt_24g_paid_old', 'created', t + interval '1 minute', 'kind', 'invoice_paid',
+    'businessId', null, 'customerId', 'cus_24g', 'subscriptionId', 'sub_24g', 'status', 'active',
+    'trialEnd', null, 'currentPeriodEnd', t + interval '30 days', 'cancelAt', null, 'interval', 'month'));
+  assert result in ('stale', 'applied'), 'invoice_paid for the old subscription, got ' || coalesce(result, 'null');
+  result := public.apply_billing_event(jsonb_build_object(
+    'id', 'evt_24g_changed_old', 'created', t + interval '2 minutes', 'kind', 'subscription_changed',
+    'businessId', null, 'customerId', 'cus_24g', 'subscriptionId', 'sub_24g', 'status', 'active',
+    'trialEnd', null, 'currentPeriodEnd', t + interval '30 days', 'cancelAt', null, 'interval', 'year'));
+  assert result in ('stale', 'applied'), 'subscription_changed for the old subscription, got ' || coalesce(result, 'null');
+  select * into sub from public.subscriptions where business_id = biz;
+  assert sub.status = 'canceled' and sub.canceled_at = t and sub.grace_ends_at is null, 'invoice_paid and subscription_changed do not revive a canceled subscription';
+  assert sub.billing_interval = 'month' and sub.plan_id = 'starter', 'ignored events change nothing';
+
+  -- A new checkout is the only way back.
+  result := public.apply_billing_event(jsonb_build_object(
+    'id', 'evt_24g_checkout', 'created', t + interval '3 minutes', 'kind', 'checkout_completed',
+    'businessId', biz, 'customerId', 'cus_24g', 'subscriptionId', 'sub_24g_new', 'status', 'active',
+    'trialEnd', null, 'currentPeriodEnd', t + interval '33 days', 'cancelAt', null, 'interval', 'month'));
+  assert result = 'applied', 'new checkout applied, got ' || coalesce(result, 'null');
+  select * into sub from public.subscriptions where business_id = biz;
+  assert sub.status = 'active' and sub.plan_id = 'starter' and sub.canceled_at is null and sub.grace_ends_at is null, 'new checkout reactivates on Starter';
+  assert sub.stripe_subscription_id = 'sub_24g_new', 'new subscription id stored';
+
+  -- subscription_changed applied paths.
+  result := public.apply_billing_event(jsonb_build_object(
+    'id', 'evt_24g_changed_trialing', 'created', t + interval '4 minutes', 'kind', 'subscription_changed',
+    'businessId', null, 'customerId', 'cus_24g', 'subscriptionId', 'sub_24g_new', 'status', 'trialing',
+    'trialEnd', null, 'currentPeriodEnd', t + interval '34 days', 'cancelAt', null, 'interval', null));
+  assert result = 'applied', 'changed to trialing applied, got ' || coalesce(result, 'null');
+  select * into sub from public.subscriptions where business_id = biz;
+  assert sub.status = 'trialing' and sub.current_period_end = t + interval '34 days', 'subscription_changed trialing sets trialing and the period end';
+
+  result := public.apply_billing_event(jsonb_build_object(
+    'id', 'evt_24g_changed_active', 'created', t + interval '5 minutes', 'kind', 'subscription_changed',
+    'businessId', null, 'customerId', 'cus_24g', 'subscriptionId', 'sub_24g_new', 'status', 'active',
+    'trialEnd', null, 'currentPeriodEnd', t + interval '365 days', 'cancelAt', t + interval '365 days', 'interval', 'year'));
+  assert result = 'applied', 'changed to active applied, got ' || coalesce(result, 'null');
+  select * into sub from public.subscriptions where business_id = biz;
+  assert sub.status = 'active' and sub.plan_id = 'starter' and sub.grace_ends_at is null, 'subscription_changed active is Starter with no grace';
+  assert sub.cancel_at = t + interval '365 days' and sub.billing_interval = 'year', 'cancel_at and interval stored';
+
+  result := public.apply_billing_event(jsonb_build_object(
+    'id', 'evt_24g_changed_past_due', 'created', t + interval '6 minutes', 'kind', 'subscription_changed',
+    'businessId', null, 'customerId', 'cus_24g', 'subscriptionId', 'sub_24g_new', 'status', 'past_due',
+    'trialEnd', null, 'currentPeriodEnd', null, 'cancelAt', t + interval '365 days', 'interval', null));
+  assert result = 'applied', 'changed to past_due applied, got ' || coalesce(result, 'null');
+  select * into sub from public.subscriptions where business_id = biz;
+  assert sub.status = 'past_due' and sub.grace_ends_at = now() + interval '7 days', 'past_due starts a seven-day grace';
+  assert sub.billing_interval = 'year' and sub.current_period_end = t + interval '365 days', 'missing interval and period end keep the stored ones';
+end $$;
+-- A known grace end proves a second past_due change leaves it alone.
+reset role;
+update public.subscriptions set grace_ends_at = now() + interval '5 days' where business_id = 'b2400000-0000-4000-8000-000000000007';
+set local role service_role;
+do $$
+declare
+  biz constant uuid := 'b2400000-0000-4000-8000-000000000007';
+  t constant timestamptz := date_trunc('second', now()) - interval '30 minutes';
+  sub public.subscriptions;
+  result text;
+begin
+  result := public.apply_billing_event(jsonb_build_object(
+    'id', 'evt_24g_changed_unpaid', 'created', t + interval '7 minutes', 'kind', 'subscription_changed',
+    'businessId', null, 'customerId', 'cus_24g', 'subscriptionId', 'sub_24g_new', 'status', 'unpaid',
+    'trialEnd', null, 'currentPeriodEnd', null, 'cancelAt', null, 'interval', null));
+  assert result = 'applied', 'changed to unpaid applied, got ' || coalesce(result, 'null');
+  select * into sub from public.subscriptions where business_id = biz;
+  assert sub.status = 'past_due' and sub.grace_ends_at = now() + interval '5 days', 'grace is set once per past_due episode';
+  assert sub.cancel_at is null, 'cancel_at cleared when the event has none';
+end $$;
+reset role;
+
+-- 24h. paused_at is server-stamped: an owner cannot insert a paused till with a future pause time, nor move an
+-- existing pause into the future, to sell on more tills than the plan allows.
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-00000000000c","role":"authenticated"}', true);
+do $$
+declare
+  biz constant uuid := 'b2400000-0000-4000-8000-000000000001';
+  forged constant uuid := 'd2400000-0000-4000-8000-0000000000e1';
+  stored timestamptz;
+  failure text;
+begin
+  insert into public.devices (id, business_id, name, status, paused_at)
+  values (forged, biz, 'Forged till', 'paused', '2099-01-01T00:00:00Z');
+  select paused_at into stored from public.devices where id = forged;
+  assert stored between now() - interval '1 minute' and now() + interval '1 minute', 'inserted pause time is now(), got ' || coalesce(stored::text, 'null');
+
+  update public.devices set paused_at = '2099-01-01T00:00:00Z' where id = forged;
+  select paused_at into stored from public.devices where id = forged;
+  assert stored between now() - interval '1 minute' and now() + interval '1 minute', 'pause time cannot be moved, got ' || coalesce(stored::text, 'null');
+
+  update public.devices set paused_at = '2099-01-01T00:00:00Z' where id = 'd2400000-0000-4000-8000-00000000000a';
+  assert (select paused_at is null from public.devices where id = 'd2400000-0000-4000-8000-00000000000a'), 'an active till never has a pause time';
+
+  begin
+    perform public.apply_register_sync(gen_random_uuid(), biz, 'e2400000-0000-4000-8000-0000000000e1', jsonb_build_object(
+      'deviceId', forged, 'action', 'open',
+      'register', jsonb_build_object('openingCashFils', 0, 'openedAt', now())));
+    assert false, 'a forged paused till must not open a shift';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'till_paused', 'open on a forged paused till is till_paused, got ' || coalesce(failure, 'null');
+end $$;
+reset role;
+-- The gate also refuses a pause time in the future even if one got into the table.
+alter table public.devices disable trigger device_paused_at;
+update public.devices set paused_at = now() + interval '1 day' where id = 'd2400000-0000-4000-8000-0000000000e1';
+alter table public.devices enable trigger device_paused_at;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-00000000000c","role":"authenticated"}', true);
+do $$
+declare failure text;
+begin
+  begin
+    perform public.apply_register_sync(gen_random_uuid(), 'b2400000-0000-4000-8000-000000000001', 'e2400000-0000-4000-8000-0000000000e2', jsonb_build_object(
+      'deviceId', 'd2400000-0000-4000-8000-0000000000e1', 'action', 'open',
+      'register', jsonb_build_object('openingCashFils', 0, 'openedAt', now())));
+    assert false, 'a till paused in the future must not open a shift';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'till_paused', 'future pause time is till_paused, got ' || coalesce(failure, 'null');
+end $$;
+reset role;
 
 rollback;

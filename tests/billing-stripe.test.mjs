@@ -129,7 +129,22 @@ test("provider: pretend without keys in development, none in production, stripe 
   assert.equal(billingProvider({ NODE_ENV: "development", ...STRIPE_ENV }).kind, "stripe");
   const partial = { ...STRIPE_ENV, STRIPE_PRICE_STARTER_ANNUAL: "" };
   assert.equal(billingProvider({ NODE_ENV: "production", ...partial }).kind, "none");
-  assert.equal(billingProvider({ NODE_ENV: "development", ...partial }).kind, "pretend");
+  assert.equal(billingProvider({ NODE_ENV: "development", ...partial }).kind, "none");
+});
+
+test("provider: a partial Stripe config is never the pretend provider, in any NODE_ENV", () => {
+  for (const name of Object.keys(STRIPE_ENV)) {
+    const only = { [name]: STRIPE_ENV[name] };
+    const missing = { ...STRIPE_ENV };
+    delete missing[name];
+    for (const NODE_ENV of ["development", "test", "production", undefined]) {
+      assert.equal(billingProvider({ NODE_ENV, ...only }).kind, "none", `only ${name} set, NODE_ENV ${NODE_ENV}`);
+      assert.equal(billingProvider({ NODE_ENV, ...missing }).kind, "none", `all but ${name} set, NODE_ENV ${NODE_ENV}`);
+    }
+  }
+  assert.equal(billingProvider({ NODE_ENV: "development" }).kind, "pretend");
+  assert.equal(billingProvider({ NODE_ENV: "development", STRIPE_SECRET_KEY: "" }).kind, "pretend", "an empty variable counts as unset");
+  assert.equal(billingProvider({ NODE_ENV: "development", ...STRIPE_ENV }).kind, "stripe");
 });
 
 test("pretend provider returns the pretend checkout and portal pages", async () => {
