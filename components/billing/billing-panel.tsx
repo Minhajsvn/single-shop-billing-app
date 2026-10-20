@@ -111,7 +111,7 @@ export function BillingPanel({ overTillLimit, onShowTills }: { overTillLimit: bo
               </div>
             </div>
             {overTillLimit ? (
-              <p style={{ margin: 0 }}>Your plan allows fewer tills than are active. <button type="button" className="link-button" onClick={onShowTills}>Choose which till stays</button></p>
+              <p style={{ margin: 0 }}>Your plan allows fewer tills than are active. <button type="button" className="button" onClick={onShowTills}>Choose which till stays</button></p>
             ) : null}
             {role === "owner" ? (
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
