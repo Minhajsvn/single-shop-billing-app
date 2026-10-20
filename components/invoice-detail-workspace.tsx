@@ -4,6 +4,7 @@ import { ArrowCounterClockwise, ArrowLeft, FilePdf, Printer, Receipt, X } from "
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
+import { READ_ONLY_REASON, useEntitlement } from "@/components/billing/use-entitlement";
 import { useOnline } from "@/components/offline-runtime";
 import { ReceiptDocument, lineSaving, useReceiptShop } from "@/components/receipt-document";
 import { useRemoteSale } from "@/components/sales/use-remote-sale";
@@ -26,6 +27,7 @@ export function InvoiceDetailWorkspace({ id }: { id: string }) {
   const [returnOpen, setReturnOpen] = useState(false);
   const [returnQuantities, setReturnQuantities] = useState<Record<string, number>>({});
   const [returnError, setReturnError] = useState("");
+  const { canWrite } = useEntitlement();
 
 
   const print = printDocument;
@@ -51,7 +53,7 @@ export function InvoiceDetailWorkspace({ id }: { id: string }) {
 
   return (
     <>
-      <div className="page-heading no-print"><div><Link className="back-link" href="/sales"><ArrowLeft size={14} weight="bold" /> Sales ledger</Link><h1 className="page-title invoice-title">{sale.invoiceNumber}</h1><p className="page-copy">Issued {formatDateTime(sale.createdAt)} · immutable completed invoice</p>{viewOnly ? <p className="field-hint">Refunds are available for sales in the last 90 days.</p> : null}</div><div className="invoice-actions">{hasReturnableLines && <button className="button" onClick={() => setReturnOpen(true)}><ArrowCounterClockwise size={16} weight="bold" /> Return items</button>}<button className="button" onClick={() => print("receipt")}><Printer size={16} weight="bold" /> Print 80mm</button><button className="button primary" onClick={() => print("a4")}><FilePdf size={16} weight="bold" /> Print / Save A4 PDF</button></div></div>
+      <div className="page-heading no-print"><div><Link className="back-link" href="/sales"><ArrowLeft size={14} weight="bold" /> Sales ledger</Link><h1 className="page-title invoice-title">{sale.invoiceNumber}</h1><p className="page-copy">Issued {formatDateTime(sale.createdAt)} · immutable completed invoice</p>{viewOnly ? <p className="field-hint">Refunds are available for sales in the last 90 days.</p> : null}{hasReturnableLines && !canWrite ? <p className="field-hint">{READ_ONLY_REASON} Printing still works.</p> : null}</div><div className="invoice-actions">{hasReturnableLines && <button className="button" onClick={() => setReturnOpen(true)} disabled={!canWrite} title={canWrite ? undefined : READ_ONLY_REASON}><ArrowCounterClockwise size={16} weight="bold" /> Return items</button>}<button className="button" onClick={() => print("receipt")}><Printer size={16} weight="bold" /> Print 80mm</button><button className="button primary" onClick={() => print("a4")}><FilePdf size={16} weight="bold" /> Print / Save A4 PDF</button></div></div>
 
       <article className="panel invoice-document a4-document">
         <header className="invoice-header"><div><div className="invoice-wordmark">{shop.name}</div><div className="invoice-address">{shop.address}<br />{shop.phone}<br />TRN {shop.trn}</div></div><div className="invoice-heading"><span>{sale.customer?.trn ? "Full Tax Invoice" : "Tax Invoice"}</span><strong>{sale.invoiceNumber}</strong><small>Supply date {sale.supplyDate}</small></div></header>
@@ -65,7 +67,7 @@ export function InvoiceDetailWorkspace({ id }: { id: string }) {
 
       <ReceiptDocument sale={sale} shop={shop} />
 
-      {returnOpen && <div className="modal-backdrop no-print" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setReturnOpen(false); }}><div className="modal"><div className="modal-header"><div><div className="panel-title">Create credit note</div><div className="panel-subtitle">Refund via {sale.paymentMethod} and restore stock for inventory items.</div></div><button className="button icon-only" onClick={() => setReturnOpen(false)} aria-label="Close"><X size={16} weight="bold" /></button></div><div className="return-lines">{sale.lines.map((item) => {
+      {returnOpen && canWrite && <div className="modal-backdrop no-print" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setReturnOpen(false); }}><div className="modal"><div className="modal-header"><div><div className="panel-title">Create credit note</div><div className="panel-subtitle">Refund via {sale.paymentMethod} and restore stock for inventory items.</div></div><button className="button icon-only" onClick={() => setReturnOpen(false)} aria-label="Close"><X size={16} weight="bold" /></button></div><div className="return-lines">{sale.lines.map((item) => {
         const remaining = item.quantity - (returned.get(item.id) ?? 0);
         return <div className={`return-line ${remaining === 0 ? "disabled" : ""}`} key={item.id}><div><strong>{item.name}</strong><span>{remaining} of {item.quantity} available · {formatAED(item.unitGrossFils)} each</span></div><div className="field return-quantity"><label htmlFor={`return-${item.id}`}>Return qty</label><input className="input" id={`return-${item.id}`} type="number" min="0" max={remaining} value={returnQuantities[item.id] ?? 0} disabled={remaining === 0} onChange={(event) => setReturnQuantities((current) => ({ ...current, [item.id]: Number(event.target.value) }))} /></div></div>;
       })}{returnError && <p className="form-error">{returnError}</p>}</div><div className="modal-footer"><button className="button" onClick={() => setReturnOpen(false)}>Cancel</button><button className="button primary" onClick={createReturn}>Issue credit note</button></div></div></div>}

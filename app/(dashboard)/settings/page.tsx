@@ -2,6 +2,7 @@
 
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
 import { ArrowsClockwise, CashRegister, CheckCircle, DownloadSimple, ShieldCheck, UploadSimple } from "@phosphor-icons/react";
+import { ChooseTill } from "@/components/billing/choose-till";
 import { EmptyState } from "@/components/ui/list-parts";
 import { useListParams } from "@/components/ui/use-list-params";
 import { createDemoStateBackup, reconcilePendingOperations, refreshSnapshot, restoreDemoStateBackup, switchThisTill, useDemoStore, useShopContext } from "@/lib/demo-store";
@@ -31,7 +32,9 @@ const defaults = {
 
 export default function SettingsPage() {
   const store = useDemoStore();
-  const { mode, business, devices, device } = useShopContext();
+  const { mode, business, devices, device, entitlements } = useShopContext();
+  const tillLimit = entitlements.limits.tills;
+  const overTillLimit = tillLimit !== null && devices.filter((item) => item.status === "active").length > tillLimit;
   const [params, setParams] = useListParams({ tab: "business" });
   const tab: Tab = isTab(params.tab) ? params.tab : "business";
   // On a phone the tab row scrolls; keep the open tab in view (Data sits past the edge at 375px).
@@ -200,7 +203,9 @@ export default function SettingsPage() {
         {tab === "tills" ? <section className="panel">
           <div className="panel-header"><div><div className="panel-title">Tills</div><div className="panel-subtitle">Each till has its own invoice numbers</div></div>{hosted ? <button className="button" type="button" onClick={() => void switchTill()}><CashRegister size={15} weight="bold" />Switch this browser&apos;s till</button> : null}</div>
           {tillMessage && <div className="backup-message" role="alert">{tillMessage}</div>}
-          {hosted && devices.length ? <div className="table-wrap"><table><thead><tr><th>Till</th><th>Name</th><th>Branch</th><th>Status</th></tr></thead><tbody>{devices.map((item) => <tr key={item.id}><td className="product-name">Till {item.tillNumber}{item.id === device?.id ? <div className="product-meta">This browser</div> : null}</td><td>{item.name}</td><td>{item.branchName}</td><td><span className={`badge ${item.status === "active" ? "green" : "red"}`}>{item.status === "active" ? "Active" : "Revoked"}</span></td></tr>)}</tbody></table></div>
+          {/* Over the plan's till limit: the choice can be made here too, also from a till whose register is open. */}
+          {hosted && overTillLimit ? <div className="panel-body"><ChooseTill compact /></div> : null}
+          {hosted && devices.length ? <div className="table-wrap"><table><thead><tr><th>Till</th><th>Name</th><th>Branch</th><th>Status</th></tr></thead><tbody>{devices.map((item) => <tr key={item.id}><td className="product-name">Till {item.tillNumber}{item.id === device?.id ? <div className="product-meta">This browser</div> : null}</td><td>{item.name}</td><td>{item.branchName}</td><td><span className={`badge ${item.status === "active" ? "green" : item.status === "paused" ? "yellow" : "red"}`}>{item.status === "active" ? "Active" : item.status === "paused" ? "Paused" : "Revoked"}</span></td></tr>)}</tbody></table></div>
             : <EmptyState compact icon={<CashRegister size={28} weight="duotone" />} title={hosted ? "No tills yet" : "One till: this browser"} hint={hosted ? "Register a till from the till picker." : "Tills are set up when you use a shop account."} />}
         </section> : null}
 

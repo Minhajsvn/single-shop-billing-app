@@ -1,7 +1,8 @@
 "use client";
 
-import { CashRegister, Plus, Storefront } from "@phosphor-icons/react";
+import { CashRegister, PauseCircle, Plus, Storefront } from "@phosphor-icons/react";
 import { FormEvent, useState } from "react";
+import { READ_ONLY_REASON, useEntitlement } from "@/components/billing/use-entitlement";
 import { refreshSnapshot, useShopContext } from "@/lib/demo-store";
 import { storeDeviceId } from "@/lib/device";
 import { createClient } from "@/lib/supabase/client";
@@ -11,7 +12,9 @@ export function TillPicker() {
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const active = devices.filter((device) => device.status === "active");
+  const { canWrite } = useEntitlement();
+  // Paused tills are listed but cannot be chosen; revoked ones are not listed.
+  const listed = devices.filter((device) => device.status === "active" || device.status === "paused");
 
   async function choose(id: string) {
     setBusy(true);
@@ -50,9 +53,13 @@ export function TillPicker() {
         <h1 id="till-title">Which till is this browser?</h1>
         <p className="page-copy">Each till has its own invoice numbers. Pick the till this computer works as, or register a new one.</p>
         <p className="field-hint">Use each till on one browser only. Two browsers on the same till would issue the same invoice numbers.</p>
-        {active.length ? (
+        {listed.length ? (
           <div className="auth-form">
-            {active.map((device) => (
+            {listed.map((device) => device.status === "paused" ? (
+              <button className="button till-paused" type="button" key={device.id} disabled title="This till is paused because the plan allows fewer tills.">
+                <PauseCircle size={16} weight="bold" />Till {device.tillNumber} · {device.name}<small>Paused — upgrade to use</small>
+              </button>
+            ) : (
               <button className="button" type="button" key={device.id} onClick={() => void choose(device.id)} disabled={busy}>
                 <CashRegister size={16} weight="bold" />Till {device.tillNumber} · {device.name}
               </button>
@@ -63,7 +70,8 @@ export function TillPicker() {
           <label className="field-label" htmlFor="till-name">Register a new till</label>
           <input className="input" id="till-name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Counter 2" required maxLength={60} />
           {error ? <div className="notice error-notice" role="alert"><Storefront size={17} weight="bold" /><span>{error}</span></div> : null}
-          <button className="button primary auth-submit" type="submit" disabled={busy || !business}><Plus size={16} weight="bold" />{busy ? "Saving…" : "Register this till"}</button>
+          {canWrite ? null : <p className="field-hint">{READ_ONLY_REASON}</p>}
+          <button className="button primary auth-submit" type="submit" disabled={busy || !business || !canWrite} title={canWrite ? undefined : READ_ONLY_REASON}><Plus size={16} weight="bold" />{busy ? "Saving…" : "Register this till"}</button>
         </form>
       </section>
     </main>
