@@ -7,6 +7,7 @@ import { normalizeStripeEvent, verifyStripeEvent } from "../lib/billing/stripe-e
 import { billingProvider, checkoutSessionParams, checkoutTrialEnd } from "../lib/billing/provider.ts";
 import { applyBillingEvent, BillingEventError, webhookStatus } from "../lib/billing/apply-event.ts";
 import { ownerGuard } from "../lib/billing/owner-guard.ts";
+import { isPretendAction, pretendAvailable, pretendEvent } from "../lib/billing/pretend-events.ts";
 
 const BUSINESS = "11111111-1111-4111-8111-111111111111";
 const fixtureText = (name) => readFileSync(new URL(`./fixtures/stripe/${name}.json`, import.meta.url), "utf8");
@@ -202,4 +203,45 @@ test("owner guard: only an active owner passes; a cashier gets 403", () => {
   assert.equal(ownerGuard(user, { business_id: BUSINESS, role: "owner", status: "invited" })?.status, 403);
   assert.equal(ownerGuard(user, null)?.status, 403);
   assert.equal(ownerGuard(null, null)?.status, 401);
+});
+
+const PRETEND_CTX = { businessId: BUSINESS, interval: "month", now: new Date("2026-10-20T10:00:00Z"), trialEndsAt: "2026-10-30T10:00:00Z" };
+
+test("pretend: pay during the trial emits checkout_completed only", () => {
+  const events = pretendEvent("pay", PRETEND_CTX);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].kind, "checkout_completed");
+  assert.equal(events[0].status, "trialing");
+  assert.equal(events[0].customerId, `pretend_cus_${BUSINESS}`);
+  assert.equal(events[0].subscriptionId, `pretend_sub_${BUSINESS}`);
+  assert.match(events[0].id, /^pretend_[0-9a-f-]{36}$/);
+  assert.deepEqual(pretendEvent("decline", PRETEND_CTX), []);
+  assert.equal(pretendEvent("pay", { ...PRETEND_CTX, trialEndsAt: null })[0].status, "active");
+});
+
+test("pretend: fail_renewal emits payment_failed", () => {
+  assert.deepEqual(pretendEvent("fail_renewal", PRETEND_CTX).map((e) => e.kind), ["payment_failed"]);
+  assert.deepEqual(pretendEvent("update_card", PRETEND_CTX).map((e) => e.kind), ["invoice_paid"]);
+  assert.deepEqual(pretendEvent("end_trial", PRETEND_CTX), []);
+  assert.deepEqual(pretendEvent("end_trial", { ...PRETEND_CTX, hasPaymentMethod: true }).map((e) => e.kind), ["invoice_paid"]);
+  assert.deepEqual(pretendEvent("end_grace", PRETEND_CTX), []);
+});
+
+test("pretend: cancel then renew emits subscription_deleted", () => {
+  const [cancel] = pretendEvent("cancel", { ...PRETEND_CTX, currentPeriodEnd: "2026-11-20T10:00:00.000Z" });
+  assert.equal(cancel.kind, "subscription_changed");
+  assert.equal(cancel.cancelAt, "2026-11-20T10:00:00.000Z");
+  const renewed = pretendEvent("renew", { ...PRETEND_CTX, cancelAt: cancel.cancelAt });
+  assert.deepEqual(renewed.map((e) => e.kind), ["subscription_deleted"]);
+  assert.deepEqual(pretendEvent("renew", PRETEND_CTX).map((e) => e.kind), ["invoice_paid"]);
+  assert.equal(isPretendAction("pay"), true);
+  assert.equal(isPretendAction("refund"), false);
+});
+
+test("pretend route is unavailable in production", () => {
+  const production = billingProvider({ NODE_ENV: "production" });
+  assert.equal(production.kind, "none");
+  assert.equal(pretendAvailable(production.kind), false);
+  assert.equal(pretendAvailable(billingProvider({ NODE_ENV: "development" }).kind), true);
+  assert.equal(pretendAvailable(billingProvider(STRIPE_ENV).kind), false);
 });
