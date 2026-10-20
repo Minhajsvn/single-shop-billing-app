@@ -651,6 +651,9 @@ begin
   assert e->>'access' = 'full', 'trial with a card keeps full access one day after the trial end';
   assert (e->>'hasPaymentMethod')::boolean and (e->>'accessEndsAt')::timestamptz = trial_end + interval '2 days', 'trial with a card ends two days after the trial';
   assert e ? 'cancelAt' and e->>'billingInterval' = 'month', 'new keys present';
+  update public.subscriptions set status = 'active', plan_id = 'starter', current_period_end = trial_end + interval '1 month' where business_id = biz;
+  assert (public.entitlements_internal(biz, now())->>'currentPeriodEnd')::timestamptz = trial_end + interval '1 month', 'active entitlements carry the period end (the renewal date)';
+  update public.subscriptions set status = 'trialing', plan_id = 'pro', current_period_end = null where business_id = biz;
   assert e->>'access' is not null and e ? 'trialEndsAt' and e ? 'graceEndsAt' and e ? 'limits' and e ? 'features', 'existing keys kept';
   assert public.entitlements_internal(biz, trial_end + interval '3 days')->>'access' = 'read_only', 'trial with a card is read-only three days after the trial end';
 

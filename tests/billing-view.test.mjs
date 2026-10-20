@@ -90,9 +90,11 @@ test("billingSummary describes each state in plain words", () => {
     billingSummary(trial("2026-10-25T08:00:00Z", { hasPaymentMethod: true }), at),
     "Pro trial · 6 days left · Starter starts 25 Oct",
   );
-  assert.equal(billingSummary({ ...base, accessEndsAt: "2026-11-19T08:00:00Z" }, at), "Starter · monthly · renews 19 Nov 2026");
+  // An active subscription has no access end (the SQL sends accessEndsAt null): the renewal date is the period end.
+  assert.equal(billingSummary({ ...base, currentPeriodEnd: "2026-11-19T08:00:00Z" }, at), "Starter · monthly · renews 19 Nov 2026");
+  assert.equal(billingSummary(base, at), "Starter · monthly");
   assert.equal(
-    billingSummary({ ...base, billingInterval: "year", accessEndsAt: "2027-10-19T08:00:00Z" }, at),
+    billingSummary({ ...base, billingInterval: "year", currentPeriodEnd: "2027-10-19T08:00:00Z" }, at),
     "Starter · annual · renews 19 Oct 2027",
   );
   assert.equal(

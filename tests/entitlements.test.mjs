@@ -23,7 +23,9 @@ test("old cached entitlements without 1F fields still parse", () => {
   assert.equal(e.accessEndsAt, null);
   assert.equal(e.cancelAt, null);
   assert.equal(e.billingInterval, null);
-  const current = parseEntitlements({ ...raw, accessEndsAt: "2026-10-29T00:00:00+00:00", cancelAt: null, hasPaymentMethod: true, billingInterval: "year" });
+  assert.equal(e.currentPeriodEnd, null);
+  const current = parseEntitlements({ ...raw, accessEndsAt: "2026-10-29T00:00:00+00:00", cancelAt: null, hasPaymentMethod: true, billingInterval: "year", currentPeriodEnd: "2027-10-29T00:00:00+00:00" });
+  assert.equal(current.currentPeriodEnd, "2027-10-29T00:00:00+00:00");
   assert.equal(current.hasPaymentMethod, true);
   assert.equal(current.billingInterval, "year");
   assert.throws(() => parseEntitlements({ ...raw, billingInterval: "week" }));

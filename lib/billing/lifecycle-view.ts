@@ -98,7 +98,10 @@ export function billingSummary(e: Entitlements, now: Date): string {
     return e.hasPaymentMethod && end ? `${text} · Starter starts ${dubaiDate(end, false)}` : text;
   }
   if (e.cancelAt) return `Starter · cancels on ${dubaiDate(e.cancelAt, true)}`;
-  return `Starter · ${e.billingInterval === "year" ? "annual" : "monthly"} · renews ${dubaiDate(e.accessEndsAt, true)}`;
+  const plan = `Starter · ${e.billingInterval === "year" ? "annual" : "monthly"}`;
+  // While active there is no access end; the renewal date is the period end.
+  const renews = dubaiDate(e.currentPeriodEnd ?? e.accessEndsAt, true);
+  return renews ? `${plan} · renews ${renews}` : plan;
 }
 
 export function canWrite(state: LifecycleState, registerOpen: boolean): boolean {

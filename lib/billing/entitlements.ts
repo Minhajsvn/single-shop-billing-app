@@ -16,6 +16,8 @@ const entitlementsSchema = z.object({
   cancelAt: z.string().nullable().default(null),
   hasPaymentMethod: z.boolean().default(false),
   billingInterval: z.enum(["month", "year"]).nullable().default(null),
+  /** The renewal date while active (an active subscription has no access end). */
+  currentPeriodEnd: z.string().nullable().default(null),
   features: z.array(z.enum(FEATURE_KEYS)),
   limits: z.object({ branches: limit, tills: limit, members: limit, products: limit }),
 });
@@ -24,7 +26,7 @@ export type Entitlements = z.infer<typeof entitlementsSchema>;
 
 export const READ_ONLY_ENTITLEMENTS: Entitlements = {
   planId: null, status: null, access: "read_only", trialEndsAt: null, graceEndsAt: null,
-  accessEndsAt: null, cancelAt: null, hasPaymentMethod: false, billingInterval: null, features: [],
+  accessEndsAt: null, cancelAt: null, hasPaymentMethod: false, billingInterval: null, currentPeriodEnd: null, features: [],
   limits: { branches: 0, tills: 0, members: 0, products: 0 },
 };
 
