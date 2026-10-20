@@ -15,13 +15,13 @@ export default async function PretendPortalPage() {
       <PretendActions
         interval="month"
         buttons={[
-          { action: "update_card", label: "Update card", tone: "primary", returnTo: "success" },
-          { action: "cancel", label: "Cancel subscription at period end", returnTo: "success" },
-          { action: "renew", label: "Simulate renewal", returnTo: "success" },
-          { action: "fail_renewal", label: "Simulate failed renewal", returnTo: "success" },
-          { action: "end_trial", label: "End trial now", returnTo: "success" },
-          { action: "end_grace", label: "End grace now", returnTo: "success" },
-          { label: "Back to Settings", returnTo: "cancel" },
+          { action: "update_card", label: "Update card", tone: "primary", returnTo: "portal" },
+          { action: "cancel", label: "Cancel subscription at period end", returnTo: "portal" },
+          { action: "renew", label: "Simulate renewal", returnTo: "portal" },
+          { action: "fail_renewal", label: "Simulate failed renewal", returnTo: "portal" },
+          { action: "end_trial", label: "End trial now", returnTo: "portal" },
+          { action: "end_grace", label: "End grace now", returnTo: "portal" },
+          { label: "Back to Settings", returnTo: "portal" },
         ]}
       />
     </main>

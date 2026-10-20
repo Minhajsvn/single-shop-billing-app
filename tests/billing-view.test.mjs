@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { bannerFor, canWrite, dubaiDaysLeft, lifecycleState, registerOpenDecision } from "../lib/billing/lifecycle-view.ts";
+import { bannerFor, billingSummary, canWrite, dubaiDaysLeft, lifecycleState, registerOpenDecision } from "../lib/billing/lifecycle-view.ts";
 
 const now = new Date("2026-10-19T10:00:00Z"); // 14:00 in Dubai
 const base = {
@@ -80,4 +80,25 @@ test("two active tills on Starter ask the owner to choose", () => {
 test("a paused till cannot open", () => {
   const device = { id: "d", name: "T2", tillNumber: 2, branchId: "b", branchName: "Main", status: "paused" };
   assert.equal(registerOpenDecision({ e: base, stale: false, device, activeTills: 1, registerOpen: false, now }), "till_paused");
+});
+
+test("billingSummary describes each state in plain words", () => {
+  const at = new Date("2026-10-19T08:00:00Z");
+  assert.equal(billingSummary(trial("2026-10-25T08:00:00Z"), at), "Pro trial · 6 days left");
+  assert.equal(billingSummary(trial("2026-10-20T08:00:00Z"), at), "Pro trial · 1 day left");
+  assert.equal(
+    billingSummary(trial("2026-10-25T08:00:00Z", { hasPaymentMethod: true }), at),
+    "Pro trial · 6 days left · Starter starts 25 Oct",
+  );
+  assert.equal(billingSummary({ ...base, accessEndsAt: "2026-11-19T08:00:00Z" }, at), "Starter · monthly · renews 19 Nov 2026");
+  assert.equal(
+    billingSummary({ ...base, billingInterval: "year", accessEndsAt: "2027-10-19T08:00:00Z" }, at),
+    "Starter · annual · renews 19 Oct 2027",
+  );
+  assert.equal(
+    billingSummary({ ...base, accessEndsAt: "2026-11-19T08:00:00Z", cancelAt: "2026-11-19T08:00:00Z" }, at),
+    "Starter · cancels on 19 Nov 2026",
+  );
+  assert.equal(billingSummary(pastDue("2026-10-24T09:00:00Z"), at), "Payment failed · grace ends 24 Oct");
+  assert.equal(billingSummary(readOnly, at), "Read-only since 1 Oct");
 });

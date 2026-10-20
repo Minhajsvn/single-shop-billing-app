@@ -5,7 +5,12 @@ import { useState } from "react";
 import type { PretendAction } from "@/lib/billing/pretend-events";
 
 /** No action: just leave (checkout=cancel). */
-export type PretendButton = { action?: PretendAction; label: string; tone?: "primary" | "plain"; returnTo: "success" | "cancel" | "stay" };
+export type PretendButton = { action?: PretendAction; label: string; tone?: "primary" | "plain"; returnTo: "success" | "cancel" | "stay" | "portal" };
+
+/** The portal returns with portal=return (quiet refresh); checkout returns with checkout=success|cancel. */
+function settingsHref(returnTo: PretendButton["returnTo"]): string {
+  return returnTo === "portal" ? "/settings?tab=billing&portal=return" : `/settings?tab=billing&checkout=${returnTo}`;
+}
 
 /** Posts one pretend action, then returns to the billing tab (or stays to show a message). */
 export function PretendActions({ buttons, interval }: { buttons: PretendButton[]; interval: "month" | "year" }) {
@@ -15,7 +20,7 @@ export function PretendActions({ buttons, interval }: { buttons: PretendButton[]
 
   async function run(button: PretendButton) {
     if (!button.action) {
-      router.push(`/settings?tab=billing&checkout=${button.returnTo}`);
+      router.push(settingsHref(button.returnTo));
       return;
     }
     setBusy(true);
@@ -39,7 +44,7 @@ export function PretendActions({ buttons, interval }: { buttons: PretendButton[]
         setMessage("Done.");
         return;
       }
-      router.push(`/settings?tab=billing&checkout=${button.returnTo}`);
+      router.push(settingsHref(button.returnTo));
     } catch {
       setMessage("That did not work. Try again.");
     } finally {

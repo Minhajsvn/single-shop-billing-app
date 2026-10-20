@@ -79,6 +79,28 @@ export function registerOpenDecision(input: {
   return "allow";
 }
 
+function dubaiDate(iso: string | null, withYear: boolean): string {
+  const date = iso ? new Date(iso) : null;
+  if (!date || !Number.isFinite(date.getTime())) return "";
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Dubai", day: "numeric", month: "short", ...(withYear ? { year: "numeric" } : {}),
+  }).format(date);
+}
+
+/** One plain line about the plan for the Billing tab. */
+export function billingSummary(e: Entitlements, now: Date): string {
+  const state = lifecycleState(e, now);
+  if (state === "read_only") return `Read-only since ${dubaiDate(e.accessEndsAt ?? e.graceEndsAt, false)}`.trim();
+  if (state === "grace") return `Payment failed · grace ends ${dubaiDate(e.graceEndsAt ?? e.accessEndsAt, false)}`.trim();
+  if (state === "trial") {
+    const end = e.trialEndsAt ?? e.accessEndsAt;
+    const text = `Pro trial · ${days(end ? dubaiDaysLeft(end, now) : 0)} left`;
+    return e.hasPaymentMethod && end ? `${text} · Starter starts ${dubaiDate(end, false)}` : text;
+  }
+  if (e.cancelAt) return `Starter · cancels on ${dubaiDate(e.cancelAt, true)}`;
+  return `Starter · ${e.billingInterval === "year" ? "annual" : "monthly"} · renews ${dubaiDate(e.accessEndsAt, true)}`;
+}
+
 export function canWrite(state: LifecycleState, registerOpen: boolean): boolean {
   return state !== "read_only" || registerOpen;
 }

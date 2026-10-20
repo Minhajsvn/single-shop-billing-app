@@ -330,7 +330,7 @@ export function refreshSnapshot(): Promise<{ ok: true } | { ok: false; error: st
   return runSerial(fetchSnapshot);
 }
 
-async function refreshEntitlements() {
+export async function refreshEntitlements() {
   try {
     const response = await fetch("/api/v1/entitlements", { cache: "no-store" });
     if (!response.ok) return;
