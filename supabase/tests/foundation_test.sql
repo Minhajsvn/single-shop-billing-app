@@ -912,4 +912,46 @@ begin
 end $$;
 reset role;
 
+-- 24f. Members (a cashier here) read their own shop's tills and branch names, so they get past the till picker;
+-- they never see another shop's tills and cannot register or change a till (writes stay owner only).
+create temp table t24f_expected on commit drop as
+  select
+    (select count(*) from public.devices where business_id = 'b2400000-0000-4000-8000-000000000001') as own_devices,
+    (select count(*) from public.devices where business_id <> 'b2400000-0000-4000-8000-000000000001') as other_devices,
+    (select name from public.devices where id = 'd2400000-0000-4000-8000-00000000000a') as till_a_name;
+grant select on t24f_expected to authenticated;
+do $$ begin
+  assert (select own_devices >= 2 and other_devices >= 1 from t24f_expected), 'fixture: this shop has tills and another shop has tills';
+end $$;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-00000000000d","role":"authenticated"}', true);
+do $$
+declare
+  failure text;
+  changed integer;
+begin
+  assert (select count(*) from public.devices where business_id = 'b2400000-0000-4000-8000-000000000001') = (select own_devices from t24f_expected),
+    'a cashier sees every till of their own shop';
+  assert (select count(*) from public.devices where business_id <> 'b2400000-0000-4000-8000-000000000001') = 0,
+    'a cashier sees no till of another shop';
+  assert (select b.name is not null from public.devices d join public.branches b on b.id = d.branch_id where d.id = 'd2400000-0000-4000-8000-00000000000a'),
+    'a cashier reads the branch name of their till';
+
+  begin
+    insert into public.devices (business_id, name) values ('b2400000-0000-4000-8000-000000000001', 'Cashier till');
+    assert false, 'a cashier must not register a till';
+  exception when others then failure := sqlstate;
+  end;
+  assert failure is not null and failure <> 'P0004', 'till insert by a cashier is refused, got ' || coalesce(failure, 'null');
+
+  update public.devices set name = 'Renamed by cashier' where id = 'd2400000-0000-4000-8000-00000000000a';
+  get diagnostics changed = row_count;
+  assert changed = 0, 'a cashier cannot change a till';
+end $$;
+reset role;
+do $$ begin
+  assert (select name from public.devices where id = 'd2400000-0000-4000-8000-00000000000a') = (select till_a_name from t24f_expected), 'till name unchanged after the cashier''s attempt';
+  assert (select count(*) from public.devices where business_id = 'b2400000-0000-4000-8000-000000000001') = (select own_devices from t24f_expected), 'no till was added by the cashier';
+end $$;
+
 rollback;
