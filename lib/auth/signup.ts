@@ -50,10 +50,22 @@ export function isEmailNotConfirmed(error: AuthErrorLike): boolean {
   return error.code === "email_not_confirmed" || (error.message ?? "").toLowerCase().includes("email not confirmed");
 }
 
-/** A same-origin path only: "/x" yes; "//x", "/\x" and absolute URLs no. */
+const SAFE_BASE = "http://next.invalid";
+
+/**
+ * A same-origin path only: "/x" yes; "//x", backslashes, control characters, spaces and absolute URLs no.
+ * Browsers strip tabs and newlines from a Location header, so "/\t/evil.com" would become "//evil.com".
+ */
 export function safeNext(next: string | null | undefined, fallback: string): string {
-  if (!next || !next.startsWith("/") || next.startsWith("//") || next.startsWith("/\\")) return fallback;
-  return next;
+  if (!next || !next.startsWith("/") || next.startsWith("//") || /[\x00-\x20\x7f\\]/.test(next)) return fallback;
+  let resolved: URL;
+  try {
+    resolved = new URL(next, SAFE_BASE);
+  } catch {
+    return fallback;
+  }
+  if (resolved.origin !== SAFE_BASE) return fallback;
+  return resolved.pathname + resolved.search + resolved.hash;
 }
 
 const DEFAULT_NEXT: Record<ConfirmType, string> = { signup: "/setup", recovery: "/reset-password", email: "/overview" };

@@ -71,6 +71,17 @@ test("next cannot leave the app", () => {
   assert.equal(confirmParams(new URL("http://localhost:3101/auth/confirm?token_hash=abc&type=recovery&next=/\\evil.com"))?.next, "/reset-password");
 });
 
+test("control characters or backslashes in next cannot make an off-site redirect", () => {
+  for (const next of ["/%09/evil.com", "/%0A/evil.com", "/%0D/evil.com", "%2F%09%2Fevil.com", "/%5Cevil.com", "/x%00y", "/%20/evil.com"]) {
+    const url = new URL(`http://localhost:3101/auth/confirm?token_hash=abc&type=signup&next=${next}`);
+    assert.equal(confirmParams(url)?.next, "/setup", next);
+  }
+});
+
+test("a normal local next keeps its query and hash", () => {
+  assert.equal(confirmParams(new URL("http://localhost:3101/auth/confirm?token_hash=abc&type=signup&next=%2Foverview%3Fa%3D1%23b"))?.next, "/overview?a=1#b");
+});
+
 test("an unconfirmed sign-in is recognised", () => {
   assert.equal(isEmailNotConfirmed({ message: "Email not confirmed", status: 400, code: "email_not_confirmed" }), true);
   assert.equal(isEmailNotConfirmed({ message: "Invalid login credentials", status: 400 }), false);
