@@ -1,16 +1,6 @@
 "use client";
 
-import {
-  Archive,
-  CashRegister,
-  ChartBar,
-  DotsThreeOutline,
-  Gear,
-  House,
-  IdentificationCard,
-  Receipt,
-  ShoppingCart,
-} from "@phosphor-icons/react";
+import { Archive, DotsThreeOutline, Gear, House, Receipt, ShoppingCart } from "@phosphor-icons/react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
@@ -18,7 +8,9 @@ import { LifecycleBanner } from "@/components/billing/lifecycle-banner";
 import { useEntitlement } from "@/components/billing/use-entitlement";
 import { ChecklistStrip } from "@/components/onboarding/checklist-strip";
 import { bannerFor } from "@/lib/billing/lifecycle-view";
-import { MORE_LINKS, MoreSheet } from "@/components/nav/more-sheet";
+import { MoreSheet, moreLinksFor } from "@/components/nav/more-sheet";
+import { navIcon, pathOf } from "@/components/nav/nav-icons";
+import { canUsePage, navLinksFor } from "@/lib/access/cashier";
 import { UserMenu } from "@/components/nav/user-menu";
 import { OfflineRuntime } from "@/components/offline-runtime";
 import { ConfirmHost } from "@/components/ui/confirm-host";
@@ -26,16 +18,6 @@ import { Toaster } from "@/components/ui/toaster";
 import { clearHostedStore, useDemoStore, useShopContext } from "@/lib/demo-store";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { requestConfirm } from "@/lib/ui/confirm-store";
-
-const links = [
-  { href: "/overview", label: "Overview", icon: House },
-  { href: "/sale", label: "New sale", icon: ShoppingCart },
-  { href: "/sales", label: "Sales", icon: Receipt },
-  { href: "/inventory", label: "Inventory", icon: Archive },
-  { href: "/customers", label: "Customers", icon: IdentificationCard },
-  { href: "/register", label: "Register", icon: CashRegister },
-  { href: "/reports", label: "Reports", icon: ChartBar },
-];
 
 // Phone bar (owner's choice): Overview · Sales · New sale (centre, highlighted) · Inventory · More.
 const phoneTabs = [
@@ -57,8 +39,19 @@ export function AppShell({ children, loading = false }: { children: ReactNode; l
   const active = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
   const [email, setEmail] = useState<string | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
-  const { mode, business, device } = useShopContext();
+  const { mode, business, device, role } = useShopContext();
   const store = useDemoStore();
+  const navLinks = navLinksFor(role);
+  const settingsLink = navLinks.find((link) => pathOf(link.href) === "/settings");
+  const workspaceLinks = navLinks.filter((link) => link !== settingsLink);
+  const moreLinks = moreLinksFor(role);
+
+  // A page this role cannot use, opened by address, goes to Overview (the server checks every write anyway).
+  useEffect(() => {
+    if (loading) return;
+    const tab = new URLSearchParams(window.location.search).get("tab");
+    if (!canUsePage(role, pathname, tab)) router.replace("/overview");
+  }, [loading, pathname, role, router]);
 
   useEffect(() => {
     if (!isSupabaseConfigured()) return;
@@ -84,7 +77,7 @@ export function AppShell({ children, loading = false }: { children: ReactNode; l
   const shopName = business?.legalName ?? (mode === "sample" ? "Sample shop" : "Shop Ledger");
   const tillLabel = mode === "sample" ? "This browser" : device ? `Till ${device.tillNumber} · ${device.branchName}` : "No till selected";
   const signOutLabel = isSupabaseConfigured() ? (mode === "sample" ? "Leave sample" : "Sign out") : null;
-  const moreActive = MORE_LINKS.some(({ href }) => active(href));
+  const moreActive = moreLinks.some(({ href }) => active(pathOf(href)));
 
   return (
     <div className="app-shell">
@@ -99,21 +92,26 @@ export function AppShell({ children, loading = false }: { children: ReactNode; l
 
         <div className="nav-label">Workspace</div>
         <nav className="nav" aria-label="Primary navigation">
-          {links.map(({ href, label, icon: Icon }) => (
-            <Link className={`nav-link ${active(href) ? "active" : ""}`} href={href} key={href} aria-current={active(href) ? "page" : undefined}>
-              <Icon size={17} weight={active(href) ? "fill" : "bold"} />
-              {label}
-            </Link>
-          ))}
+          {workspaceLinks.map(({ href, label }) => {
+            const Icon = navIcon(href);
+            return (
+              <Link className={`nav-link ${active(href) ? "active" : ""}`} href={href} key={href} aria-current={active(href) ? "page" : undefined}>
+                <Icon size={17} weight={active(href) ? "fill" : "bold"} />
+                {label}
+              </Link>
+            );
+          })}
         </nav>
 
-        <div className="nav-label" style={{ marginTop: 22 }}>System</div>
-        <nav className="nav">
-          <Link className={`nav-link ${active("/settings") ? "active" : ""}`} href="/settings" aria-current={active("/settings") ? "page" : undefined}>
-            <Gear size={17} weight={active("/settings") ? "fill" : "bold"} />
-            Settings
-          </Link>
-        </nav>
+        {settingsLink ? <>
+          <div className="nav-label" style={{ marginTop: 22 }}>System</div>
+          <nav className="nav">
+            <Link className={`nav-link ${active("/settings") ? "active" : ""}`} href={settingsLink.href} aria-current={active("/settings") ? "page" : undefined}>
+              <Gear size={17} weight={active("/settings") ? "fill" : "bold"} />
+              {settingsLink.label}
+            </Link>
+          </nav>
+        </> : null}
 
         <div className="sidebar-bottom">
           <OfflineRuntime ready={!loading} />
@@ -131,7 +129,7 @@ export function AppShell({ children, loading = false }: { children: ReactNode; l
           <DotsThreeOutline size={18} weight={moreActive ? "fill" : "bold"} /><span>More</span>
         </button>
       </nav>
-      <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} shopName={shopName} tillLabel={tillLabel} email={email} signOutLabel={signOutLabel} onSignOut={() => void signOut()} />
+      <MoreSheet links={moreLinks} open={moreOpen} onClose={() => setMoreOpen(false)} shopName={shopName} tillLabel={tillLabel} email={email} signOutLabel={signOutLabel} onSignOut={() => void signOut()} />
 
       <main className="main">
         <header className="topbar">

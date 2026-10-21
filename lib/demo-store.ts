@@ -20,6 +20,7 @@ import {
 import { saleBlockReason } from "@/lib/checkout/register-status";
 import { dubaiSupplyDate, nextCreditNoteNumber, nextInvoiceNumber } from "@/lib/invoice-numbers";
 import { clearOfflineCache, clearSyncedOutbox, loadOfflineCustomers, loadOfflineSnapshot, persistOfflineSnapshot } from "@/lib/offline-db";
+import { refundedQuantities, type InvoiceLookup } from "@/lib/sales/invoice-lookup";
 import { mergeSnapshot } from "@/lib/snapshot/merge";
 import { registerTotals } from "@/lib/store/register-totals";
 import type { BusinessProfile, MemberRole, ShopSnapshot, TillDevice } from "@/lib/snapshot/types";
@@ -752,20 +753,21 @@ export function completeSale(inputLines: CheckoutLine[], paymentMethod: PaymentM
 }
 
 export function returnedQuantities(saleId: string) {
-  const quantities = new Map<string, number>();
-  for (const note of state.creditNotes.filter((item) => item.saleId === saleId)) {
-    for (const item of note.lines) quantities.set(item.originalLineId, (quantities.get(item.originalLineId) ?? 0) + item.quantity);
-  }
-  return quantities;
+  return refundedQuantities(saleId, state.creditNotes);
 }
 
-export function createCreditNote(saleId: string, requestedQuantities: Record<string, number>): { ok: true; creditNote: CreditNote } | { ok: false; error: string } {
+/**
+ * Issues a credit note for a sale this browser holds or, with `found`, for one fetched from the server by its invoice
+ * number (owner decision 8: any sale of the shop can be refunded from its receipt). The server's existing credit
+ * notes for that sale count against what is left to return.
+ */
+export function createCreditNote(saleId: string, requestedQuantities: Record<string, number>, found?: InvoiceLookup): { ok: true; creditNote: CreditNote } | { ok: false; error: string } {
   const till = tillNumber();
   if (till === null) return { ok: false, error: "Choose which till this browser is before processing a refund." };
   if (!state.register || state.register.status !== "open") return { ok: false, error: "Open the register before processing a refund." };
-  const sale = state.sales.find((item) => item.id === saleId);
+  const sale = state.sales.find((item) => item.id === saleId) ?? (found?.sale.id === saleId ? found.sale : undefined);
   if (!sale) return { ok: false, error: "Original invoice not found." };
-  const alreadyReturned = returnedQuantities(saleId);
+  const alreadyReturned = refundedQuantities(saleId, state.creditNotes, found?.sale.id === saleId ? found.creditNotes : []);
   const validLines: { item: InvoiceLine; quantity: number }[] = [];
   for (const item of sale.lines) {
     const quantity = Math.floor(Number(requestedQuantities[item.id] ?? 0));

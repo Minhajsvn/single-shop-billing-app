@@ -7,8 +7,11 @@ import { useState } from "react";
 import { READ_ONLY_REASON, useEntitlement } from "@/components/billing/use-entitlement";
 import { useOnline } from "@/components/offline-runtime";
 import { ReceiptDocument, lineSaving, useReceiptShop } from "@/components/receipt-document";
+import { useFoundSale } from "@/components/sales/use-invoice-lookup";
 import { useRemoteSale } from "@/components/sales/use-remote-sale";
+import { isOwnerView } from "@/lib/access/cashier";
 import { createCreditNote, useDemoStore, useShopContext } from "@/lib/demo-store";
+import { refundedQuantities } from "@/lib/sales/invoice-lookup";
 import { formatAED, formatDateTime } from "@/lib/domain";
 import { printDocument } from "@/lib/print";
 
@@ -18,11 +21,16 @@ export function InvoiceDetailWorkspace({ id }: { id: string }) {
   const routeId = pathname.split("/").filter(Boolean).at(-1) ?? id;
   const localSale = store.sales.find((item) => item.id === routeId);
   const online = useOnline();
-  // Sales older than the browser's 90-day history are loaded from the server to view and reprint only.
-  const { mode } = useShopContext();
-  const remote = useRemoteSale(routeId, !localSale && mode === "hosted", online);
-  const sale = localSale ?? remote.sale ?? undefined;
-  const viewOnly = !localSale && Boolean(remote.sale);
+  // Sales older than the browser's 90-day history are loaded from the server to view and reprint only (owner).
+  // A sale found by its invoice number ("Refund a sale by invoice number") can also be refunded (owner decision 8).
+  const { mode, role } = useShopContext();
+  const ownerView = isOwnerView(role);
+  const remote = useRemoteSale(routeId, !localSale && mode === "hosted" && ownerView, online);
+  const foundSale = useFoundSale(routeId, !localSale && mode === "hosted" && !ownerView, online);
+  const found = foundSale.lookup ?? undefined;
+  const sale = localSale ?? remote.sale ?? found?.sale ?? undefined;
+  const viewOnly = !localSale && !found && Boolean(remote.sale);
+  const remoteStatus = ownerView ? remote.status : foundSale.status;
   const shop = useReceiptShop(sale);
   const [returnOpen, setReturnOpen] = useState(false);
   const [returnQuantities, setReturnQuantities] = useState<Record<string, number>>({});
@@ -33,18 +41,23 @@ export function InvoiceDetailWorkspace({ id }: { id: string }) {
   const print = printDocument;
 
   if (!sale) {
-    if (mode === "hosted" && (remote.status === "loading" || (online && remote.status === "idle"))) return <section className="panel"><div className="empty"><Receipt size={32} weight="duotone" /><h3>Loading invoice…</h3><p>Fetching this older invoice from the server.</p></div></section>;
+    if (mode === "hosted" && (remoteStatus === "loading" || (online && remoteStatus === "idle"))) return <section className="panel"><div className="empty"><Receipt size={32} weight="duotone" /><h3>Loading invoice…</h3><p>Fetching this older invoice from the server.</p></div></section>;
     return <section className="panel"><div className="empty"><Receipt size={32} weight="duotone" /><h3>Invoice not found</h3><p>{online ? "The invoice may not exist in this shop." : "Connect to the internet to open older invoices."}</p><Link className="button" href="/sales">Return to sales</Link></div></section>;
   }
 
-  const creditNotes = store.creditNotes.filter((note) => note.saleId === sale.id);
-  const returned = new Map<string, number>();
-  for (const note of creditNotes) for (const item of note.lines) returned.set(item.originalLineId, (returned.get(item.originalLineId) ?? 0) + item.quantity);
-  // Refunds only for sales this browser holds (owner's decision: older invoices are view and reprint only).
+  const localNotes = store.creditNotes.filter((note) => note.saleId === sale.id);
+  // A sale found by invoice number also lists the server's credit notes this browser does not hold.
+  const localIds = new Set(localNotes.map((note) => note.id));
+  const creditNotes = [
+    ...localNotes.map((note) => ({ id: note.id, creditNoteNumber: note.creditNoteNumber, createdAt: note.createdAt, grossFils: note.grossFils, items: note.lines.reduce((sum, item) => sum + item.quantity, 0) })),
+    ...(found?.creditNotes ?? []).filter((note) => !localIds.has(note.id)).map((note) => ({ id: note.id, creditNoteNumber: note.creditNoteNumber, createdAt: note.createdAt, grossFils: note.grossFils, items: note.lines.reduce((sum, item) => sum + item.quantity, 0) })),
+  ];
+  const returned = refundedQuantities(sale.id, store.creditNotes, found?.creditNotes);
+  // Refunds for sales this browser holds or found by invoice number; older invoices opened otherwise are view and reprint only.
   const hasReturnableLines = !viewOnly && sale.lines.some((item) => item.quantity > (returned.get(item.id) ?? 0));
 
   function createReturn() {
-    const result = createCreditNote(sale!.id, returnQuantities);
+    const result = createCreditNote(sale!.id, returnQuantities, found);
     if (!result.ok) return setReturnError(result.error);
     setReturnOpen(false);
     setReturnQuantities({});
@@ -63,7 +76,7 @@ export function InvoiceDetailWorkspace({ id }: { id: string }) {
         <footer className="invoice-footer"><div className="invoice-note"><strong>Thank you.</strong><span>{shop.footer}</span></div><div className="invoice-totals"><div><span>Net amount</span><strong>{formatAED(sale.netFils)}</strong></div><div><span>VAT 5%</span><strong>{formatAED(sale.vatFils)}</strong></div><div className="grand-total"><span>Total paid</span><strong>{formatAED(sale.grossFils)}</strong></div></div></footer>
       </article>
 
-      {creditNotes.length > 0 && <section className="panel credit-note-history no-print"><div className="panel-header"><div><div className="panel-title">Credit notes</div><div className="panel-subtitle">Refund documents linked to this invoice</div></div></div><div className="credit-note-list">{creditNotes.map((note) => <div className="credit-note-row" key={note.id}><div><strong>{note.creditNoteNumber}</strong><span>{formatDateTime(note.createdAt)} · {note.lines.reduce((sum, item) => sum + item.quantity, 0)} items</span></div><strong>−{formatAED(note.grossFils)}</strong></div>)}</div></section>}
+      {creditNotes.length > 0 && <section className="panel credit-note-history no-print"><div className="panel-header"><div><div className="panel-title">Credit notes</div><div className="panel-subtitle">Refund documents linked to this invoice</div></div></div><div className="credit-note-list">{creditNotes.map((note) => <div className="credit-note-row" key={note.id}><div><strong>{note.creditNoteNumber}</strong><span>{formatDateTime(note.createdAt)} · {note.items} items</span></div><strong>−{formatAED(note.grossFils)}</strong></div>)}</div></section>}
 
       <ReceiptDocument sale={sale} shop={shop} />
 

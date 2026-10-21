@@ -1,21 +1,25 @@
 "use client";
 
-import { CashRegister, ChartBar, Gear, IdentificationCard, SignOut, X } from "@phosphor-icons/react";
+import { SignOut, X } from "@phosphor-icons/react";
 import Link from "next/link";
 import { useEffect, useRef, type KeyboardEvent } from "react";
+import { navIcon } from "@/components/nav/nav-icons";
 import { useSyncStatusText } from "@/components/offline-runtime";
+import { navLinksFor, type NavLink, type Role } from "@/lib/access/cashier";
 
-export const MORE_LINKS = [
-  { href: "/customers", label: "Customers", icon: IdentificationCard },
-  { href: "/register", label: "Register", icon: CashRegister },
-  { href: "/reports", label: "Reports", icon: ChartBar },
-  { href: "/settings", label: "Settings", icon: Gear },
-];
+/** Pages on the phone bar itself; the rest of this role's pages go in More. */
+const PHONE_BAR = new Set(["/overview", "/sales", "/sale", "/inventory"]);
+
+/** More's links for this role: an owner's Customers, Register, Reports, Settings; a cashier's without Reports. */
+export function moreLinksFor(role: Role): NavLink[] {
+  return navLinksFor(role).filter((link) => !PHONE_BAR.has(link.href));
+}
 
 const FOCUSABLE = "a[href], button:not([disabled])";
 
 /** Phone "More": the less-used pages plus the till, the account, sync status and Sign out. */
-export function MoreSheet({ open, onClose, shopName, tillLabel, email, signOutLabel, onSignOut }: {
+export function MoreSheet({ links, open, onClose, shopName, tillLabel, email, signOutLabel, onSignOut }: {
+  links: NavLink[];
   open: boolean;
   onClose: () => void;
   shopName: string;
@@ -67,7 +71,10 @@ export function MoreSheet({ open, onClose, shopName, tillLabel, email, signOutLa
           <button type="button" className="button icon-only" onClick={onClose} aria-label="Close"><X size={16} weight="bold" /></button>
         </div>
         <nav className="more-links" aria-label="More pages">
-          {MORE_LINKS.map(({ href, label, icon: Icon }) => <Link key={href} href={href} onClick={onClose}><Icon size={18} weight="bold" />{label}</Link>)}
+          {links.map(({ href, label }) => {
+            const Icon = navIcon(href);
+            return <Link key={href} href={href} onClick={onClose}><Icon size={18} weight="bold" />{label}</Link>;
+          })}
           {signOutLabel ? <button type="button" onClick={() => { onClose(); onSignOut(); }}><SignOut size={18} weight="bold" />{signOutLabel}</button> : null}
         </nav>
       </div>
