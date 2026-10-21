@@ -1,0 +1,50 @@
+{
+  "id": "evt_test_sub_cancel_1",
+  "object": "event",
+  "api_version": "2026-09-30.endive",
+  "created": 1794000000,
+  "livemode": false,
+  "pending_webhooks": 1,
+  "request": { "id": "req_test_1", "idempotency_key": null },
+  "type": "customer.subscription.updated",
+  "data": {
+    "object": {
+      "id": "sub_test_1",
+      "object": "subscription",
+      "customer": "cus_test_1",
+      "status": "active",
+      "cancel_at": 1795737600,
+      "cancel_at_period_end": true,
+      "canceled_at": 1794000000,
+      "cancellation_details": { "comment": null, "feedback": null, "reason": "cancellation_requested" },
+      "created": 1792454400,
+      "currency": "aed",
+      "trial_start": 1792454400,
+      "trial_end": 1793059200,
+      "metadata": { "business_id": "11111111-1111-4111-8111-111111111111" },
+      "items": {
+        "object": "list",
+        "has_more": false,
+        "data": [
+          {
+            "id": "si_test_1",
+            "object": "subscription_item",
+            "current_period_start": 1793059200,
+            "current_period_end": 1795737600,
+            "quantity": 1,
+            "price": {
+              "id": "price_test_starter_annual",
+              "object": "price",
+              "currency": "aed",
+              "unit_amount": 99000,
+              "type": "recurring",
+              "recurring": { "interval": "year", "interval_count": 1, "usage_type": "licensed" }
+            }
+          }
+        ]
+      },
+      "livemode": false
+    },
+    "previous_attributes": { "cancel_at": null, "cancel_at_period_end": false, "canceled_at": null }
+  }
+}

@@ -2,6 +2,7 @@
 
 import { Archive, ArrowCounterClockwise, Barcode, DownloadSimple, FileArrowUp, MagnifyingGlass, PencilSimple, Plus, WarningCircle, X } from "@phosphor-icons/react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { READ_ONLY_REASON, useEntitlement } from "@/components/billing/use-entitlement";
 import { ImportDialog } from "@/components/catalogue/import-dialog";
 import { LabelPrintDialog } from "@/components/catalogue/label-print-dialog";
 import { ProductForm, type ProductFormValues } from "@/components/catalogue/product-form";
@@ -42,6 +43,8 @@ export function InventoryWorkspace() {
   const [error, setError] = useState("");
   const [pageError, setPageError] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const { canWrite } = useEntitlement();
+  const readOnlyTitle = canWrite ? undefined : READ_ONLY_REASON;
 
   // The POS links unknown scans to /inventory?barcode=…: open "Add product" once with that barcode filled in.
   useEffect(() => {
@@ -148,12 +151,13 @@ export function InventoryWorkspace() {
         <div><div className="eyebrow">Catalog and stock</div><h1 className="page-title">Inventory</h1><p className="page-copy">Maintain sellable items and keep every stock change traceable.</p></div>
         <div className="page-actions">
           <button className="button" onClick={exportCatalogue} disabled={!products.length}><DownloadSimple size={15} weight="bold" /> Export</button>
-          <button className="button" onClick={() => setDialog({ kind: "import" })}><FileArrowUp size={15} weight="bold" /> Import</button>
-          <button className="button primary" onClick={() => setDialog({ kind: "new" })}><Plus size={15} weight="bold" /> Add product</button>
+          <button className="button" onClick={() => setDialog({ kind: "import" })} disabled={!canWrite} title={readOnlyTitle}><FileArrowUp size={15} weight="bold" /> Import</button>
+          <button className="button primary" onClick={() => setDialog({ kind: "new" })} disabled={!canWrite} title={readOnlyTitle}><Plus size={15} weight="bold" /> Add product</button>
         </div>
       </div>
 
       {attention ? <div className="notice error-notice" role="status"><WarningCircle size={18} weight="fill" /><span><strong>{attention} {attention === 1 ? "product needs" : "products need"} attention.</strong> The server did not accept {attention === 1 ? "it" : "them"}; edit the marked products to fix the problem shown.</span></div> : null}
+      {canWrite ? null : <p className="read-only-hint" role="note">{READ_ONLY_REASON} Export, labels and search still work.</p>}
       {pageError ? <div className="notice error-notice" role="alert"><WarningCircle size={18} weight="fill" /><span>{pageError}</span></div> : null}
 
       <SummaryStrip label="Inventory summary" items={[{ label: "Products", value: products.filter((product) => product.active).length.toLocaleString("en-US") }, { label: "Low stock", value: lowStock.toLocaleString("en-US") }, { label: "Archived", value: products.filter((product) => !product.active).length.toLocaleString("en-US") }]} />
@@ -183,14 +187,14 @@ export function InventoryWorkspace() {
                 <td className="numeric">{product.stock}</td>
                 <td className="numeric">{formatAED(product.priceFils)}</td>
                 <td className="numeric"><div className="row-actions">
-                  <button className="button" onClick={() => setDialog({ kind: "edit", product })} aria-label={`Edit ${product.name}`}><PencilSimple size={14} weight="bold" /> Edit</button>
+                  <button className="button" onClick={() => setDialog({ kind: "edit", product })} disabled={!canWrite} title={readOnlyTitle} aria-label={`Edit ${product.name}`}><PencilSimple size={14} weight="bold" /> Edit</button>
                   <button className="button" onClick={() => setDialog({ kind: "labels", productIds: [product.id] })} aria-label={`Print labels for ${product.name}`}><Barcode size={14} weight="bold" /> Labels</button>
                   {product.active ? (
                     <>
-                      <button className="button" onClick={() => setDialog({ kind: "adjust", product })}>Adjust stock</button>
-                      <button className="button" onClick={() => archive(product)} aria-label={`Archive ${product.name}`}><Archive size={14} weight="bold" /> Archive</button>
+                      <button className="button" onClick={() => setDialog({ kind: "adjust", product })} disabled={!canWrite} title={readOnlyTitle}>Adjust stock</button>
+                      <button className="button" onClick={() => archive(product)} disabled={!canWrite} title={readOnlyTitle} aria-label={`Archive ${product.name}`}><Archive size={14} weight="bold" /> Archive</button>
                     </>
-                  ) : <button className="button" onClick={() => restore(product)} aria-label={`Restore ${product.name}`}><ArrowCounterClockwise size={14} weight="bold" /> Restore</button>}
+                  ) : <button className="button" onClick={() => restore(product)} disabled={!canWrite} title={readOnlyTitle} aria-label={`Restore ${product.name}`}><ArrowCounterClockwise size={14} weight="bold" /> Restore</button>}
                 </div></td>
               </tr>
             );
@@ -199,13 +203,13 @@ export function InventoryWorkspace() {
           ? <EmptyState icon={<Archive size={28} weight="duotone" />} title="No archived products" hint="Archived products are hidden from the till and listed here." />
           : products.length
             ? <EmptyState icon={<Archive size={28} weight="duotone" />} title={`No products match "${query}"`} hint="Try a name, SKU or barcode." />
-            : <EmptyState icon={<Archive size={28} weight="duotone" />} title="No products yet" hint="Import a spreadsheet or add your first product." action={<button className="button primary" onClick={() => setDialog({ kind: "new" })}>Add product</button>} />}
+            : <EmptyState icon={<Archive size={28} weight="duotone" />} title="No products yet" hint="Import a spreadsheet or add your first product." action={canWrite ? <button className="button primary" onClick={() => setDialog({ kind: "new" })}>Add product</button> : undefined} />}
         <Pager {...paged} onPage={(next) => setParams({ page: String(next) })} />
       </section>
 
-      {dialog?.kind === "new" && <ProductForm mode="add" barcode={dialog.barcode} onSubmit={saveNew} onCancel={closeDialog} />}
+      {dialog?.kind === "new" && canWrite && <ProductForm mode="add" barcode={dialog.barcode} onSubmit={saveNew} onCancel={closeDialog} />}
 
-      {dialog?.kind === "edit" && (
+      {dialog?.kind === "edit" && canWrite && (
         <ProductForm
           mode="edit"
           product={products.find((product) => product.id === dialog.product.id) ?? dialog.product}
@@ -215,11 +219,11 @@ export function InventoryWorkspace() {
         />
       )}
 
-      {dialog?.kind === "import" && <ImportDialog onClose={closeDialog} onPrintLabels={(productIds) => setDialog({ kind: "labels", productIds })} />}
+      {dialog?.kind === "import" && canWrite && <ImportDialog onClose={closeDialog} onPrintLabels={(productIds) => setDialog({ kind: "labels", productIds })} />}
 
       {dialog?.kind === "labels" && <LabelPrintDialog products={labelProducts} onClose={closeDialog} />}
 
-      {dialog?.kind === "adjust" && (
+      {dialog?.kind === "adjust" && canWrite && (
         <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeDialog(); }}>
           <form className="modal" onSubmit={(event) => submitAdjustment(event, dialog.product)} aria-label="Adjust stock">
             <div className="modal-header"><div><div className="panel-title">Adjust stock</div><div className="panel-subtitle">{dialog.product.name} · {dialog.product.stock} currently available</div></div><button type="button" className="button icon-only" onClick={closeDialog} aria-label="Close"><X size={16} weight="bold" /></button></div>

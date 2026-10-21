@@ -2,6 +2,8 @@
 
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
 import { ArrowsClockwise, CashRegister, CheckCircle, DownloadSimple, ShieldCheck, UploadSimple } from "@phosphor-icons/react";
+import { BillingPanel } from "@/components/billing/billing-panel";
+import { ChooseTill } from "@/components/billing/choose-till";
 import { EmptyState } from "@/components/ui/list-parts";
 import { useListParams } from "@/components/ui/use-list-params";
 import { createDemoStateBackup, reconcilePendingOperations, refreshSnapshot, restoreDemoStateBackup, switchThisTill, useDemoStore, useShopContext } from "@/lib/demo-store";
@@ -16,8 +18,9 @@ const TABS = [
   { tab: "tax", label: "Tax and invoices" },
   { tab: "data", label: "Data" },
 ] as const;
-type Tab = (typeof TABS)[number]["tab"];
-const isTab = (value: string): value is Tab => TABS.some((item) => item.tab === value);
+const BILLING_TAB = { tab: "billing", label: "Billing" } as const;
+type Tab = (typeof TABS)[number]["tab"] | "billing";
+const isTab = (value: string): value is Tab => value === "billing" || TABS.some((item) => item.tab === value);
 
 const SETTINGS_KEY = "shop-ledger-demo-settings-v1";
 const defaults = {
@@ -31,9 +34,12 @@ const defaults = {
 
 export default function SettingsPage() {
   const store = useDemoStore();
-  const { mode, business, devices, device } = useShopContext();
+  const { mode, business, devices, device, entitlements, role } = useShopContext();
+  const tillLimit = entitlements.limits.tills;
+  const overTillLimit = tillLimit !== null && devices.filter((item) => item.status === "active").length > tillLimit;
   const [params, setParams] = useListParams({ tab: "business" });
-  const tab: Tab = isTab(params.tab) ? params.tab : "business";
+  const tabs = role === "owner" ? [...TABS, BILLING_TAB] : TABS;
+  const tab: Tab = isTab(params.tab) && (params.tab !== "billing" || role === "owner") ? params.tab : "business";
   // On a phone the tab row scrolls; keep the open tab in view (Data sits past the edge at 375px).
   useEffect(() => {
     document.getElementById(`settings-tab-${tab}`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -182,7 +188,7 @@ export default function SettingsPage() {
     <>
       <div className="page-heading"><div><div className="eyebrow">Business profile</div><h1 className="page-title">Settings</h1><p className="page-copy">These legal details will be snapshotted onto each tax invoice.</p></div>{saved && <span className="badge green">Saved</span>}</div>
       <div className="settings-tabs" role="tablist" aria-label="Settings sections">
-        {TABS.map((item) => <button key={item.tab} type="button" role="tab" id={`settings-tab-${item.tab}`} aria-controls="settings-panel" aria-selected={tab === item.tab} className="settings-tab" onClick={() => setParams({ tab: item.tab })}>{item.label}</button>)}
+        {tabs.map((item) => <button key={item.tab} type="button" role="tab" id={`settings-tab-${item.tab}`} aria-controls="settings-panel" aria-selected={tab === item.tab} className="settings-tab" onClick={() => setParams({ tab: item.tab })}>{item.label}</button>)}
       </div>
       <div className="settings-panel" role="tabpanel" id="settings-panel" aria-labelledby={`settings-tab-${tab}`}>
         {tab === "business" ? <form className="panel" onSubmit={submit}>
@@ -200,9 +206,13 @@ export default function SettingsPage() {
         {tab === "tills" ? <section className="panel">
           <div className="panel-header"><div><div className="panel-title">Tills</div><div className="panel-subtitle">Each till has its own invoice numbers</div></div>{hosted ? <button className="button" type="button" onClick={() => void switchTill()}><CashRegister size={15} weight="bold" />Switch this browser&apos;s till</button> : null}</div>
           {tillMessage && <div className="backup-message" role="alert">{tillMessage}</div>}
-          {hosted && devices.length ? <div className="table-wrap"><table><thead><tr><th>Till</th><th>Name</th><th>Branch</th><th>Status</th></tr></thead><tbody>{devices.map((item) => <tr key={item.id}><td className="product-name">Till {item.tillNumber}{item.id === device?.id ? <div className="product-meta">This browser</div> : null}</td><td>{item.name}</td><td>{item.branchName}</td><td><span className={`badge ${item.status === "active" ? "green" : "red"}`}>{item.status === "active" ? "Active" : "Revoked"}</span></td></tr>)}</tbody></table></div>
+          {/* Over the plan's till limit: the choice can be made here too, also from a till whose register is open. */}
+          {hosted && overTillLimit ? <div className="panel-body"><ChooseTill compact /></div> : null}
+          {hosted && devices.length ? <div className="table-wrap"><table><thead><tr><th>Till</th><th>Name</th><th>Branch</th><th>Status</th></tr></thead><tbody>{devices.map((item) => <tr key={item.id}><td className="product-name">Till {item.tillNumber}{item.id === device?.id ? <div className="product-meta">This browser</div> : null}</td><td>{item.name}</td><td>{item.branchName}</td><td><span className={`badge ${item.status === "active" ? "green" : item.status === "paused" ? "yellow" : "red"}`}>{item.status === "active" ? "Active" : item.status === "paused" ? "Paused" : "Revoked"}</span></td></tr>)}</tbody></table></div>
             : <EmptyState compact icon={<CashRegister size={28} weight="duotone" />} title={hosted ? "No tills yet" : "One till: this browser"} hint={hosted ? "Register a till from the till picker." : "Tills are set up when you use a shop account."} />}
         </section> : null}
+
+        {tab === "billing" ? <BillingPanel overTillLimit={hosted && overTillLimit} onShowTills={() => setParams({ tab: "tills" })} /> : null}
 
         {tab === "tax" ? <form className="panel" onSubmit={submit}>
           <div className="panel-header"><div><div className="panel-title">Tax and invoices</div><div className="panel-subtitle">Invoice numbering and the receipt footer</div></div></div>

@@ -32,7 +32,7 @@ export async function GET(request: Request) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return Response.json({ error: "Authentication is required." }, { status: 401 });
 
-    const { data: membership, error: membershipError } = await supabase.from("business_members").select("business_id").eq("user_id", user.id).eq("status", "active").limit(1).maybeSingle();
+    const { data: membership, error: membershipError } = await supabase.from("business_members").select("business_id, role").eq("user_id", user.id).eq("status", "active").limit(1).maybeSingle();
     if (membershipError) return Response.json({ error: membershipError.message }, { status: 502 });
     if (!membership) return Response.json({ error: "No business is configured for this account." }, { status: 404 });
     const businessId = membership.business_id as string;
@@ -55,7 +55,7 @@ export async function GET(request: Request) {
     if (failed?.error) return Response.json({ error: failed.error.message }, { status: 502 });
 
     const rows = {
-      business: business.data, devices: devices.data ?? [], products: products.data ?? [], customers: customers.data ?? [],
+      role: membership.role, business: business.data, devices: devices.data ?? [], products: products.data ?? [], customers: customers.data ?? [],
       sales: sales.data ?? [], creditNotes: creditNotes.data ?? [], stockMovements: stockMovements.data ?? [], register: register.data ?? null,
     } as unknown as SnapshotRows;
     return Response.json(mapSnapshotRows(rows, new Date().toISOString()));

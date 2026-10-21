@@ -14,6 +14,7 @@ import {
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
+import { LifecycleBanner } from "@/components/billing/lifecycle-banner";
 import { MORE_LINKS, MoreSheet } from "@/components/nav/more-sheet";
 import { UserMenu } from "@/components/nav/user-menu";
 import { OfflineRuntime } from "@/components/offline-runtime";
@@ -131,6 +132,8 @@ export function AppShell({ children, loading = false }: { children: ReactNode; l
             <Link className="button primary" href="/sale"><ShoppingCart size={15} weight="bold" /> New sale</Link>
           </div>
         </header>
+        {/* While the shop loads the entitlements are not known yet; a banner then would be a wrong guess. */}
+        {loading ? null : <LifecycleBanner />}
         <div className="content">{children}</div>
       </main>
       <ConfirmHost />

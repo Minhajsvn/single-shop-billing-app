@@ -22,7 +22,7 @@ import { dubaiSupplyDate, nextCreditNoteNumber, nextInvoiceNumber } from "@/lib/
 import { clearOfflineCache, clearSyncedOutbox, loadOfflineCustomers, loadOfflineSnapshot, persistOfflineSnapshot } from "@/lib/offline-db";
 import { mergeSnapshot } from "@/lib/snapshot/merge";
 import { registerTotals } from "@/lib/store/register-totals";
-import type { BusinessProfile, ShopSnapshot, TillDevice } from "@/lib/snapshot/types";
+import type { BusinessProfile, MemberRole, ShopSnapshot, TillDevice } from "@/lib/snapshot/types";
 import {
   applySyncResults,
   chunk,
@@ -107,6 +107,9 @@ export type ShopContext = {
   device: TillDevice | null;
   devices: TillDevice[];
   entitlements: Entitlements;
+  /** True when the cached entitlements have passed their signed expiry (offline too long) or there is no cache. */
+  entitlementsStale: boolean;
+  role: MemberRole | null;
   lastRefreshedAt: string | null;
 };
 
@@ -138,12 +141,15 @@ const syncEpoch = createSyncEpoch();
 
 function buildContext(): ShopContext {
   const deviceId = getStoredDeviceId();
+  const { entitlements, stale } = effectiveEntitlements(hostedContext.entitlementCache);
   return {
     mode,
     business: hostedContext.business,
     devices: hostedContext.devices,
-    device: hostedContext.devices.find((device) => device.id === deviceId && device.status === "active") ?? null,
-    entitlements: effectiveEntitlements(hostedContext.entitlementCache),
+    device: hostedContext.devices.find((device) => device.id === deviceId && (device.status === "active" || device.status === "paused")) ?? null,
+    entitlements,
+    entitlementsStale: stale,
+    role: mode === "hosted" ? hostedContext.role ?? null : "owner",
     lastRefreshedAt: hostedContext.lastRefreshedAt,
   };
 }
@@ -292,6 +298,7 @@ function applySnapshot(snapshot: ShopSnapshot) {
   hostedContext = {
     business: snapshot.business,
     devices: snapshot.devices,
+    role: snapshot.role ?? null,
     entitlementCache: sameBusiness ? hostedContext.entitlementCache : null,
     lastRefreshedAt: snapshot.generatedAt,
   };
@@ -323,7 +330,7 @@ export function refreshSnapshot(): Promise<{ ok: true } | { ok: false; error: st
   return runSerial(fetchSnapshot);
 }
 
-async function refreshEntitlements() {
+export async function refreshEntitlements() {
   try {
     const response = await fetch("/api/v1/entitlements", { cache: "no-store" });
     if (!response.ok) return;

@@ -3,10 +3,12 @@
 import { CashRegister, CheckCircle, X } from "@phosphor-icons/react";
 import { FormEvent, useState } from "react";
 import { staleRegister } from "@/lib/checkout/register-status";
-import { addCashAdjustment, closeRegister, getRegisterTotals, openRegister, useDemoStore } from "@/lib/demo-store";
+import { addCashAdjustment, closeRegister, getRegisterTotals, openRegister, useDemoStore, useShopContext } from "@/lib/demo-store";
 import { formatAED, formatDateTime } from "@/lib/domain";
 import { toast } from "@/lib/ui/toast-store";
 import { EmptyState } from "@/components/ui/list-parts";
+import { RegisterStop } from "@/components/billing/register-stop";
+import { registerDecisionNow, useEntitlement, useRegisterDecision } from "@/components/billing/use-entitlement";
 
 type Dialog = "open" | "adjust" | "close" | null;
 
@@ -17,9 +19,17 @@ export function RegisterWorkspace() {
   const totals = getRegisterTotals(store);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [error, setError] = useState("");
+  const context = useShopContext();
+  const view = useEntitlement();
+  const decision = useRegisterDecision();
 
   function submitOpen(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    // Decided again at the click: the access end may have passed while the dialog was open.
+    if (registerDecisionNow(view, context) !== "allow") {
+      setDialog(null);
+      return;
+    }
     const data = new FormData(event.currentTarget);
     const amount = Math.round(Number(data.get("openingCash")) * 100);
     if (!Number.isFinite(amount) || amount < 0 || !openRegister(amount)) {
@@ -61,6 +71,15 @@ export function RegisterWorkspace() {
   function dismiss() {
     setError("");
     setDialog(null);
+  }
+
+  if ((!register || register.status === "closed") && decision !== "allow") {
+    return (
+      <>
+        <div className="page-heading"><div><div className="eyebrow">Daily cash control</div><h1 className="page-title">Register closed</h1></div></div>
+        <RegisterStop decision={decision} />
+      </>
+    );
   }
 
   if (!register || register.status === "closed") {

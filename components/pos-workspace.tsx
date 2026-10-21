@@ -3,6 +3,8 @@
 import { CreditCard, IdentificationCard, MagnifyingGlass, Minus, Money, Plus, ShoppingCart, Tag, Trash, User, X } from "@phosphor-icons/react";
 import Link from "next/link";
 import { FormEvent, KeyboardEvent, MouseEvent, useMemo, useRef, useState } from "react";
+import { RegisterStop } from "@/components/billing/register-stop";
+import { useRegisterDecision } from "@/components/billing/use-entitlement";
 import { HeldCarts, parkCart } from "@/components/pos/held-carts";
 import { LineDiscountDialog } from "@/components/pos/line-discount-dialog";
 import { PaymentDialog } from "@/components/pos/payment-dialog";
@@ -36,6 +38,7 @@ export function PosWorkspace() {
   const receiptShop = useReceiptShop(completed?.sale);
   const discountLine = discountFor ? cart.find((item) => item.key === discountFor) : undefined;
   const searchInput = useRef<HTMLInputElement>(null);
+  const registerDecision = useRegisterDecision();
 
   const availableProducts = useMemo(() => {
     const term = query.trim().toLowerCase();
@@ -205,6 +208,16 @@ export function PosWorkspace() {
       event.preventDefault();
       pay("card");
     }
+  }
+
+  // No register open and this till may not start a shift (read-only, paused, or over the till limit): the stop card, not a locked till.
+  if (!registerOpen && !completed && registerDecision !== "allow") {
+    return (
+      <>
+        <div className="page-heading"><div><div className="eyebrow">Point of sale</div><h1 className="page-title">New sale</h1></div></div>
+        <RegisterStop decision={registerDecision} />
+      </>
+    );
   }
 
   return (

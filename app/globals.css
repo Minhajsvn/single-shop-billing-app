@@ -641,3 +641,38 @@ kbd { min-width: 20px; display: inline-grid; place-items: center; padding: 2px 5
   html[data-print-mode="daily-report"] .grid-two { break-inside: avoid; }
   html[data-print-mode="daily-report"] .report-ledger { break-inside: auto; }
 }
+
+/* Stage 1F: subscription banners, the register stop card and the till choice. */
+.lifecycle-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 32px; border-bottom: 1px solid var(--border); font-size: 12px; line-height: 1.5; }
+.lifecycle-banner.red { background: var(--red-bg); color: var(--red); }
+.lifecycle-banner.yellow { background: var(--yellow-bg); color: var(--yellow); }
+.lifecycle-banner.grey { background: var(--surface-subtle); color: var(--muted); }
+.lifecycle-banner-icon { flex: none; }
+.lifecycle-banner-text { flex: 1 1 260px; min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
+.lifecycle-banner.grey .lifecycle-banner-text { font-weight: 500; }
+.lifecycle-banner-text a { color: inherit; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
+.lifecycle-banner-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.lifecycle-banner-actions .button { min-height: 32px; }
+.lifecycle-banner-error { flex-basis: 100%; font-size: 11px; }
+.read-only-hint { margin: 0 0 14px; padding: 9px 13px; border-radius: 7px; background: var(--red-bg); color: var(--red); font-size: 12px; }
+.register-stop { min-height: 350px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 40px 20px; }
+.register-stop h2, .choose-till h2 { margin: 16px 0 6px; font-size: 22px; letter-spacing: -.03em; }
+.register-stop p, .choose-till p { max-width: 460px; color: var(--muted); font-size: 12px; line-height: 1.6; margin: 0 0 16px; }
+.register-stop .register-stop-ask, .choose-till .choose-till-ask { color: var(--ink); }
+.register-stop-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
+.choose-till { display: flex; flex-direction: column; align-items: center; width: 100%; max-width: 480px; }
+.choose-till.compact { align-items: flex-start; max-width: none; padding: 14px 16px; border-radius: 9px; background: var(--yellow-bg); }
+.choose-till.compact h3 { margin: 0 0 6px; font-size: 14px; }
+.choose-till.compact p { max-width: none; }
+.choose-till-list { display: grid; gap: 8px; width: 100%; margin: 0 0 14px; padding: 0; border: 0; text-align: left; }
+.choose-till-option { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 8px 12px; border: 1px solid var(--border-strong); border-radius: 8px; background: white; cursor: pointer; }
+.choose-till-option.selected { border-color: var(--ink); }
+.choose-till-option span { display: grid; gap: 2px; }
+.choose-till-option small { color: var(--muted); font-size: 11px; }
+.till-paused { justify-content: flex-start; flex-wrap: wrap; }
+.till-paused small { margin-left: auto; color: var(--yellow); font-size: 11px; font-weight: 600; }
+.feature-gate { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border: 1px dashed var(--border-strong); border-radius: 8px; color: var(--muted); font-size: 12px; }
+@media (max-width: 760px) {
+  .lifecycle-banner { padding: 10px 16px; }
+}
+@media print { .lifecycle-banner { display: none !important; } }

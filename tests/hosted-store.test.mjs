@@ -21,11 +21,19 @@ const full = {
 };
 const now = new Date("2026-10-14T10:00:00Z");
 
-test("cached entitlements are used until they expire, then read-only", () => {
-  assert.equal(effectiveEntitlements({ entitlements: full, expiresAt: "2026-10-14T11:00:00Z" }, now).access, "full");
-  assert.equal(effectiveEntitlements({ entitlements: full, expiresAt: "2026-10-14T10:00:00Z" }, now), READ_ONLY_ENTITLEMENTS);
-  assert.equal(effectiveEntitlements({ entitlements: full, expiresAt: "not a date" }, now), READ_ONLY_ENTITLEMENTS);
-  assert.equal(effectiveEntitlements(null, now), READ_ONLY_ENTITLEMENTS);
+test("cached entitlements are fresh until they expire", () => {
+  const fresh = effectiveEntitlements({ entitlements: full, expiresAt: "2026-10-14T11:00:00Z" }, now);
+  assert.equal(fresh.entitlements.access, "full");
+  assert.equal(fresh.stale, false);
+  assert.deepEqual(effectiveEntitlements(null, now), { entitlements: READ_ONLY_ENTITLEMENTS, stale: true });
+});
+
+test("expired cache keeps the last entitlements", () => {
+  for (const expiresAt of ["2026-10-14T10:00:00Z", "not a date"]) {
+    const result = effectiveEntitlements({ entitlements: full, expiresAt }, now);
+    assert.equal(result.entitlements, full);
+    assert.equal(result.stale, true);
+  }
 });
 
 test("hosted cache parsing never throws and rejects foreign shapes", () => {

@@ -2,6 +2,7 @@
 
 import { DownloadSimple, FileArrowUp, Printer, X } from "@phosphor-icons/react";
 import { useMemo, useState, type ChangeEvent } from "react";
+import { READ_ONLY_REASON, useEntitlement } from "@/components/billing/use-entitlement";
 import { useDemoProducts } from "@/hooks/use-demo-products";
 import { planImport, type ImportPlan, type PlannedCreate } from "@/lib/catalogue/classify";
 import { guessMapping } from "@/lib/catalogue/columns";
@@ -65,6 +66,7 @@ function Group({ title, count, children }: { title: string; count: number; child
 export function ImportDialog({ onClose, onPrintLabels }: { onClose: () => void; onPrintLabels: (productIds: string[]) => void }) {
   const { products, applyImport, productLimit, syncOperations, syncProblems } = useDemoProducts();
   const { mode } = useShopContext();
+  const { canWrite } = useEntitlement();
   const [step, setStep] = useState<Step>({ kind: "file" });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -220,7 +222,7 @@ export function ImportDialog({ onClose, onPrintLabels }: { onClose: () => void; 
         {plan.problems.length ? <button type="button" className="button" onClick={() => download("import-problems.csv", problemsToCsv(step.rows[0], plan.problems))}><DownloadSimple size={15} weight="bold" /> Download problem rows</button> : null}
       </>
     );
-    footer = <><button type="button" className="button" onClick={() => setStep({ ...step, kind: "map" })}>Back</button><button type="button" className="button primary" disabled={count === 0} onClick={() => confirm(step)}>Import {products_(count)}</button></>;
+    footer = <><button type="button" className="button" onClick={() => setStep({ ...step, kind: "map" })}>Back</button><button type="button" className="button primary" disabled={count === 0 || !canWrite} title={canWrite ? undefined : READ_ONLY_REASON} onClick={() => confirm(step)}>Import {products_(count)}</button></>;
   } else {
     const ids = new Set(step.operationIds);
     const remaining = syncOperations.filter((operation) => ids.has(operation.id) && operation.status !== "synced").length;
