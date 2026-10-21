@@ -92,7 +92,7 @@ export function BusinessSetup() {
       <section className="auth-card setup-card panel" aria-labelledby="setup-title">
         <div className="auth-brand"><span className="brand-mark">SL</span><span><strong>Shop Ledger</strong><small>UAE retail till</small></span></div>
         <div className="eyebrow">First-time setup</div>
-        <h1 id="setup-title">Register this shop</h1>
+        <h1 id="setup-title">Set up your shop</h1>
         <p className="page-copy">These legal details are stored in Supabase and used to scope your shop records securely.</p>
         <p className="field-hint">Country: {country.name} · prices in {country.currency}</p>
         <form className="auth-form" onSubmit={submit}>

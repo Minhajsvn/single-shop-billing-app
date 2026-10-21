@@ -12,10 +12,14 @@ type RouteInput = {
   hasSessionCookie?: boolean;
 };
 
+/** Pages a signed-in user is sent past, straight to the overview. */
+const SIGNED_OUT_ONLY = new Set(["/login", "/signup"]);
+/** Reachable without an account: sign-in, sign-up, password reset and the email-link callback. */
+const PUBLIC_PATHS = new Set(["/login", "/signup", "/forgot-password", "/reset-password", "/auth/confirm"]);
+
 export function routeDecision({ signedIn, pathname, sampleCookie, authUnavailable = false, hasSessionCookie = false }: RouteInput): RouteDecision {
-  const isLogin = pathname === "/login";
-  if (signedIn) return isLogin ? "overview" : "allow";
-  if (isLogin || sampleCookie === "sample") return "allow";
+  if (signedIn) return SIGNED_OUT_ONLY.has(pathname) ? "overview" : "allow";
+  if (PUBLIC_PATHS.has(pathname) || sampleCookie === "sample") return "allow";
   // During an outage a till keeps selling offline; APIs and RLS still verify the user before any data moves.
   if (authUnavailable && hasSessionCookie) return "allow";
   return "login";

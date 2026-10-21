@@ -36,6 +36,22 @@ test("a reachable auth server that rejects the session still sends to login", ()
   assert.equal(routeDecision({ signedIn: false, pathname: "/sale", sampleCookie: undefined, authUnavailable: false, hasSessionCookie: true }), "login");
 });
 
+test("signup, password reset and email links are reachable when signed out", () => {
+  for (const pathname of ["/signup", "/forgot-password", "/reset-password", "/auth/confirm"]) {
+    assert.equal(routeDecision({ signedIn: false, pathname, sampleCookie: undefined }), "allow", pathname);
+  }
+});
+
+test("signed-in users skip signup but can still use email links and reset", () => {
+  assert.equal(routeDecision({ signedIn: true, pathname: "/signup", sampleCookie: undefined }), "overview");
+  assert.equal(routeDecision({ signedIn: true, pathname: "/auth/confirm", sampleCookie: undefined }), "allow");
+  assert.equal(routeDecision({ signedIn: true, pathname: "/reset-password", sampleCookie: undefined }), "allow");
+});
+
+test("a lookalike path is not public", () => {
+  assert.equal(routeDecision({ signedIn: false, pathname: "/signup-admin", sampleCookie: undefined }), "login");
+});
+
 test("the cookie name is shared with the client store", () => {
   assert.equal(SAMPLE_MODE_COOKIE, "shop-ledger-mode");
 });
