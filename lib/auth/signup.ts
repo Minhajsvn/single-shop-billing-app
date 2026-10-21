@@ -65,6 +65,8 @@ export function safeNext(next: string | null | undefined, fallback: string): str
     return fallback;
   }
   if (resolved.origin !== SAFE_BASE) return fallback;
+  // Dot segments can collapse "/.//evil.com" into "//evil.com", which a browser reads as another site.
+  if (resolved.pathname.startsWith("//") || /\/\.{0,2}\/|%2e/i.test(next.split(/[?#]/)[0])) return fallback;
   return resolved.pathname + resolved.search + resolved.hash;
 }
 

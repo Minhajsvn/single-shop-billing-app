@@ -78,6 +78,15 @@ test("control characters or backslashes in next cannot make an off-site redirect
   }
 });
 
+test("dot segments cannot collapse next into a protocol-relative URL", () => {
+  for (const next of ["/.//evil.com", "/..//evil.com", "/a/..//evil.com", "/./%2F%2Fevil.com", "/%2E%2E//evil.com", "/a/b/../..//evil.com"]) {
+    const url = new URL(`http://localhost:3101/auth/confirm?token_hash=abc&type=recovery&next=${next}`);
+    const result = confirmParams(url)?.next;
+    assert.equal(result, "/reset-password", next);
+    assert.equal(new URL(result, "http://localhost:3101").origin, "http://localhost:3101", next);
+  }
+});
+
 test("a normal local next keeps its query and hash", () => {
   assert.equal(confirmParams(new URL("http://localhost:3101/auth/confirm?token_hash=abc&type=signup&next=%2Foverview%3Fa%3D1%23b"))?.next, "/overview?a=1#b");
 });
