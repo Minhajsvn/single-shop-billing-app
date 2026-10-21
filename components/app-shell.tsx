@@ -15,6 +15,9 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { LifecycleBanner } from "@/components/billing/lifecycle-banner";
+import { useEntitlement } from "@/components/billing/use-entitlement";
+import { ChecklistStrip } from "@/components/onboarding/checklist-strip";
+import { bannerFor } from "@/lib/billing/lifecycle-view";
 import { MORE_LINKS, MoreSheet } from "@/components/nav/more-sheet";
 import { UserMenu } from "@/components/nav/user-menu";
 import { OfflineRuntime } from "@/components/offline-runtime";
@@ -41,6 +44,12 @@ const phoneTabs = [
   { href: "/sale", label: "New sale", icon: ShoppingCart, primary: true },
   { href: "/inventory", label: "Inventory", icon: Archive },
 ];
+
+/** One notice slot under the top bar: a billing banner wins; otherwise the owner's get-ready-to-sell strip. */
+function NoticeSlot() {
+  const { e, stale, role, now } = useEntitlement();
+  return bannerFor({ e, stale, role, now }) ? <LifecycleBanner /> : <ChecklistStrip />;
+}
 
 export function AppShell({ children, loading = false }: { children: ReactNode; loading?: boolean }) {
   const pathname = usePathname();
@@ -133,7 +142,7 @@ export function AppShell({ children, loading = false }: { children: ReactNode; l
           </div>
         </header>
         {/* While the shop loads the entitlements are not known yet; a banner then would be a wrong guess. */}
-        {loading ? null : <LifecycleBanner />}
+        {loading ? null : <NoticeSlot />}
         <div className="content">{children}</div>
       </main>
       <ConfirmHost />

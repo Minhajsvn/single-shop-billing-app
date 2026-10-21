@@ -39,7 +39,8 @@ import {
   type HostedCache,
   type HostedContext,
 } from "@/lib/store/hosted";
-import { isSupabaseConfigured } from "@/lib/supabase/client";
+import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import type { ChecklistFlags } from "@/lib/onboarding/checklist";
 import type { ImportPlan } from "@/lib/catalogue/classify";
 import { heldStockOperations, stampSequence, supersedeProductOperations, syncOrder, withTaxCategories } from "@/lib/store/product-sync";
 import { useSyncExternalStore } from "react";
@@ -111,6 +112,8 @@ export type ShopContext = {
   entitlementsStale: boolean;
   role: MemberRole | null;
   lastRefreshedAt: string | null;
+  /** The owner's get-ready-to-sell facts; null for everyone else, in sample mode, or until first loaded. */
+  onboarding: ChecklistFlags | null;
 };
 
 function sampleRequested() {
@@ -129,6 +132,8 @@ function initialMode(): StoreMode {
 let mode: StoreMode = initialMode();
 let state: DemoState = mode === "hosted" ? emptyShopState() : initialState;
 let hostedContext: HostedContext = emptyHostedContext();
+// Not cached: re-read from the server with every snapshot refresh, so it never carries over between accounts.
+let onboardingFlags: ChecklistFlags | null = null;
 let hydrated = false;
 // The signed-in user whose hosted shop is loaded; every hosted cache is keyed by it (ruling R17).
 let activeUserId: string | null = null;
@@ -151,6 +156,7 @@ function buildContext(): ShopContext {
     entitlementsStale: stale,
     role: mode === "hosted" ? hostedContext.role ?? null : "owner",
     lastRefreshedAt: hostedContext.lastRefreshedAt,
+    onboarding: mode === "hosted" && hostedContext.role === "owner" ? onboardingFlags : null,
   };
 }
 
@@ -304,6 +310,20 @@ function applySnapshot(snapshot: ShopSnapshot) {
   };
   save(merged);
   emitContext();
+  if (snapshot.role === "owner") void refreshOnboarding(snapshot.business.id);
+}
+
+async function refreshOnboarding(businessId: string) {
+  try {
+    const { data, error } = await createClient().rpc("onboarding_status", { p_business_id: businessId });
+    if (error || !data || typeof data !== "object") return;
+    const flags = data as Partial<ChecklistFlags>;
+    if (mode !== "hosted" || hostedContext.business?.id !== businessId) return;
+    onboardingFlags = { hasProduct: flags.hasProduct === true, hasOpenedRegister: flags.hasOpenedRegister === true, hasSale: flags.hasSale === true };
+    emitContext();
+  } catch {
+    // Offline: keep the last flags; the strip is a nudge, not a gate.
+  }
 }
 
 async function fetchSnapshot(): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -407,7 +427,8 @@ export function startSampleStore() {
   activeUserId = null;
   state = initialState;
   hostedContext = emptyHostedContext();
-  hydrate();
+  onboardingFlags = null;
+hydrate();
   emit();
   emitContext();
 }
@@ -426,7 +447,8 @@ export function clearHostedStore(): { cleared: boolean; pending: number } {
   activeUserId = null;
   state = emptyShopState();
   hostedContext = emptyHostedContext();
-  emit();
+  onboardingFlags = null;
+emit();
   emitContext();
   return { cleared: !pending, pending };
 }

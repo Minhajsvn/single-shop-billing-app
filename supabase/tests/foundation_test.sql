@@ -1400,4 +1400,64 @@ begin
 end $$;
 reset role;
 
+-- 25g. onboarding_status: owner-only flags that flip as the shop sets up. Shop G is brand new (owner ...11).
+insert into auth.users (id, instance_id, aud, role, email)
+values ('00000000-0000-4000-8000-000000000011', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'owner-g@test.local');
+insert into public.businesses (id, owner_id, legal_name, trn, address, phone)
+values ('b2500000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000011', 'Shop G LLC', '100000000000009', 'Satwa, Dubai', '+971500000252');
+insert into public.devices (id, business_id, name) values ('d2500000-0000-4000-8000-00000000000c', 'b2500000-0000-4000-8000-000000000002', 'Till G');
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-000000000011","role":"authenticated"}', true);
+do $$
+declare
+  biz constant uuid := 'b2500000-0000-4000-8000-000000000002';
+  today constant date := (now() at time zone 'Asia/Dubai')::date;
+begin
+  assert public.onboarding_status(biz) = '{"hasProduct": false, "hasOpenedRegister": false, "hasSale": false}'::jsonb, 'a new shop has done nothing';
+  insert into public.products (business_id, name, sku, price_fils, stock_quantity, low_stock_threshold)
+  values (biz, 'Tea', 'tea-25g', 105, 10, 1);
+  assert public.onboarding_status(biz) = '{"hasProduct": true, "hasOpenedRegister": false, "hasSale": false}'::jsonb, 'a product flips hasProduct';
+  perform public.apply_register_sync(gen_random_uuid(), biz, 'e2500000-0000-4000-8000-00000000000c', jsonb_build_object(
+    'deviceId', 'd2500000-0000-4000-8000-00000000000c', 'action', 'open',
+    'register', jsonb_build_object('openingCashFils', 0, 'openedAt', now())));
+  assert public.onboarding_status(biz) = '{"hasProduct": true, "hasOpenedRegister": true, "hasSale": false}'::jsonb, 'opening flips hasOpenedRegister';
+  perform public.apply_sale_sync(gen_random_uuid(), biz, 'a2500000-0000-4000-8000-0000000000c1', jsonb_build_object(
+    'deviceId', 'd2500000-0000-4000-8000-00000000000c', 'register', null,
+    'sale', jsonb_build_object(
+      'id', 'a2500000-0000-4000-8000-0000000000c1', 'invoiceNumber', 'T25G-1', 'status', 'completed',
+      'createdAt', now(), 'supplyDate', today, 'paymentMethod', 'cash',
+      'netFils', 100, 'vatFils', 5, 'grossFils', 105,
+      'lines', jsonb_build_array(jsonb_build_object(
+        'id', 'a2500000-0000-4000-8000-0000000c01a1', 'name', 'Tea', 'quantity', 1,
+        'unitGrossFils', 105, 'netFils', 100, 'vatFils', 5, 'grossFils', 105)))));
+  assert public.onboarding_status(biz) = '{"hasProduct": true, "hasOpenedRegister": true, "hasSale": true}'::jsonb, 'a sale flips hasSale';
+end $$;
+
+-- A cashier, and the owner of another shop, are refused.
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-000000000010","role":"authenticated"}', true);
+do $$
+declare
+  failure text;
+begin
+  begin
+    perform public.onboarding_status('b2500000-0000-4000-8000-000000000001');
+    assert false, 'a cashier must not read onboarding status';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'not_authorized', 'cashier is refused, got ' || coalesce(failure, 'null');
+end $$;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-000000000011","role":"authenticated"}', true);
+do $$
+declare
+  failure text;
+begin
+  begin
+    perform public.onboarding_status('b2500000-0000-4000-8000-000000000001');
+    assert false, 'another shop owner must not read onboarding status';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'not_authorized', 'other owner is refused, got ' || coalesce(failure, 'null');
+end $$;
+reset role;
+
 rollback;
