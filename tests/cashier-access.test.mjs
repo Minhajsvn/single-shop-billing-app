@@ -87,6 +87,27 @@ test("a synced refund of an old sale keeps its invoice number when the cashier's
   assert.equal(merged.creditNotes[0].invoiceNumber, "SMK-1-260801-0001");
 });
 
+test("refund by invoice number: the field shows for every role in a hosted shop", async () => {
+  const { refundByInvoiceShown } = await import("../lib/sales/invoice-lookup.ts");
+  // The rule takes no role: owner, manager and cashier alike get the field in a hosted shop.
+  assert.equal(refundByInvoiceShown.length, 1);
+  assert.equal(refundByInvoiceShown("hosted"), true);
+  assert.equal(refundByInvoiceShown("sample"), false);
+  assert.equal(refundByInvoiceShown("unconfigured"), false);
+});
+
+test("remoteSaleSource: ?invoice= finds and refunds for any role; an owner opening an old sale by id stays view-only", async () => {
+  const { remoteSaleSource, remoteSaleRefundable } = await import("../lib/sales/invoice-lookup.ts");
+  assert.equal(remoteSaleSource({ hasLocal: true, ownerView: true, hasInvoiceParam: true }), "none");
+  assert.equal(remoteSaleSource({ hasLocal: false, ownerView: true, hasInvoiceParam: true }), "by-invoice");
+  assert.equal(remoteSaleSource({ hasLocal: false, ownerView: false, hasInvoiceParam: true }), "by-invoice");
+  assert.equal(remoteSaleSource({ hasLocal: false, ownerView: true, hasInvoiceParam: false }), "by-id");
+  // A cashier cannot use the owner-only by-id route; without an invoice number the sale is simply not found.
+  assert.equal(remoteSaleSource({ hasLocal: false, ownerView: false, hasInvoiceParam: false }), "by-invoice");
+  assert.equal(remoteSaleRefundable("by-invoice"), true);
+  assert.equal(remoteSaleRefundable("by-id"), false);
+});
+
 test("refundedQuantities: local and server credit notes count once each", async () => {
   const { refundedQuantities } = await import("../lib/sales/invoice-lookup.ts");
   const local = [

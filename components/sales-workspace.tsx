@@ -8,6 +8,7 @@ import { useOnline } from "@/components/offline-runtime";
 import { lookupInvoice } from "@/components/sales/use-invoice-lookup";
 import { useServerSales } from "@/components/sales/use-server-sales";
 import { isOwnerView } from "@/lib/access/cashier";
+import { refundByInvoiceShown } from "@/lib/sales/invoice-lookup";
 import { EmptyState, Pager, Skeleton, SummaryStrip } from "@/components/ui/list-parts";
 import { useListParams } from "@/components/ui/use-list-params";
 import { useDemoStore, useShopContext } from "@/lib/demo-store";
@@ -21,7 +22,7 @@ const OFFLINE_MESSAGE = "Older sales can be searched when this device is online.
 const ERROR_MESSAGE = "Older sales could not be loaded. Showing the last 90 days.";
 const isChip = (value: string): value is DateChip => DATE_CHIPS.some(({ chip }) => chip === value);
 
-/** A cashier refunds a returning customer's sale from its receipt: exact invoice number, no browsing (owner decision 8). */
+/** Any member refunds a returning customer's sale from its receipt: exact invoice number, no browsing (owner decision 8). */
 function RefundByInvoice({ sales }: { sales: Sale[] }) {
   const router = useRouter();
   const online = useOnline();
@@ -121,7 +122,7 @@ export function SalesWorkspace() {
     <>
       <div className="page-heading"><div><div className="eyebrow">Immutable invoice ledger</div><h1 className="page-title">Sales</h1><p className="page-copy">{ownerView ? "Find any invoice by number, customer name or phone." : "Today's sales. To refund an older sale, enter the invoice number from its receipt."}</p></div><Link className="button primary" href="/sale">New sale</Link></div>
       <SummaryStrip label="Sales summary" items={strip} />
-      {!ownerView && mode === "hosted" ? <section className="panel"><RefundByInvoice sales={store.sales} /></section> : null}
+      {refundByInvoiceShown(mode) ? <section className="panel"><RefundByInvoice sales={store.sales} /></section> : null}
       <section className="panel sales-ledger">
         <div className="panel-body list-controls">
           <div className="search"><MagnifyingGlass size={16} weight="bold" /><input className="input" value={params.q} onChange={(event) => setParams({ q: event.target.value, page: "1" })} placeholder="Invoice number, customer name or phone" aria-label="Search sales" /></div>

@@ -5,6 +5,31 @@ export type InvoiceLookupCreditNote = { id: string; creditNoteNumber: string; cr
 export type InvoiceLookup = { sale: Sale; creditNotes: InvoiceLookupCreditNote[] };
 
 /**
+ * "Refund a sale by invoice number" shows for every member of a hosted shop: a cashier and the owner alike refund a
+ * returning customer's sale from its receipt (owner decision 8), so the role does not matter. The browser-only stores
+ * hold every sale already.
+ */
+export function refundByInvoiceShown(mode: string): boolean {
+  return mode === "hosted";
+}
+
+export type RemoteSaleSource = "none" | "by-invoice" | "by-id";
+
+/**
+ * Where /sales/<id> gets a sale this browser does not hold: found by its invoice number (`?invoice=`, any role; a
+ * cashier always, since the by-id route is owner-only) or, for an owner opening an old sale from the list, by id.
+ */
+export function remoteSaleSource({ hasLocal, ownerView, hasInvoiceParam }: { hasLocal: boolean; ownerView: boolean; hasInvoiceParam: boolean }): RemoteSaleSource {
+  if (hasLocal) return "none";
+  return hasInvoiceParam || !ownerView ? "by-invoice" : "by-id";
+}
+
+/** Only a sale found by invoice number can be refunded from the server copy; one opened by id stays view-only (1E). */
+export function remoteSaleRefundable(source: RemoteSaleSource): boolean {
+  return source === "by-invoice";
+}
+
+/**
  * Quantities already refunded per sale line: this browser's credit notes for the sale plus the server's, each note
  * counted once (a local note that has synced comes back from the server with the same id).
  */

@@ -3,7 +3,7 @@
 import { ArrowCounterClockwise, ArrowLeft, FilePdf, Printer, Receipt, X } from "@phosphor-icons/react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { READ_ONLY_REASON, useEntitlement } from "@/components/billing/use-entitlement";
 import { useOnline } from "@/components/offline-runtime";
 import { ReceiptDocument, lineSaving, useReceiptShop } from "@/components/receipt-document";
@@ -11,7 +11,7 @@ import { useFoundSale } from "@/components/sales/use-invoice-lookup";
 import { useRemoteSale } from "@/components/sales/use-remote-sale";
 import { isOwnerView } from "@/lib/access/cashier";
 import { createCreditNote, useDemoStore, useShopContext } from "@/lib/demo-store";
-import { refundedQuantities } from "@/lib/sales/invoice-lookup";
+import { refundedQuantities, remoteSaleRefundable, remoteSaleSource } from "@/lib/sales/invoice-lookup";
 import { formatAED, formatDateTime } from "@/lib/domain";
 import { printDocument } from "@/lib/print";
 
@@ -21,16 +21,23 @@ export function InvoiceDetailWorkspace({ id }: { id: string }) {
   const routeId = pathname.split("/").filter(Boolean).at(-1) ?? id;
   const localSale = store.sales.find((item) => item.id === routeId);
   const online = useOnline();
-  // Sales older than the browser's 90-day history are loaded from the server to view and reprint only (owner).
-  // A sale found by its invoice number ("Refund a sale by invoice number") can also be refunded (owner decision 8).
+  // A sale found by its invoice number ("Refund a sale by invoice number", any role) can be refunded (owner decision 8).
+  // An owner opening a sale older than the browser's 90 days from the list (by id) still gets it view and reprint only.
   const { mode, role } = useShopContext();
   const ownerView = isOwnerView(role);
-  const remote = useRemoteSale(routeId, !localSale && mode === "hosted" && ownerView, online);
-  const foundSale = useFoundSale(routeId, !localSale && mode === "hosted" && !ownerView, online);
-  const found = foundSale.lookup ?? undefined;
+  // Whether the address carries ?invoice= (read after mount, like the list pages; null until then).
+  const [hasInvoiceParam, setHasInvoiceParam] = useState<boolean | null>(null);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setHasInvoiceParam(Boolean(new URLSearchParams(window.location.search).get("invoice")?.trim())), 0);
+    return () => window.clearTimeout(timer);
+  }, [routeId]);
+  const source = mode !== "hosted" || hasInvoiceParam === null ? "none" : remoteSaleSource({ hasLocal: Boolean(localSale), ownerView, hasInvoiceParam });
+  const remote = useRemoteSale(routeId, source === "by-id", online);
+  const foundSale = useFoundSale(routeId, source === "by-invoice", online);
+  const found = remoteSaleRefundable(source) ? foundSale.lookup ?? undefined : undefined;
   const sale = localSale ?? remote.sale ?? found?.sale ?? undefined;
   const viewOnly = !localSale && !found && Boolean(remote.sale);
-  const remoteStatus = ownerView ? remote.status : foundSale.status;
+  const remoteStatus = source === "by-id" ? remote.status : foundSale.status;
   const shop = useReceiptShop(sale);
   const [returnOpen, setReturnOpen] = useState(false);
   const [returnQuantities, setReturnQuantities] = useState<Record<string, number>>({});
