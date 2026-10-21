@@ -428,7 +428,7 @@ export function startSampleStore() {
   state = initialState;
   hostedContext = emptyHostedContext();
   onboardingFlags = null;
-hydrate();
+  hydrate();
   emit();
   emitContext();
 }
@@ -448,7 +448,7 @@ export function clearHostedStore(): { cleared: boolean; pending: number } {
   state = emptyShopState();
   hostedContext = emptyHostedContext();
   onboardingFlags = null;
-emit();
+  emit();
   emitContext();
   return { cleared: !pending, pending };
 }

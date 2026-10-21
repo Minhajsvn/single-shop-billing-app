@@ -1414,6 +1414,9 @@ declare
   today constant date := (now() at time zone 'Asia/Dubai')::date;
 begin
   assert public.onboarding_status(biz) = '{"hasProduct": false, "hasOpenedRegister": false, "hasSale": false}'::jsonb, 'a new shop has done nothing';
+  insert into public.products (business_id, name, sku, price_fils, stock_quantity, low_stock_threshold, status)
+  values (biz, 'Old tea', 'old-25g', 105, 10, 1, 'inactive');
+  assert public.onboarding_status(biz) = '{"hasProduct": false, "hasOpenedRegister": false, "hasSale": false}'::jsonb, 'an archived-only catalogue is not done';
   insert into public.products (business_id, name, sku, price_fils, stock_quantity, low_stock_threshold)
   values (biz, 'Tea', 'tea-25g', 105, 10, 1);
   assert public.onboarding_status(biz) = '{"hasProduct": true, "hasOpenedRegister": false, "hasSale": false}'::jsonb, 'a product flips hasProduct';

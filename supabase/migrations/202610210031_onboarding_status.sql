@@ -11,7 +11,7 @@ begin
     raise exception 'not_authorized' using errcode = '42501';
   end if;
   return jsonb_build_object(
-    'hasProduct', exists (select 1 from public.products where business_id = p_business_id),
+    'hasProduct', exists (select 1 from public.products where business_id = p_business_id and status = 'active'),
     'hasOpenedRegister', exists (select 1 from public.register_sessions where business_id = p_business_id),
     'hasSale', exists (select 1 from public.sales where business_id = p_business_id)
   );
