@@ -33,9 +33,11 @@ create policy "members read today's sales" on public.sales for select
   using (public.member_sees_sale(business_id, supply_date, register_session_id));
 create policy "members read items of visible sales" on public.sale_items for select
   using (public.has_role(business_id, 'cashier') and exists (select 1 from public.sales s where s.id = sale_id));
-create policy "members read credit notes of visible sales or open shifts" on public.credit_notes for select
+create policy "members read credit notes of visible sales, open shifts or today" on public.credit_notes for select
   using (public.has_role(business_id, 'cashier')
-         and (exists (select 1 from public.sales s where s.id = sale_id) or public.register_session_open(register_session_id)));
+         and (exists (select 1 from public.sales s where s.id = sale_id)
+              or public.register_session_open(register_session_id)
+              or (created_at at time zone 'Asia/Dubai')::date = public.dubai_today()));
 create policy "members read items of visible credit notes" on public.credit_note_items for select
   using (public.has_role(business_id, 'cashier') and exists (select 1 from public.credit_notes c where c.id = credit_note_id));
 create policy "members read today's and open shifts" on public.register_sessions for select
@@ -54,12 +56,12 @@ declare
   member_guard constant text := 'if auth.uid() is null or not public.has_role(p_business_id, ''cashier'') then';
 begin
   foreach fn in array array['apply_customer_sync', 'apply_sale_sync', 'apply_register_sync', 'apply_credit_note_sync'] loop
+    if (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = fn) <> 1 then
+      raise exception 'expected exactly one function named %', fn;
+    end if;
     select pg_get_functiondef(p.oid) into def
     from pg_proc p join pg_namespace n on n.oid = p.pronamespace
     where n.nspname = 'public' and p.proname = fn;
-    if def is null then
-      raise exception 'function % not found', fn;
-    end if;
     if (length(def) - length(replace(def, guard, ''))) / length(guard) <> 1 then
       raise exception 'expected exactly one owner check in %', fn;
     end if;
@@ -79,11 +81,11 @@ end
 $$;
 
 -- Refund by exact invoice number (owner decision 8): one sale of this business, with its items and the credit notes
--- already issued against it, in the snapshot row shape. Null when absent. Members only.
+-- already issued against it, in the snapshot row shape. Null when absent. Members only. Invoice numbers can be guessed,
+-- so every lookup is written to the audit log (owner-readable) to make bulk browsing of past sales visible.
 create function public.find_sale_by_invoice(p_business_id uuid, p_invoice text)
 returns jsonb
 language plpgsql
-stable
 security definer
 set search_path = public, extensions, pg_temp
 as $$
@@ -142,6 +144,11 @@ begin
   from public.sales s
   where s.business_id = p_business_id
     and s.invoice_number = p_invoice;
+
+  insert into public.audit_events (business_id, actor_id, action, entity_type, entity_id, summary)
+  values (p_business_id, auth.uid(), 'sale.lookup_by_invoice', 'sale',
+    coalesce((result->>'id')::uuid, '00000000-0000-0000-0000-000000000000'),
+    jsonb_build_object('invoiceNumber', left(p_invoice, 64), 'found', result is not null));
 
   return result;
 end;

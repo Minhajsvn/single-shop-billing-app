@@ -1169,6 +1169,24 @@ begin
       'lines', jsonb_build_array(jsonb_build_object(
         'id', 'a2500000-0000-4000-8000-0000000001a1', 'name', 'Tea', 'quantity', 1,
         'unitGrossFils', 105, 'netFils', 100, 'vatFils', 5, 'grossFils', 105)))));
+  perform public.apply_sale_sync(gen_random_uuid(), biz, 'a2500000-0000-4000-8000-000000000000', jsonb_build_object(
+    'deviceId', 'd2500000-0000-4000-8000-00000000000a', 'register', null,
+    'sale', jsonb_build_object(
+      'id', 'a2500000-0000-4000-8000-000000000000', 'invoiceNumber', 'T25-0', 'status', 'completed',
+      'createdAt', now() - interval '29 hours', 'supplyDate', yesterday, 'paymentMethod', 'cash',
+      'netFils', 100, 'vatFils', 5, 'grossFils', 105,
+      'lines', jsonb_build_array(jsonb_build_object(
+        'id', 'a2500000-0000-4000-8000-0000000000a1', 'name', 'Tea', 'quantity', 1,
+        'unitGrossFils', 105, 'netFils', 100, 'vatFils', 5, 'grossFils', 105)))));
+  perform public.apply_credit_note_sync(gen_random_uuid(), biz, 'f2500000-0000-4000-8000-000000000000', jsonb_build_object(
+    'deviceId', 'd2500000-0000-4000-8000-00000000000a',
+    'creditNote', jsonb_build_object(
+      'id', 'f2500000-0000-4000-8000-000000000000', 'saleId', 'a2500000-0000-4000-8000-000000000000',
+      'creditNoteNumber', 'CN-T25-0', 'createdAt', now() - interval '28 hours 30 minutes', 'paymentMethod', 'cash',
+      'netFils', 100, 'vatFils', 5, 'grossFils', 105,
+      'lines', jsonb_build_array(jsonb_build_object(
+        'id', 'f2500000-0000-4000-8000-0000000000a1', 'originalLineId', 'a2500000-0000-4000-8000-0000000000a1',
+        'name', 'Tea', 'quantity', 1, 'unitGrossFils', 105, 'netFils', 100, 'vatFils', 5, 'grossFils', 105)))));
   perform public.apply_register_sync(gen_random_uuid(), biz, gen_random_uuid(), jsonb_build_object(
     'deviceId', 'd2500000-0000-4000-8000-00000000000a', 'action', 'close',
     'register', jsonb_build_object('countedCashFils', 105, 'closedAt', now() - interval '28 hours')));
@@ -1180,7 +1198,7 @@ begin
     'deviceId', 'd2500000-0000-4000-8000-00000000000b', 'register', null,
     'sale', jsonb_build_object(
       'id', 'a2500000-0000-4000-8000-000000000002', 'invoiceNumber', 'T25-2', 'status', 'completed',
-      'createdAt', now() - interval '25 hours', 'supplyDate', yesterday, 'paymentMethod', 'card',
+      'createdAt', now() - interval '25 hours', 'supplyDate', yesterday, 'paymentMethod', 'cash',
       'netFils', 100, 'vatFils', 5, 'grossFils', 105,
       'lines', jsonb_build_array(jsonb_build_object(
         'id', 'a2500000-0000-4000-8000-0000000002a1', 'name', 'Tea', 'quantity', 1,
@@ -1240,6 +1258,8 @@ begin
     'a cashier sees the cash movements of the open shift';
   assert (select count(*) from public.cash_movements where register_session_id = 'e2500000-0000-4000-8000-00000000000a') = 0, 'a cashier sees no cash movement of a closed old shift';
   assert (select count(*) from public.sales where business_id <> 'b2500000-0000-4000-8000-000000000001') = 0, 'a cashier sees no other shop''s sales';
+  assert not exists (select 1 from public.credit_notes where id = 'f2500000-0000-4000-8000-000000000000'), 'a cashier does not see an old refund of an old sale';
+  assert (select count(*) from public.credit_note_items where credit_note_id = 'f2500000-0000-4000-8000-000000000000') = 0, 'nor its items';
 end $$;
 
 -- 25d. Refund by exact invoice number: an old sale's detail, while it stays hidden from plain selects.
@@ -1291,9 +1311,19 @@ begin
         'name', 'Tea', 'quantity', 1, 'unitGrossFils', 105, 'netFils', 100, 'vatFils', 5, 'grossFils', 105)))));
   assert exists (select 1 from public.credit_notes where id = 'f2500000-0000-4000-8000-000000000001'), 'a cashier refunds an old sale by invoice';
 
+  assert (select count(*) from public.credit_note_items where credit_note_id = 'f2500000-0000-4000-8000-000000000001') = 1,
+    'a cashier sees the refund of the open shift and its item';
+  assert jsonb_array_length(public.find_sale_by_invoice(biz, 'T25-1')->'credit_notes') = 1, 'the invoice lookup lists the refund';
+  assert (public.find_sale_by_invoice(biz, 'T25-1')->'credit_notes'->0->'credit_note_items'->0->>'quantity')::int = 1,
+    'the invoice lookup lists the refunded quantity';
+  assert (select count(*) from public.audit_events where business_id = biz and action = 'sale.lookup_by_invoice') = 0,
+    'audit rows are not readable by a cashier';
+
   perform public.apply_register_sync(gen_random_uuid(), biz, gen_random_uuid(), jsonb_build_object(
     'deviceId', 'd2500000-0000-4000-8000-00000000000b', 'action', 'close',
     'register', jsonb_build_object('countedCashFils', 105, 'closedAt', now())));
+  assert exists (select 1 from public.credit_notes where id = 'f2500000-0000-4000-8000-000000000001'),
+    'today''s refund of an old sale stays visible after its shift closes';
 
   begin
     perform public.apply_product_sync(gen_random_uuid(), biz, 'c2500000-0000-4000-8000-000000000002',
@@ -1310,6 +1340,9 @@ begin
 end $$;
 reset role;
 do $$ begin
+  assert (select count(*) from public.audit_events where business_id = 'b2500000-0000-4000-8000-000000000001' and action = 'sale.lookup_by_invoice'
+          and actor_id = '00000000-0000-4000-8000-000000000010') >= 4, 'each invoice lookup by the cashier is audited';
+  assert (select open_moves from t25_expected) >= 1, 'fixture: the open shift has a cash movement';
   assert (select status::text from public.register_sessions where id = 'e2500000-0000-4000-8000-00000000000b') = 'closed', 'a cashier''s register close syncs';
 end $$;
 
@@ -1360,6 +1393,8 @@ begin
   end;
   assert failure = 'till_status_locked', 'direct un-pause is locked, got ' || coalesce(failure, 'null');
 
+  update public.devices set status = 'revoked' where id = 'd2500000-0000-4000-8000-00000000000b';
+  assert (select status::text from public.devices where id = 'd2500000-0000-4000-8000-00000000000b') = 'revoked', 'an owner can remove a paused till';
   update public.devices set status = 'revoked' where id = 'd2500000-0000-4000-8000-00000000000a';
   assert (select status::text from public.devices where id = 'd2500000-0000-4000-8000-00000000000a') = 'revoked', 'revoking an active till still works';
 end $$;

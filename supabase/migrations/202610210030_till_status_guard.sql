@@ -12,7 +12,9 @@ begin
     if new.status::text <> 'active' then
       raise exception using errcode = 'P0001', message = 'till_status_locked';
     end if;
-  elsif (old.status::text = 'paused' or new.status::text = 'paused') and old.status is distinct from new.status then
+  -- Entering paused, or leaving it for active, is locked; removing a paused till (revoked) stays allowed.
+  elsif old.status is distinct from new.status
+        and (new.status::text = 'paused' or (old.status::text = 'paused' and new.status::text = 'active')) then
     raise exception using errcode = 'P0001', message = 'till_status_locked';
   end if;
   return new;
