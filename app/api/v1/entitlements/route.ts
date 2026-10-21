@@ -1,4 +1,5 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { activeMembership } from "@/lib/access/membership";
 import { parseEntitlements } from "@/lib/billing/entitlements";
 import { signEntitlements } from "@/lib/billing/entitlement-token";
 
@@ -12,8 +13,7 @@ export async function GET() {
     const supabase = await createServerSupabaseClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return Response.json({ error: "Authentication is required." }, { status: 401 });
-    const { data: membership, error: memberError } = await supabase
-      .from("business_members").select("business_id").eq("user_id", user.id).eq("status", "active").limit(1).maybeSingle();
+    const { data: membership, error: memberError } = await activeMembership(supabase, user.id);
     if (memberError) return Response.json({ error: memberError.message }, { status: 502 });
     if (!membership) return Response.json({ error: "No business is configured for this account." }, { status: 404 });
     const { data, error } = await supabase.rpc("business_entitlements", { target_business_id: membership.business_id });

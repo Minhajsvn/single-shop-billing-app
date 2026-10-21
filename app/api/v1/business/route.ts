@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { activeMembership } from "@/lib/access/membership";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -29,13 +30,7 @@ async function authenticatedClient() {
 type ServerClient = Awaited<ReturnType<typeof createServerSupabaseClient>>;
 
 async function memberBusinessId(supabase: ServerClient, userId: string) {
-  const { data, error } = await supabase
-    .from("business_members")
-    .select("business_id")
-    .eq("user_id", userId)
-    .eq("status", "active")
-    .limit(1)
-    .maybeSingle();
+  const { data, error } = await activeMembership(supabase, userId);
   return { businessId: (data?.business_id as string | undefined) ?? null, error };
 }
 

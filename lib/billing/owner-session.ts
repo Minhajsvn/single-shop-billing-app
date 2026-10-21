@@ -1,5 +1,6 @@
 // SERVER ONLY: shared by the billing route handlers.
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { activeMembership } from "@/lib/access/membership";
 import { ownerGuard, type BillingMembership } from "@/lib/billing/owner-guard";
 
 export type OwnerBilling = {
@@ -15,8 +16,7 @@ export async function loadOwnerBilling(): Promise<OwnerBilling | Response> {
   const supabase = await createServerSupabaseClient();
   const { data: { user } } = await supabase.auth.getUser();
   const { data: membership, error: memberError } = user
-    ? await supabase.from("business_members").select("business_id, role, status")
-      .eq("user_id", user.id).eq("status", "active").limit(1).maybeSingle()
+    ? await activeMembership(supabase, user.id)
     : { data: null, error: null };
   if (memberError) return Response.json({ error: memberError.message }, { status: 502 });
   const denied = ownerGuard(user, membership as BillingMembership | null);

@@ -1,4 +1,5 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { activeMembership } from "@/lib/access/membership";
 import { mapSaleRow } from "@/lib/snapshot/map-rows";
 import type { SnapshotRows } from "@/lib/snapshot/types";
 import type { InvoiceLookupCreditNote } from "@/lib/sales/invoice-lookup";
@@ -13,7 +14,7 @@ type Row = SnapshotRows["sales"][number] & {
 };
 
 /**
- * One sale by its exact invoice number, for any member of the shop (owner decision 8: a cashier refunds a returning
+ * One sale by its whole invoice number (case and surrounding spaces ignored, as on the till), for any member of the shop (owner decision 8: a cashier refunds a returning
  * customer's sale from the receipt). No partial matches or browsing; every lookup is audited by the server function.
  */
 export async function GET(request: Request) {
@@ -23,8 +24,7 @@ export async function GET(request: Request) {
     const supabase = await createServerSupabaseClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return Response.json({ error: "Authentication is required." }, { status: 401 });
-    const { data: membership, error: memberError } = await supabase
-      .from("business_members").select("business_id").eq("user_id", user.id).eq("status", "active").limit(1).maybeSingle();
+    const { data: membership, error: memberError } = await activeMembership(supabase, user.id);
     if (memberError) return Response.json({ error: memberError.message }, { status: 502 });
     if (!membership) return Response.json({ error: "No business is configured for this account." }, { status: 404 });
 

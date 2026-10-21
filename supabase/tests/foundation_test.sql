@@ -1273,7 +1273,12 @@ begin
   assert not exists (select 1 from public.sales where id = 'a2500000-0000-4000-8000-000000000001'), 'the old sale stays hidden from plain selects';
   assert public.find_sale_by_invoice('b2500000-0000-4000-8000-000000000001', 'T25-404') is null, 'a wrong invoice number returns null';
   assert public.find_sale_by_invoice('b2500000-0000-4000-8000-000000000001', 'T24C-1') is null, 'another shop''s invoice returns null';
-  assert public.find_sale_by_invoice('b2500000-0000-4000-8000-000000000001', 't25-1') is null, 'the match is exact';
+  -- The till matches invoice numbers ignoring case (and surrounding spaces); the server must agree.
+  assert public.find_sale_by_invoice('b2500000-0000-4000-8000-000000000001', 't25-1')->>'id' = 'a2500000-0000-4000-8000-000000000001',
+    'a lowercase invoice number finds the sale';
+  assert public.find_sale_by_invoice('b2500000-0000-4000-8000-000000000001', '  t25-1 ')->>'id' = 'a2500000-0000-4000-8000-000000000001',
+    'surrounding spaces are ignored';
+  assert public.find_sale_by_invoice('b2500000-0000-4000-8000-000000000001', 't25') is null, 'the match is still whole, not a prefix';
 end $$;
 
 -- 25c. A cashier's selling work syncs: customer, sale, refund of the old sale, register close. Product sync and
@@ -1311,6 +1316,25 @@ begin
         'name', 'Tea', 'quantity', 1, 'unitGrossFils', 105, 'netFils', 100, 'vatFils', 5, 'grossFils', 105)))));
   assert exists (select 1 from public.credit_notes where id = 'f2500000-0000-4000-8000-000000000001'), 'a cashier refunds an old sale by invoice';
 
+  -- A second refund of the now fully refunded line is refused (the line is locked before the check, so two tills
+  -- refunding it at once are serialised and the later one sees the first).
+  begin
+    perform public.apply_credit_note_sync(gen_random_uuid(), biz, 'f2500000-0000-4000-8000-000000000009', jsonb_build_object(
+      'deviceId', 'd2500000-0000-4000-8000-00000000000b',
+      'creditNote', jsonb_build_object(
+        'id', 'f2500000-0000-4000-8000-000000000009', 'saleId', 'a2500000-0000-4000-8000-000000000001',
+        'creditNoteNumber', 'CN-T25-1B', 'createdAt', now(), 'paymentMethod', 'cash',
+        'netFils', 100, 'vatFils', 5, 'grossFils', 105,
+        'lines', jsonb_build_array(jsonb_build_object(
+          'id', 'f2500000-0000-4000-8000-0000000009a1', 'originalLineId', 'a2500000-0000-4000-8000-0000000001a1',
+          'name', 'Tea', 'quantity', 1, 'unitGrossFils', 105, 'netFils', 100, 'vatFils', 5, 'grossFils', 105)))));
+    assert false, 'a second refund of a fully refunded line must be refused';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'credit_note_quantity_exceeds_sale', 'the second refund is refused, got ' || coalesce(failure, 'null');
+  failure := null;
+  assert not exists (select 1 from public.credit_notes where id = 'f2500000-0000-4000-8000-000000000009'), 'the refused refund left no credit note';
+
   assert (select count(*) from public.credit_note_items where credit_note_id = 'f2500000-0000-4000-8000-000000000001') = 1,
     'a cashier sees the refund of the open shift and its item';
   assert jsonb_array_length(public.find_sale_by_invoice(biz, 'T25-1')->'credit_notes') = 1, 'the invoice lookup lists the refund';
@@ -1344,6 +1368,9 @@ do $$ begin
           and actor_id = '00000000-0000-4000-8000-000000000010') >= 4, 'each invoice lookup by the cashier is audited';
   assert (select open_moves from t25_expected) >= 1, 'fixture: the open shift has a cash movement';
   assert (select status::text from public.register_sessions where id = 'e2500000-0000-4000-8000-00000000000b') = 'closed', 'a cashier''s register close syncs';
+  -- Concurrent refunds: the sale line is locked before the already-refunded quantity is read.
+  assert (select pg_get_functiondef('public.apply_credit_note_sync(uuid, uuid, uuid, jsonb)'::regprocedure))
+         like '%and si.business_id = p_business_id%for update;%returned_quantity%', 'apply_credit_note_sync locks the sale line before the quantity check';
 end $$;
 
 -- 25d (cont.). A non-member gets not_authorized.

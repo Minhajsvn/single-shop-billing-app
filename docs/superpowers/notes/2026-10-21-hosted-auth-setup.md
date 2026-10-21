@@ -5,6 +5,29 @@ Local development already has all of this in `supabase/config.toml`; nothing her
 
 Replace `https://YOUR-APP-ADDRESS` below with the address people open the app at (for example `https://shop.example.com`), with no slash at the end.
 
+## 0. Apply this release's database changes first
+
+Before this release goes live, the hosted database must have every migration in `supabase/migrations`, applied in
+file-name order. Check which are already applied (Supabase dashboard → **Database → Migrations**, or
+`supabase migration list` against the hosted project) and apply the missing ones before the new app version is
+deployed. The ones from this release, and from Stage 1F (billing) in case they are not applied yet:
+
+- Stage 1F: `202610190023_billing_lifecycle.sql`, `202610190024_register_access_gate.sql`,
+  `202610190025_members_read_devices.sql`, `202610200026_entitlements_period_end.sql`,
+  `202610200027_canceled_is_final.sql`, `202610200028_paused_at_server_stamped.sql`
+- Stage 1G (this release): `202610210029_cashier_access.sql`, `202610210030_till_status_guard.sql`,
+  `202610210031_onboarding_status.sql`, `202610220032_refund_lock_invoice_case.sql`
+
+Take a backup of the hosted database before applying them.
+
+**Refunds made before this release.** Until `202610210029_cashier_access.sql`, the server's refund sync had a bug:
+every refund with returned items was rejected, so it never reached the server. Refunds made on a hosted shop before
+this release exist only on the till that made them (in that till's browser storage); they are not in the server's
+reports, and other tills and the owner's dashboard do not see them. That till keeps them as failed sync operations and
+tries them again on its next sync, so some may arrive once the migrations are applied, but only while that browser's
+storage still holds them and the server accepts them (for example, the till must have an open shift). Do not count on
+it: check each shop's refunds on its tills after the release.
+
 ## 1. Turn on email confirmation
 
 1. Open the project in the Supabase dashboard.
@@ -58,17 +81,25 @@ If a link says "This link has expired or was already used", check that the Site 
 
 ## 6. Add a cashier to a shop
 
-There is no invite screen yet. To give a cashier access:
+There is no invite screen yet. The owner creates the cashier's account; the cashier does **not** sign up.
 
-1. Ask the cashier to sign up at `https://YOUR-APP-ADDRESS/signup` and confirm their email. (They will see "Set up your shop" afterwards; they should not fill it in.)
-2. In the Supabase dashboard, open **SQL Editor → New query**.
-3. Paste this line, replace the two email addresses, and click **Run**:
+> **Warning:** do not let a cashier sign up at `/signup` and fill in "Set up your shop". That makes them the owner of a
+> trial shop of their own. Someone who belongs to two shops always works in the one where they have the highest role,
+> so after being added to your shop as a cashier they would still sell into their own trial shop. If a cashier already
+> did this, create a new account for them with a different email address and add that one instead.
+
+1. In the Supabase dashboard, go to **Authentication → Users → Add user → Create new user**.
+2. Enter the cashier's email address and a starting password (8 characters or more), tick **Auto Confirm User**, and click **Create user**.
+   Give the password to the cashier in person. They can change it later with **Forgot password?** on the sign-in page.
+3. Open **SQL Editor → New query**.
+4. Paste this line, replace the two email addresses, and click **Run**:
 
 ```sql
 insert into public.business_members (business_id, user_id, role, status) select b.id, u.id, 'cashier', 'active' from public.businesses b, auth.users u where u.email = '<cashier email>' and b.owner_id = (select id from auth.users where email = '<owner email>');
 ```
 
-4. It should say `1 row` was inserted. `0 rows` means one of the email addresses is wrong, or the cashier has not signed up yet.
+5. It should say `1 row` was inserted. `0 rows` means one of the email addresses is wrong, or the cashier's account was not created in step 2.
+6. The cashier signs in at `https://YOUR-APP-ADDRESS/login` with that email and password and goes straight to the till.
 
 Notes on this line (checked against `supabase/migrations/202610110010_members_branches.sql` and `202608300001_sprint_one_foundation.sql`):
 - `business_members` has the columns `business_id`, `user_id`, `role` (`cashier`, `manager` or `owner`) and `status` (`active` or `disabled`); `businesses.owner_id` is the owner's user id.
