@@ -1074,6 +1074,11 @@ reset role;
 
 -- 24h. paused_at is server-stamped: an owner cannot insert a paused till with a future pause time, nor move an
 -- existing pause into the future, to sell on more tills than the plan allows.
+-- (Since 1G an owner cannot insert a paused till at all — 25e — so the forged row is written by the admin role;
+-- the pause stamp still ignores the supplied time.)
+reset role;
+insert into public.devices (id, business_id, name, status, paused_at)
+values ('d2400000-0000-4000-8000-0000000000e1', 'b2400000-0000-4000-8000-000000000001', 'Forged till', 'paused', '2099-01-01T00:00:00Z');
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-00000000000c","role":"authenticated"}', true);
 do $$
@@ -1083,8 +1088,6 @@ declare
   stored timestamptz;
   failure text;
 begin
-  insert into public.devices (id, business_id, name, status, paused_at)
-  values (forged, biz, 'Forged till', 'paused', '2099-01-01T00:00:00Z');
   select paused_at into stored from public.devices where id = forged;
   assert stored between now() - interval '1 minute' and now() + interval '1 minute', 'inserted pause time is now(), got ' || coalesce(stored::text, 'null');
 
@@ -1124,5 +1127,541 @@ begin
   assert failure = 'till_paused', 'future pause time is till_paused, got ' || coalesce(failure, 'null');
 end $$;
 reset role;
+
+
+-- 25. Stage 1G cashier access. Shop F: owner ...0f, cashier ...10. Till A has yesterday's closed shift (sale S1);
+-- till B has a shift opened yesterday that is still open (sale S2 from yesterday, S3 from today).
+reset role;
+insert into auth.users (id, instance_id, aud, role, email) values
+  ('00000000-0000-4000-8000-00000000000f', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'owner-f@test.local'),
+  ('00000000-0000-4000-8000-000000000010', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'cashier-f@test.local');
+insert into public.businesses (id, owner_id, legal_name, trn, address, phone)
+values ('b2500000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-00000000000f', 'Shop F LLC', '100000000000008', 'Satwa, Dubai', '+971500000251');
+update public.subscriptions set status = 'active', plan_id = 'pro', trial_ends_at = now() - interval '1 day', grace_ends_at = null
+where business_id = 'b2500000-0000-4000-8000-000000000001';
+insert into public.business_members (business_id, user_id, role, status)
+values ('b2500000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000010', 'cashier', 'active');
+insert into public.devices (id, business_id, name) values
+  ('d2500000-0000-4000-8000-00000000000a', 'b2500000-0000-4000-8000-000000000001', 'Till A'),
+  ('d2500000-0000-4000-8000-00000000000b', 'b2500000-0000-4000-8000-000000000001', 'Till B');
+insert into public.products (id, business_id, name, sku, price_fils, stock_quantity, low_stock_threshold)
+values ('c2500000-0000-4000-8000-000000000001', 'b2500000-0000-4000-8000-000000000001', 'Tea', 'tea-25', 105, 10, 1);
+insert into public.customers (id, business_id, name, phone)
+values ('c2500000-0000-4000-8000-0000000000c1', 'b2500000-0000-4000-8000-000000000001', 'Huda', '+971500002501');
+
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-00000000000f","role":"authenticated"}', true);
+do $$
+declare
+  biz constant uuid := 'b2500000-0000-4000-8000-000000000001';
+  yesterday constant date := (now() at time zone 'Asia/Dubai')::date - 1;
+  today constant date := (now() at time zone 'Asia/Dubai')::date;
+begin
+  perform public.apply_register_sync(gen_random_uuid(), biz, 'e2500000-0000-4000-8000-00000000000a', jsonb_build_object(
+    'deviceId', 'd2500000-0000-4000-8000-00000000000a', 'action', 'open',
+    'register', jsonb_build_object('openingCashFils', 0, 'openedAt', now() - interval '30 hours')));
+  perform public.apply_sale_sync(gen_random_uuid(), biz, 'a2500000-0000-4000-8000-000000000001', jsonb_build_object(
+    'deviceId', 'd2500000-0000-4000-8000-00000000000a', 'register', null,
+    'sale', jsonb_build_object(
+      'id', 'a2500000-0000-4000-8000-000000000001', 'invoiceNumber', 'T25-1', 'status', 'completed',
+      'createdAt', now() - interval '29 hours', 'supplyDate', yesterday, 'paymentMethod', 'cash',
+      'netFils', 100, 'vatFils', 5, 'grossFils', 105,
+      'lines', jsonb_build_array(jsonb_build_object(
+        'id', 'a2500000-0000-4000-8000-0000000001a1', 'name', 'Tea', 'quantity', 1,
+        'unitGrossFils', 105, 'netFils', 100, 'vatFils', 5, 'grossFils', 105)))));
+  perform public.apply_sale_sync(gen_random_uuid(), biz, 'a2500000-0000-4000-8000-000000000000', jsonb_build_object(
+    'deviceId', 'd2500000-0000-4000-8000-00000000000a', 'register', null,
+    'sale', jsonb_build_object(
+      'id', 'a2500000-0000-4000-8000-000000000000', 'invoiceNumber', 'T25-0', 'status', 'completed',
+      'createdAt', now() - interval '29 hours', 'supplyDate', yesterday, 'paymentMethod', 'cash',
+      'netFils', 100, 'vatFils', 5, 'grossFils', 105,
+      'lines', jsonb_build_array(jsonb_build_object(
+        'id', 'a2500000-0000-4000-8000-0000000000a1', 'name', 'Tea', 'quantity', 1,
+        'unitGrossFils', 105, 'netFils', 100, 'vatFils', 5, 'grossFils', 105)))));
+  perform public.apply_credit_note_sync(gen_random_uuid(), biz, 'f2500000-0000-4000-8000-000000000000', jsonb_build_object(
+    'deviceId', 'd2500000-0000-4000-8000-00000000000a',
+    'creditNote', jsonb_build_object(
+      'id', 'f2500000-0000-4000-8000-000000000000', 'saleId', 'a2500000-0000-4000-8000-000000000000',
+      'creditNoteNumber', 'CN-T25-0', 'createdAt', now() - interval '28 hours 30 minutes', 'paymentMethod', 'cash',
+      'netFils', 100, 'vatFils', 5, 'grossFils', 105,
+      'lines', jsonb_build_array(jsonb_build_object(
+        'id', 'f2500000-0000-4000-8000-0000000000a1', 'originalLineId', 'a2500000-0000-4000-8000-0000000000a1',
+        'name', 'Tea', 'quantity', 1, 'unitGrossFils', 105, 'netFils', 100, 'vatFils', 5, 'grossFils', 105)))));
+  perform public.apply_register_sync(gen_random_uuid(), biz, gen_random_uuid(), jsonb_build_object(
+    'deviceId', 'd2500000-0000-4000-8000-00000000000a', 'action', 'close',
+    'register', jsonb_build_object('countedCashFils', 105, 'closedAt', now() - interval '28 hours')));
+
+  perform public.apply_register_sync(gen_random_uuid(), biz, 'e2500000-0000-4000-8000-00000000000b', jsonb_build_object(
+    'deviceId', 'd2500000-0000-4000-8000-00000000000b', 'action', 'open',
+    'register', jsonb_build_object('openingCashFils', 0, 'openedAt', now() - interval '26 hours')));
+  perform public.apply_sale_sync(gen_random_uuid(), biz, 'a2500000-0000-4000-8000-000000000002', jsonb_build_object(
+    'deviceId', 'd2500000-0000-4000-8000-00000000000b', 'register', null,
+    'sale', jsonb_build_object(
+      'id', 'a2500000-0000-4000-8000-000000000002', 'invoiceNumber', 'T25-2', 'status', 'completed',
+      'createdAt', now() - interval '25 hours', 'supplyDate', yesterday, 'paymentMethod', 'cash',
+      'netFils', 100, 'vatFils', 5, 'grossFils', 105,
+      'lines', jsonb_build_array(jsonb_build_object(
+        'id', 'a2500000-0000-4000-8000-0000000002a1', 'name', 'Tea', 'quantity', 1,
+        'unitGrossFils', 105, 'netFils', 100, 'vatFils', 5, 'grossFils', 105)))));
+  perform public.apply_sale_sync(gen_random_uuid(), biz, 'a2500000-0000-4000-8000-000000000003', jsonb_build_object(
+    'deviceId', 'd2500000-0000-4000-8000-00000000000b', 'register', null,
+    'sale', jsonb_build_object(
+      'id', 'a2500000-0000-4000-8000-000000000003', 'invoiceNumber', 'T25-3', 'status', 'completed',
+      'createdAt', now(), 'supplyDate', today, 'paymentMethod', 'card',
+      'netFils', 100, 'vatFils', 5, 'grossFils', 105,
+      'lines', jsonb_build_array(jsonb_build_object(
+        'id', 'a2500000-0000-4000-8000-0000000003a1', 'name', 'Tea', 'quantity', 1,
+        'unitGrossFils', 105, 'netFils', 100, 'vatFils', 5, 'grossFils', 105)))));
+end $$;
+reset role;
+create temp table t25_expected on commit drop as
+  select
+    (select count(*) from public.cash_movements where register_session_id = 'e2500000-0000-4000-8000-00000000000b') as open_moves,
+    (select count(*) from public.products where business_id <> 'b2500000-0000-4000-8000-000000000001') as other_products;
+grant select on t25_expected to authenticated;
+
+-- 25a. A cashier reads their shop's products and customers, none of another shop's, and cannot write products.
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-000000000010","role":"authenticated"}', true);
+do $$
+declare
+  failure text;
+  changed integer;
+begin
+  assert (select count(*) from public.products where business_id = 'b2500000-0000-4000-8000-000000000001') = 1, 'a cashier reads their shop''s products';
+  assert (select count(*) from public.customers where business_id = 'b2500000-0000-4000-8000-000000000001') = 1, 'a cashier reads their shop''s customers';
+  assert (select count(*) from public.products where business_id <> 'b2500000-0000-4000-8000-000000000001') = 0, 'a cashier reads no other shop''s products';
+  assert (select count(*) from public.customers where business_id <> 'b2500000-0000-4000-8000-000000000001') = 0, 'a cashier reads no other shop''s customers';
+  begin
+    insert into public.products (business_id, name, sku, price_fils, stock_quantity, low_stock_threshold)
+    values ('b2500000-0000-4000-8000-000000000001', 'Coffee', 'coffee-25', 200, 1, 0);
+    assert false, 'a cashier must not insert a product';
+  exception when others then failure := sqlstate;
+  end;
+  assert failure is not null and failure <> 'P0004', 'product insert by a cashier is refused, got ' || coalesce(failure, 'null');
+  update public.products set price_fils = 1 where id = 'c2500000-0000-4000-8000-000000000001';
+  get diagnostics changed = row_count;
+  assert changed = 0, 'a cashier cannot change a product';
+end $$;
+
+-- 25b. Today's sales and the sales of a still-open shift are visible; yesterday's closed shift is not.
+do $$
+begin
+  assert exists (select 1 from public.sales where id = 'a2500000-0000-4000-8000-000000000003'), 'a cashier sees today''s sale';
+  assert exists (select 1 from public.sales where id = 'a2500000-0000-4000-8000-000000000002'), 'a cashier sees yesterday''s sale of the still-open shift';
+  assert not exists (select 1 from public.sales where id = 'a2500000-0000-4000-8000-000000000001'), 'a cashier does not see yesterday''s closed-shift sale';
+  assert (select count(*) from public.sale_items where sale_id = 'a2500000-0000-4000-8000-000000000002') = 1, 'a cashier sees the items of a visible sale';
+  assert (select count(*) from public.sale_items where sale_id = 'a2500000-0000-4000-8000-000000000001') = 0, 'a cashier sees no items of a hidden sale';
+  assert exists (select 1 from public.register_sessions where id = 'e2500000-0000-4000-8000-00000000000b'), 'a cashier sees the open shift';
+  assert not exists (select 1 from public.register_sessions where id = 'e2500000-0000-4000-8000-00000000000a'), 'a cashier does not see yesterday''s closed shift';
+  assert (select count(*) from public.cash_movements where register_session_id = 'e2500000-0000-4000-8000-00000000000b') = (select open_moves from t25_expected),
+    'a cashier sees the cash movements of the open shift';
+  assert (select count(*) from public.cash_movements where register_session_id = 'e2500000-0000-4000-8000-00000000000a') = 0, 'a cashier sees no cash movement of a closed old shift';
+  assert (select count(*) from public.sales where business_id <> 'b2500000-0000-4000-8000-000000000001') = 0, 'a cashier sees no other shop''s sales';
+  assert not exists (select 1 from public.credit_notes where id = 'f2500000-0000-4000-8000-000000000000'), 'a cashier does not see an old refund of an old sale';
+  assert (select count(*) from public.credit_note_items where credit_note_id = 'f2500000-0000-4000-8000-000000000000') = 0, 'nor its items';
+end $$;
+
+-- 25d. Refund by exact invoice number: an old sale's detail, while it stays hidden from plain selects.
+do $$
+declare
+  detail jsonb;
+begin
+  detail := public.find_sale_by_invoice('b2500000-0000-4000-8000-000000000001', 'T25-1');
+  assert detail->>'id' = 'a2500000-0000-4000-8000-000000000001', 'find_sale_by_invoice returns the old sale';
+  assert jsonb_array_length(detail->'sale_items') = 1, 'the old sale comes with its items';
+  assert not exists (select 1 from public.sales where id = 'a2500000-0000-4000-8000-000000000001'), 'the old sale stays hidden from plain selects';
+  assert public.find_sale_by_invoice('b2500000-0000-4000-8000-000000000001', 'T25-404') is null, 'a wrong invoice number returns null';
+  assert public.find_sale_by_invoice('b2500000-0000-4000-8000-000000000001', 'T24C-1') is null, 'another shop''s invoice returns null';
+  -- The till matches invoice numbers ignoring case (and surrounding spaces); the server must agree.
+  assert public.find_sale_by_invoice('b2500000-0000-4000-8000-000000000001', 't25-1')->>'id' = 'a2500000-0000-4000-8000-000000000001',
+    'a lowercase invoice number finds the sale';
+  assert public.find_sale_by_invoice('b2500000-0000-4000-8000-000000000001', '  t25-1 ')->>'id' = 'a2500000-0000-4000-8000-000000000001',
+    'surrounding spaces are ignored';
+  assert public.find_sale_by_invoice('b2500000-0000-4000-8000-000000000001', 't25') is null, 'the match is still whole, not a prefix';
+end $$;
+
+-- 25c. A cashier's selling work syncs: customer, sale, refund of the old sale, register close. Product sync and
+-- business settings stay owner-only.
+do $$
+declare
+  biz constant uuid := 'b2500000-0000-4000-8000-000000000001';
+  failure text;
+  changed integer;
+begin
+  perform public.apply_customer_sync(gen_random_uuid(), biz, 'c2500000-0000-4000-8000-0000000000c2', jsonb_build_object(
+    'id', 'c2500000-0000-4000-8000-0000000000c2', 'name', 'Omar', 'phone', '+971500002502',
+    'createdAt', now(), 'updatedAt', now()));
+  assert exists (select 1 from public.customers where id = 'c2500000-0000-4000-8000-0000000000c2'), 'a cashier''s new customer syncs';
+
+  perform public.apply_sale_sync(gen_random_uuid(), biz, 'a2500000-0000-4000-8000-000000000004', jsonb_build_object(
+    'deviceId', 'd2500000-0000-4000-8000-00000000000b', 'register', null,
+    'sale', jsonb_build_object(
+      'id', 'a2500000-0000-4000-8000-000000000004', 'invoiceNumber', 'T25-4', 'status', 'completed',
+      'createdAt', now(), 'supplyDate', (now() at time zone 'Asia/Dubai')::date, 'paymentMethod', 'cash',
+      'netFils', 100, 'vatFils', 5, 'grossFils', 105,
+      'lines', jsonb_build_array(jsonb_build_object(
+        'id', 'a2500000-0000-4000-8000-0000000004a1', 'name', 'Tea', 'quantity', 1,
+        'unitGrossFils', 105, 'netFils', 100, 'vatFils', 5, 'grossFils', 105)))));
+  assert exists (select 1 from public.sales where id = 'a2500000-0000-4000-8000-000000000004'), 'a cashier''s sale syncs';
+
+  perform public.apply_credit_note_sync(gen_random_uuid(), biz, 'f2500000-0000-4000-8000-000000000001', jsonb_build_object(
+    'deviceId', 'd2500000-0000-4000-8000-00000000000b',
+    'creditNote', jsonb_build_object(
+      'id', 'f2500000-0000-4000-8000-000000000001', 'saleId', 'a2500000-0000-4000-8000-000000000001',
+      'creditNoteNumber', 'CN-T25-1', 'createdAt', now(), 'paymentMethod', 'cash',
+      'netFils', 100, 'vatFils', 5, 'grossFils', 105,
+      'lines', jsonb_build_array(jsonb_build_object(
+        'id', 'f2500000-0000-4000-8000-0000000001a1', 'originalLineId', 'a2500000-0000-4000-8000-0000000001a1',
+        'name', 'Tea', 'quantity', 1, 'unitGrossFils', 105, 'netFils', 100, 'vatFils', 5, 'grossFils', 105)))));
+  assert exists (select 1 from public.credit_notes where id = 'f2500000-0000-4000-8000-000000000001'), 'a cashier refunds an old sale by invoice';
+
+  -- A second refund of the now fully refunded line is refused (the line is locked before the check, so two tills
+  -- refunding it at once are serialised and the later one sees the first).
+  begin
+    perform public.apply_credit_note_sync(gen_random_uuid(), biz, 'f2500000-0000-4000-8000-000000000009', jsonb_build_object(
+      'deviceId', 'd2500000-0000-4000-8000-00000000000b',
+      'creditNote', jsonb_build_object(
+        'id', 'f2500000-0000-4000-8000-000000000009', 'saleId', 'a2500000-0000-4000-8000-000000000001',
+        'creditNoteNumber', 'CN-T25-1B', 'createdAt', now(), 'paymentMethod', 'cash',
+        'netFils', 100, 'vatFils', 5, 'grossFils', 105,
+        'lines', jsonb_build_array(jsonb_build_object(
+          'id', 'f2500000-0000-4000-8000-0000000009a1', 'originalLineId', 'a2500000-0000-4000-8000-0000000001a1',
+          'name', 'Tea', 'quantity', 1, 'unitGrossFils', 105, 'netFils', 100, 'vatFils', 5, 'grossFils', 105)))));
+    assert false, 'a second refund of a fully refunded line must be refused';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'credit_note_quantity_exceeds_sale', 'the second refund is refused, got ' || coalesce(failure, 'null');
+  failure := null;
+  assert not exists (select 1 from public.credit_notes where id = 'f2500000-0000-4000-8000-000000000009'), 'the refused refund left no credit note';
+
+  assert (select count(*) from public.credit_note_items where credit_note_id = 'f2500000-0000-4000-8000-000000000001') = 1,
+    'a cashier sees the refund of the open shift and its item';
+  assert jsonb_array_length(public.find_sale_by_invoice(biz, 'T25-1')->'credit_notes') = 1, 'the invoice lookup lists the refund';
+  assert (public.find_sale_by_invoice(biz, 'T25-1')->'credit_notes'->0->'credit_note_items'->0->>'quantity')::int = 1,
+    'the invoice lookup lists the refunded quantity';
+  assert (select count(*) from public.audit_events where business_id = biz and action = 'sale.lookup_by_invoice') = 0,
+    'audit rows are not readable by a cashier';
+
+  perform public.apply_register_sync(gen_random_uuid(), biz, gen_random_uuid(), jsonb_build_object(
+    'deviceId', 'd2500000-0000-4000-8000-00000000000b', 'action', 'close',
+    'register', jsonb_build_object('countedCashFils', 105, 'closedAt', now())));
+  assert exists (select 1 from public.credit_notes where id = 'f2500000-0000-4000-8000-000000000001'),
+    'today''s refund of an old sale stays visible after its shift closes';
+
+  begin
+    perform public.apply_product_sync(gen_random_uuid(), biz, 'c2500000-0000-4000-8000-000000000002',
+      jsonb_build_object('product', jsonb_build_object('id', 'c2500000-0000-4000-8000-000000000002', 'name', 'Coffee', 'sku', 'coffee-25b',
+        'priceFils', 200, 'lowStockThreshold', 0, 'active', true, 'taxCategory', 'standard')));
+    assert false, 'a cashier must not sync products';
+  exception when others then failure := sqlstate;
+  end;
+  assert failure = '42501', 'product sync by a cashier is not authorized, got ' || coalesce(failure, 'null');
+
+  update public.businesses set legal_name = 'Renamed by cashier' where id = biz;
+  get diagnostics changed = row_count;
+  assert changed = 0, 'a cashier cannot change the business';
+end $$;
+reset role;
+do $$ begin
+  assert (select count(*) from public.audit_events where business_id = 'b2500000-0000-4000-8000-000000000001' and action = 'sale.lookup_by_invoice'
+          and actor_id = '00000000-0000-4000-8000-000000000010') >= 4, 'each invoice lookup by the cashier is audited';
+  assert (select open_moves from t25_expected) >= 1, 'fixture: the open shift has a cash movement';
+  assert (select status::text from public.register_sessions where id = 'e2500000-0000-4000-8000-00000000000b') = 'closed', 'a cashier''s register close syncs';
+  -- Concurrent refunds: the sale line is locked before the already-refunded quantity is read.
+  assert (select pg_get_functiondef('public.apply_credit_note_sync(uuid, uuid, uuid, jsonb)'::regprocedure))
+         like '%and si.business_id = p_business_id%for update;%returned_quantity%', 'apply_credit_note_sync locks the sale line before the quantity check';
+end $$;
+
+-- 25d (cont.). A non-member gets not_authorized.
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-00000000000c","role":"authenticated"}', true);
+do $$
+declare
+  failure text;
+begin
+  begin
+    perform public.find_sale_by_invoice('b2500000-0000-4000-8000-000000000001', 'T25-1');
+    assert false, 'a non-member must not look up invoices';
+  exception when others then failure := sqlstate;
+  end;
+  assert failure = '42501', 'invoice lookup by a non-member is not authorized, got ' || coalesce(failure, 'null');
+end $$;
+
+-- 25e. Tills are paused only by the till choice: direct writes of paused are refused, revoke still works.
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-00000000000f","role":"authenticated"}', true);
+do $$
+declare
+  failure text;
+begin
+  begin
+    insert into public.devices (business_id, name, status) values ('b2500000-0000-4000-8000-000000000001', 'Till P', 'paused');
+    assert false, 'an owner must not insert a paused till';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'till_status_locked', 'paused insert is locked, got ' || coalesce(failure, 'null');
+
+  failure := null;
+  begin
+    update public.devices set status = 'paused' where id = 'd2500000-0000-4000-8000-00000000000b';
+    assert false, 'an owner must not pause a till directly';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'till_status_locked', 'direct pause is locked, got ' || coalesce(failure, 'null');
+
+  assert public.choose_active_till('b2500000-0000-4000-8000-000000000001', 'd2500000-0000-4000-8000-00000000000a') = 1, 'the till choice still pauses';
+  assert (select status::text from public.devices where id = 'd2500000-0000-4000-8000-00000000000b') = 'paused', 'till B is paused by the choice';
+
+  failure := null;
+  begin
+    update public.devices set status = 'active' where id = 'd2500000-0000-4000-8000-00000000000b';
+    assert false, 'an owner must not un-pause a till directly';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'till_status_locked', 'direct un-pause is locked, got ' || coalesce(failure, 'null');
+
+  update public.devices set status = 'revoked' where id = 'd2500000-0000-4000-8000-00000000000b';
+  assert (select status::text from public.devices where id = 'd2500000-0000-4000-8000-00000000000b') = 'revoked', 'an owner can remove a paused till';
+  update public.devices set status = 'revoked' where id = 'd2500000-0000-4000-8000-00000000000a';
+  assert (select status::text from public.devices where id = 'd2500000-0000-4000-8000-00000000000a') = 'revoked', 'revoking an active till still works';
+end $$;
+reset role;
+
+-- 25g. onboarding_status: owner-only flags that flip as the shop sets up. Shop G is brand new (owner ...11).
+insert into auth.users (id, instance_id, aud, role, email)
+values ('00000000-0000-4000-8000-000000000011', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'owner-g@test.local');
+insert into public.businesses (id, owner_id, legal_name, trn, address, phone)
+values ('b2500000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000011', 'Shop G LLC', '100000000000009', 'Satwa, Dubai', '+971500000252');
+insert into public.devices (id, business_id, name) values ('d2500000-0000-4000-8000-00000000000c', 'b2500000-0000-4000-8000-000000000002', 'Till G');
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-000000000011","role":"authenticated"}', true);
+do $$
+declare
+  biz constant uuid := 'b2500000-0000-4000-8000-000000000002';
+  today constant date := (now() at time zone 'Asia/Dubai')::date;
+begin
+  assert public.onboarding_status(biz) = '{"hasProduct": false, "hasOpenedRegister": false, "hasSale": false}'::jsonb, 'a new shop has done nothing';
+  insert into public.products (business_id, name, sku, price_fils, stock_quantity, low_stock_threshold, status)
+  values (biz, 'Old tea', 'old-25g', 105, 10, 1, 'inactive');
+  assert public.onboarding_status(biz) = '{"hasProduct": false, "hasOpenedRegister": false, "hasSale": false}'::jsonb, 'an archived-only catalogue is not done';
+  insert into public.products (business_id, name, sku, price_fils, stock_quantity, low_stock_threshold)
+  values (biz, 'Tea', 'tea-25g', 105, 10, 1);
+  assert public.onboarding_status(biz) = '{"hasProduct": true, "hasOpenedRegister": false, "hasSale": false}'::jsonb, 'a product flips hasProduct';
+  perform public.apply_register_sync(gen_random_uuid(), biz, 'e2500000-0000-4000-8000-00000000000c', jsonb_build_object(
+    'deviceId', 'd2500000-0000-4000-8000-00000000000c', 'action', 'open',
+    'register', jsonb_build_object('openingCashFils', 0, 'openedAt', now())));
+  assert public.onboarding_status(biz) = '{"hasProduct": true, "hasOpenedRegister": true, "hasSale": false}'::jsonb, 'opening flips hasOpenedRegister';
+  perform public.apply_sale_sync(gen_random_uuid(), biz, 'a2500000-0000-4000-8000-0000000000c1', jsonb_build_object(
+    'deviceId', 'd2500000-0000-4000-8000-00000000000c', 'register', null,
+    'sale', jsonb_build_object(
+      'id', 'a2500000-0000-4000-8000-0000000000c1', 'invoiceNumber', 'T25G-1', 'status', 'completed',
+      'createdAt', now(), 'supplyDate', today, 'paymentMethod', 'cash',
+      'netFils', 100, 'vatFils', 5, 'grossFils', 105,
+      'lines', jsonb_build_array(jsonb_build_object(
+        'id', 'a2500000-0000-4000-8000-0000000c01a1', 'name', 'Tea', 'quantity', 1,
+        'unitGrossFils', 105, 'netFils', 100, 'vatFils', 5, 'grossFils', 105)))));
+  assert public.onboarding_status(biz) = '{"hasProduct": true, "hasOpenedRegister": true, "hasSale": true}'::jsonb, 'a sale flips hasSale';
+end $$;
+
+-- A cashier, and the owner of another shop, are refused.
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-000000000010","role":"authenticated"}', true);
+do $$
+declare
+  failure text;
+begin
+  begin
+    perform public.onboarding_status('b2500000-0000-4000-8000-000000000001');
+    assert false, 'a cashier must not read onboarding status';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'not_authorized', 'cashier is refused, got ' || coalesce(failure, 'null');
+end $$;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-000000000011","role":"authenticated"}', true);
+do $$
+declare
+  failure text;
+begin
+  begin
+    perform public.onboarding_status('b2500000-0000-4000-8000-000000000001');
+    assert false, 'another shop owner must not read onboarding status';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'not_authorized', 'other owner is refused, got ' || coalesce(failure, 'null');
+end $$;
+reset role;
+
+-- 25h. Owners pause and resume tills by hand. Shop H is on Pro (2 tills): owner ...12, cashier ...13,
+-- tills H1 and H2 start active; H3 is added once H2 is paused.
+insert into auth.users (id, instance_id, aud, role, email) values
+  ('00000000-0000-4000-8000-000000000012', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'owner-h@test.local'),
+  ('00000000-0000-4000-8000-000000000013', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'cashier-h@test.local');
+insert into public.businesses (id, owner_id, legal_name, trn, address, phone)
+values ('b2500000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000012', 'Shop H LLC', '100000000000010', 'Satwa, Dubai', '+971500000253');
+update public.subscriptions set status = 'active', plan_id = 'pro', addon_tills = 0, trial_ends_at = now() - interval '1 day', grace_ends_at = null
+where business_id = 'b2500000-0000-4000-8000-000000000003';
+insert into public.business_members (business_id, user_id, role, status)
+values ('b2500000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000013', 'cashier', 'active');
+insert into public.devices (id, business_id, name) values
+  ('d2500000-0000-4000-8000-0000000000d1', 'b2500000-0000-4000-8000-000000000003', 'Till H1'),
+  ('d2500000-0000-4000-8000-0000000000d2', 'b2500000-0000-4000-8000-000000000003', 'Till H2');
+
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-000000000012","role":"authenticated"}', true);
+do $$
+declare
+  biz constant uuid := 'b2500000-0000-4000-8000-000000000003';
+  h1 constant uuid := 'd2500000-0000-4000-8000-0000000000d1';
+  h2 constant uuid := 'd2500000-0000-4000-8000-0000000000d2';
+  h3 constant uuid := 'd2500000-0000-4000-8000-0000000000d3';
+  failure text;
+begin
+  perform public.pause_till(biz, h2);
+  assert (select status::text from public.devices where id = h2) = 'paused', 'the owner pauses an active till';
+  assert (select paused_at from public.devices where id = h2) between now() - interval '1 minute' and now() + interval '1 minute',
+    'pausing stamps paused_at';
+
+  begin
+    perform public.pause_till(biz, h1);
+    assert false, 'the last active till must not be paused';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'last_active_till', 'last till is kept, got ' || coalesce(failure, 'null');
+  assert (select status::text from public.devices where id = h1) = 'active', 'the last till stays active';
+
+  -- H2 is paused, so a second active till fits; now the shop is at its Pro limit of 2.
+  insert into public.devices (id, business_id, name) values (h3, biz, 'Till H3');
+  failure := null;
+  begin
+    perform public.resume_till(biz, h2);
+    assert false, 'resuming beyond the plan limit must fail';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'plan_limit_reached', 'resume at the limit, got ' || coalesce(failure, 'null');
+  assert (select status::text from public.devices where id = h2) = 'paused', 'H2 stays paused at the limit';
+
+  perform public.pause_till(biz, h3);
+  perform public.resume_till(biz, h2);
+  assert (select status::text from public.devices where id = h2) = 'active', 'the owner resumes a till under the limit';
+  assert (select paused_at from public.devices where id = h2) is null, 'resuming clears paused_at';
+
+  failure := null;
+  begin
+    perform public.resume_till(biz, h1);
+    assert false, 'an active till cannot be resumed';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'till_not_found', 'resume active, got ' || coalesce(failure, 'null');
+
+  failure := null;
+  begin
+    perform public.resume_till(biz, gen_random_uuid());
+    assert false, 'an unknown till cannot be resumed';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'till_not_found', 'resume unknown, got ' || coalesce(failure, 'null');
+
+  failure := null;
+  begin
+    perform public.pause_till(biz, h3);
+    assert false, 'a paused till cannot be paused again';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'till_not_found', 'pause paused, got ' || coalesce(failure, 'null');
+
+  -- Another shop's till is not found from this shop.
+  failure := null;
+  begin
+    perform public.pause_till(biz, 'd2500000-0000-4000-8000-00000000000c');
+    assert false, 'another shop''s till cannot be paused from this shop';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'till_not_found', 'pause foreign till, got ' || coalesce(failure, 'null');
+
+  -- Under the limit (only H1 active), so the plan-limit trigger does not mask the status guard.
+  perform public.pause_till(biz, h2);
+  failure := null;
+  begin
+    update public.devices set status = 'active' where id = h3;
+    assert false, 'an owner must not un-pause a till directly';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'till_status_locked', 'direct un-pause still locked, got ' || coalesce(failure, 'null');
+
+  failure := null;
+  begin
+    update public.devices set status = 'paused' where id = h1;
+    assert false, 'an owner must not pause a till directly';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'till_status_locked', 'direct pause still locked, got ' || coalesce(failure, 'null');
+end $$;
+
+-- A cashier of the shop, and the owner of another shop, are refused with 42501.
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-000000000013","role":"authenticated"}', true);
+do $$
+declare
+  failure text;
+begin
+  begin
+    perform public.pause_till('b2500000-0000-4000-8000-000000000003', 'd2500000-0000-4000-8000-0000000000d2');
+    assert false, 'a cashier must not pause a till';
+  exception when others then failure := sqlstate;
+  end;
+  assert failure = '42501', 'cashier pause refused, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin
+    perform public.resume_till('b2500000-0000-4000-8000-000000000003', 'd2500000-0000-4000-8000-0000000000d3');
+    assert false, 'a cashier must not resume a till';
+  exception when others then failure := sqlstate;
+  end;
+  assert failure = '42501', 'cashier resume refused, got ' || coalesce(failure, 'null');
+end $$;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-000000000011","role":"authenticated"}', true);
+do $$
+declare
+  failure text;
+begin
+  begin
+    perform public.resume_till('b2500000-0000-4000-8000-000000000003', 'd2500000-0000-4000-8000-0000000000d3');
+    assert false, 'another shop owner must not resume a till';
+  exception when others then failure := sqlstate;
+  end;
+  assert failure = '42501', 'other owner refused, got ' || coalesce(failure, 'null');
+end $$;
+reset role;
+
+-- 25i. Re-pausing a till cannot extend an old shift: a paused till only accepts a shift opened within the 72 hours
+-- before its pause. Shop H's H2 and H3 are both paused (just now) at the end of 25h.
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-000000000012","role":"authenticated"}', true);
+do $$
+declare
+  biz constant uuid := 'b2500000-0000-4000-8000-000000000003';
+  failure text;
+begin
+  assert (select count(*) from public.devices where business_id = biz and status = 'paused') = 2, '25i starts with H2 and H3 paused';
+  begin
+    perform public.apply_register_sync(gen_random_uuid(), biz, 'e2500000-0000-4000-8000-0000000000e2', jsonb_build_object(
+      'deviceId', 'd2500000-0000-4000-8000-0000000000d2', 'action', 'open',
+      'register', jsonb_build_object('openingCashFils', 0, 'openedAt', now() - interval '73 hours')));
+    assert false, 'a shift opened more than 72 hours before the pause must be refused';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'till_paused', 'old shift on a paused till, got ' || coalesce(failure, 'null');
+
+  perform public.apply_register_sync(gen_random_uuid(), biz, 'e2500000-0000-4000-8000-0000000000e3', jsonb_build_object(
+    'deviceId', 'd2500000-0000-4000-8000-0000000000d3', 'action', 'open',
+    'register', jsonb_build_object('openingCashFils', 0, 'openedAt', now() - interval '1 hour')));
+  assert exists (select 1 from public.register_sessions where id = 'e2500000-0000-4000-8000-0000000000e3'),
+    'a shift opened an hour before the pause is accepted';
+end $$;
+reset role;
+
+-- Function privileges: anon cannot call them.
+do $$ begin
+  assert not has_function_privilege('anon', 'public.pause_till(uuid, uuid)', 'execute'), 'anon cannot pause';
+  assert not has_function_privilege('anon', 'public.resume_till(uuid, uuid)', 'execute'), 'anon cannot resume';
+  assert has_function_privilege('authenticated', 'public.resume_till(uuid, uuid)', 'execute'), 'members can call resume';
+end $$;
 
 rollback;

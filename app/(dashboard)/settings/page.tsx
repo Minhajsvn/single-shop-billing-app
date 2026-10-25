@@ -6,11 +6,14 @@ import { BillingPanel } from "@/components/billing/billing-panel";
 import { ChooseTill } from "@/components/billing/choose-till";
 import { EmptyState } from "@/components/ui/list-parts";
 import { useListParams } from "@/components/ui/use-list-params";
+import { MEMBER_SETTINGS_TAB, isOwnerView } from "@/lib/access/cashier";
+import { pauseTillPrompt, resumeLimitMessage, tillRowAction } from "@/lib/access/tills";
 import { createDemoStateBackup, reconcilePendingOperations, refreshSnapshot, restoreDemoStateBackup, switchThisTill, useDemoStore, useShopContext } from "@/lib/demo-store";
 import { formatDateTime } from "@/lib/domain";
-import { isSupabaseConfigured } from "@/lib/supabase/client";
+import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { syncCatalogToSupabase } from "@/lib/supabase/catalog-sync";
 import { requestConfirm } from "@/lib/ui/confirm-store";
+import { toast } from "@/lib/ui/toast-store";
 
 const TABS = [
   { tab: "business", label: "Business" },
@@ -38,8 +41,10 @@ export default function SettingsPage() {
   const tillLimit = entitlements.limits.tills;
   const overTillLimit = tillLimit !== null && devices.filter((item) => item.status === "active").length > tillLimit;
   const [params, setParams] = useListParams({ tab: "business" });
-  const tabs = role === "owner" ? [...TABS, BILLING_TAB] : TABS;
-  const tab: Tab = isTab(params.tab) && (params.tab !== "billing" || role === "owner") ? params.tab : "business";
+  // A cashier's Settings is the Data tab only: Sync now and the outbox (owner decision 7).
+  const ownerView = isOwnerView(role);
+  const tabs = role === "owner" ? [...TABS, BILLING_TAB] : ownerView ? TABS : TABS.filter((item) => item.tab === MEMBER_SETTINGS_TAB);
+  const tab: Tab = !ownerView ? MEMBER_SETTINGS_TAB : isTab(params.tab) && (params.tab !== "billing" || role === "owner") ? params.tab : "business";
   // On a phone the tab row scrolls; keep the open tab in view (Data sits past the edge at 375px).
   useEffect(() => {
     document.getElementById(`settings-tab-${tab}`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -180,13 +185,35 @@ export default function SettingsPage() {
     switchThisTill();
   }
 
+  const [tillBusy, setTillBusy] = useState("");
+  async function changeTill(till: (typeof devices)[number], action: "pause" | "resume") {
+    if (!business) return;
+    setTillMessage("");
+    if (action === "pause" && !(await requestConfirm({ ...pauseTillPrompt(till.tillNumber), confirmLabel: "Pause till" }))) return;
+    setTillBusy(till.id);
+    const rpc = action === "pause" ? "pause_till" : "resume_till";
+    const { error } = await createClient().rpc(rpc, { p_business_id: business.id, p_device_id: till.id });
+    if (error) {
+      setTillBusy("");
+      const active = devices.filter((item) => item.status === "active").length;
+      return setTillMessage(error.message.includes("plan_limit_reached") ? resumeLimitMessage(tillLimit ?? active)
+        : error.message.includes("last_active_till") ? "A shop keeps one till selling. Resume another till before pausing this one."
+        : error.message.includes("till_not_found") ? "That till has changed. Refresh and try again."
+        : "The till could not be changed. Check the connection and try again.");
+    }
+    const refreshed = await refreshSnapshot();
+    setTillBusy("");
+    if (!refreshed.ok) setTillMessage(refreshed.error);
+    toast(action === "pause" ? "Till paused" : "Till resumed");
+  }
+
   const failed = store.syncOperations.filter((operation) => operation.status === "failed");
   const saveButton = <div className="modal-footer"><button className="button primary" type="submit" disabled={settingsBusy}>{settingsBusy ? "Saving…" : "Save settings"}</button></div>;
   const savedMessage = settingsMessage && <div className="backup-message" role="alert">{settingsMessage}</div>;
 
   return (
     <>
-      <div className="page-heading"><div><div className="eyebrow">Business profile</div><h1 className="page-title">Settings</h1><p className="page-copy">These legal details will be snapshotted onto each tax invoice.</p></div>{saved && <span className="badge green">Saved</span>}</div>
+      <div className="page-heading"><div><div className="eyebrow">{ownerView ? "Business profile" : "This browser"}</div><h1 className="page-title">Settings</h1><p className="page-copy">{ownerView ? "These legal details will be snapshotted onto each tax invoice." : "Sync this till's work and check what is waiting to sync."}</p></div>{saved && <span className="badge green">Saved</span>}</div>
       <div className="settings-tabs" role="tablist" aria-label="Settings sections">
         {tabs.map((item) => <button key={item.tab} type="button" role="tab" id={`settings-tab-${item.tab}`} aria-controls="settings-panel" aria-selected={tab === item.tab} className="settings-tab" onClick={() => setParams({ tab: item.tab })}>{item.label}</button>)}
       </div>
@@ -208,7 +235,10 @@ export default function SettingsPage() {
           {tillMessage && <div className="backup-message" role="alert">{tillMessage}</div>}
           {/* Over the plan's till limit: the choice can be made here too, also from a till whose register is open. */}
           {hosted && overTillLimit ? <div className="panel-body"><ChooseTill compact /></div> : null}
-          {hosted && devices.length ? <div className="table-wrap"><table><thead><tr><th>Till</th><th>Name</th><th>Branch</th><th>Status</th></tr></thead><tbody>{devices.map((item) => <tr key={item.id}><td className="product-name">Till {item.tillNumber}{item.id === device?.id ? <div className="product-meta">This browser</div> : null}</td><td>{item.name}</td><td>{item.branchName}</td><td><span className={`badge ${item.status === "active" ? "green" : item.status === "paused" ? "yellow" : "red"}`}>{item.status === "active" ? "Active" : item.status === "paused" ? "Paused" : "Revoked"}</span></td></tr>)}</tbody></table></div>
+          {hosted && devices.length ? <div className="table-wrap"><table><thead><tr><th>Till</th><th>Name</th><th>Branch</th><th>Status</th>{role === "owner" ? <th><span className="sr-only">Actions</span></th> : null}</tr></thead><tbody>{devices.map((item) => {
+            const action = tillRowAction(role, item, devices);
+            return <tr key={item.id}><td className="product-name">Till {item.tillNumber}{item.id === device?.id ? <div className="product-meta">This browser</div> : null}</td><td>{item.name}</td><td>{item.branchName}</td><td><span className={`badge ${item.status === "active" ? "green" : item.status === "paused" ? "yellow" : "red"}`}>{item.status === "active" ? "Active" : item.status === "paused" ? "Paused" : "Revoked"}</span></td>{role === "owner" ? <td>{action ? <button className="button" type="button" disabled={tillBusy !== ""} onClick={() => void changeTill(item, action)}>{tillBusy === item.id ? "Saving…" : action === "pause" ? "Pause till" : "Resume till"}</button> : null}</td> : null}</tr>;
+          })}</tbody></table></div>
             : <EmptyState compact icon={<CashRegister size={28} weight="duotone" />} title={hosted ? "No tills yet" : "One till: this browser"} hint={hosted ? "Register a till from the till picker." : "Tills are set up when you use a shop account."} />}
         </section> : null}
 
@@ -234,12 +264,12 @@ export default function SettingsPage() {
             <div className="panel-header"><div><div className="panel-title">Needs attention</div><div className="panel-subtitle">{failed.length} change{failed.length === 1 ? "" : "s"} could not sync. They stay saved here; fix the cause and choose Sync now.</div></div></div>
             <div className="table-wrap"><table><thead><tr><th>Entity</th><th>Created</th><th>Reason</th></tr></thead><tbody>{failed.map((operation) => <tr key={operation.id}><td>{operation.entity}<div className="product-meta">{operation.entityId}</div></td><td>{formatDateTime(operation.createdAt)}</td><td>{operation.error ?? "No reason was given."}</td></tr>)}</tbody></table></div>
           </section> : null}
-          <section className="panel backup-panel">
+          {ownerView ? <section className="panel backup-panel">
             <div className="panel-header"><div><div className="panel-title">Backup and recovery</div><div className="panel-subtitle">Portable local snapshot for this single device</div></div><ShieldCheck size={20} weight="duotone" /></div>
             <div className="panel-body backup-body"><div><strong>Keep a recoverable copy</strong><p>Download after closing each business day. The file contains invoices, customers, products, stock movements, register data, and settings.</p></div><div className="backup-actions"><button className="button" onClick={downloadBackup}><DownloadSimple size={15} weight="bold" /> Download backup</button>{!hosted ? <><button className="button" onClick={() => backupInput.current?.click()}><UploadSimple size={15} weight="bold" /> Restore backup</button><input className="sr-only" ref={backupInput} type="file" accept="application/json,.json" onChange={restoreBackup} aria-label="Choose Shop Ledger backup file" /></> : null}</div></div>
             {backupMessage && <div className="backup-message" role="status">{backupMessage}</div>}
-          </section>
-          {!hosted ? <section className="panel sync-diagnostics">
+          </section> : null}
+          {!hosted && ownerView ?<section className="panel sync-diagnostics">
             <div className="panel-header"><div><div className="panel-title">Cloud catalog</div><div className="panel-subtitle">Explicitly upload products and customers to this business</div></div><button className="button" type="button" onClick={syncCatalog} disabled={!isSupabaseConfigured() || catalogBusy}><UploadSimple size={15} weight="bold" />{catalogBusy ? "Uploading…" : "Upload catalog"}</button></div>
             <div className="panel-body"><p className="panel-subtitle">This uploads the current local catalog only. Sales, returns, stock movements, and register records are not uploaded by this action.</p>{catalogMessage && <div className="backup-message" role="status">{catalogMessage}</div>}</div>
           </section> : null}

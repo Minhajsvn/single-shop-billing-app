@@ -8,6 +8,8 @@ import { LabelPrintDialog } from "@/components/catalogue/label-print-dialog";
 import { ProductForm, type ProductFormValues } from "@/components/catalogue/product-form";
 import { EmptyState, Pager, SummaryStrip } from "@/components/ui/list-parts";
 import { useListParams } from "@/components/ui/use-list-params";
+import { isOwnerView } from "@/lib/access/cashier";
+import { useShopContext } from "@/lib/demo-store";
 import { paginate } from "@/lib/lists/paging";
 import { useDemoProducts } from "@/hooks/use-demo-products";
 import { productsToCsv } from "@/lib/catalogue/csv";
@@ -43,20 +45,23 @@ export function InventoryWorkspace() {
   const [error, setError] = useState("");
   const [pageError, setPageError] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const { canWrite } = useEntitlement();
-  const readOnlyTitle = canWrite ? undefined : READ_ONLY_REASON;
+  const { canWrite: planAllowsWrites } = useEntitlement();
+  // A cashier sees products and stock read-only: no add, edit, import, stock adjustment or archive (owner decision 7).
+  const manage = isOwnerView(useShopContext().role);
+  const canWrite = planAllowsWrites && manage;
+  const readOnlyTitle = planAllowsWrites ? undefined : READ_ONLY_REASON;
 
   // The POS links unknown scans to /inventory?barcode=…: open "Add product" once with that barcode filled in.
   useEffect(() => {
     const barcode = new URLSearchParams(window.location.search).get("barcode")?.trim();
-    if (!barcode) return;
+    if (!barcode || !manage) return;
     // Clear the query only once the dialog opens, so a re-run of this effect (React dev double-invoke) still sees it.
     const timer = window.setTimeout(() => {
       setDialog({ kind: "new", barcode });
       window.history.replaceState(null, "", window.location.pathname);
     }, 0);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [manage]);
 
   const filtered = useMemo(() => {
     const term = query.trim().toLowerCase();
@@ -151,13 +156,16 @@ export function InventoryWorkspace() {
         <div><div className="eyebrow">Catalog and stock</div><h1 className="page-title">Inventory</h1><p className="page-copy">Maintain sellable items and keep every stock change traceable.</p></div>
         <div className="page-actions">
           <button className="button" onClick={exportCatalogue} disabled={!products.length}><DownloadSimple size={15} weight="bold" /> Export</button>
-          <button className="button" onClick={() => setDialog({ kind: "import" })} disabled={!canWrite} title={readOnlyTitle}><FileArrowUp size={15} weight="bold" /> Import</button>
-          <button className="button primary" onClick={() => setDialog({ kind: "new" })} disabled={!canWrite} title={readOnlyTitle}><Plus size={15} weight="bold" /> Add product</button>
+          {manage ? <>
+            <button className="button" onClick={() => setDialog({ kind: "import" })} disabled={!canWrite} title={readOnlyTitle}><FileArrowUp size={15} weight="bold" /> Import</button>
+            <button className="button primary" onClick={() => setDialog({ kind: "new" })} disabled={!canWrite} title={readOnlyTitle}><Plus size={15} weight="bold" /> Add product</button>
+          </> : null}
         </div>
       </div>
 
       {attention ? <div className="notice error-notice" role="status"><WarningCircle size={18} weight="fill" /><span><strong>{attention} {attention === 1 ? "product needs" : "products need"} attention.</strong> The server did not accept {attention === 1 ? "it" : "them"}; edit the marked products to fix the problem shown.</span></div> : null}
-      {canWrite ? null : <p className="read-only-hint" role="note">{READ_ONLY_REASON} Export, labels and search still work.</p>}
+      {!manage ? <p className="read-only-hint" role="note">The shop owner manages products and stock. Export, labels and search work here.</p>
+        : canWrite ? null : <p className="read-only-hint" role="note">{READ_ONLY_REASON} Export, labels and search still work.</p>}
       {pageError ? <div className="notice error-notice" role="alert"><WarningCircle size={18} weight="fill" /><span>{pageError}</span></div> : null}
 
       <SummaryStrip label="Inventory summary" items={[{ label: "Products", value: products.filter((product) => product.active).length.toLocaleString("en-US") }, { label: "Low stock", value: lowStock.toLocaleString("en-US") }, { label: "Archived", value: products.filter((product) => !product.active).length.toLocaleString("en-US") }]} />
@@ -187,9 +195,9 @@ export function InventoryWorkspace() {
                 <td className="numeric">{product.stock}</td>
                 <td className="numeric">{formatAED(product.priceFils)}</td>
                 <td className="numeric"><div className="row-actions">
-                  <button className="button" onClick={() => setDialog({ kind: "edit", product })} disabled={!canWrite} title={readOnlyTitle} aria-label={`Edit ${product.name}`}><PencilSimple size={14} weight="bold" /> Edit</button>
+                  {manage ? <button className="button" onClick={() => setDialog({ kind: "edit", product })} disabled={!canWrite} title={readOnlyTitle} aria-label={`Edit ${product.name}`}><PencilSimple size={14} weight="bold" /> Edit</button> : null}
                   <button className="button" onClick={() => setDialog({ kind: "labels", productIds: [product.id] })} aria-label={`Print labels for ${product.name}`}><Barcode size={14} weight="bold" /> Labels</button>
-                  {product.active ? (
+                  {!manage ? null : product.active ? (
                     <>
                       <button className="button" onClick={() => setDialog({ kind: "adjust", product })} disabled={!canWrite} title={readOnlyTitle}>Adjust stock</button>
                       <button className="button" onClick={() => archive(product)} disabled={!canWrite} title={readOnlyTitle} aria-label={`Archive ${product.name}`}><Archive size={14} weight="bold" /> Archive</button>
@@ -203,7 +211,7 @@ export function InventoryWorkspace() {
           ? <EmptyState icon={<Archive size={28} weight="duotone" />} title="No archived products" hint="Archived products are hidden from the till and listed here." />
           : products.length
             ? <EmptyState icon={<Archive size={28} weight="duotone" />} title={`No products match "${query}"`} hint="Try a name, SKU or barcode." />
-            : <EmptyState icon={<Archive size={28} weight="duotone" />} title="No products yet" hint="Import a spreadsheet or add your first product." action={canWrite ? <button className="button primary" onClick={() => setDialog({ kind: "new" })}>Add product</button> : undefined} />}
+            : <EmptyState icon={<Archive size={28} weight="duotone" />} title="No products yet" hint={manage ? "Import a spreadsheet or add your first product." : "The shop owner adds the products."} action={canWrite ? <button className="button primary" onClick={() => setDialog({ kind: "new" })}>Add product</button> : undefined} />}
         <Pager {...paged} onPage={(next) => setParams({ page: String(next) })} />
       </section>
 

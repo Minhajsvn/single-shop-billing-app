@@ -14,6 +14,7 @@ import type { HeldCart } from "@/lib/checkout/held-carts";
 import { findByCode } from "@/lib/checkout/lookup";
 import { saleBlockReason, staleRegister } from "@/lib/checkout/register-status";
 import { cartTotals, formatItemCount } from "@/lib/checkout/pricing";
+import { isOwnerView } from "@/lib/access/cashier";
 import { completeSale, type CheckoutLine, useDemoStore, useShopContext } from "@/lib/demo-store";
 import { formatAED, type Product, type Sale } from "@/lib/domain";
 import { EmptyState } from "@/components/ui/list-parts";
@@ -22,7 +23,7 @@ type CartItem = CheckoutLine & { key: string };
 
 export function PosWorkspace() {
   const store = useDemoStore();
-  const { device } = useShopContext();
+  const { device, role } = useShopContext();
   const [query, setQuery] = useState("");
   const [cart, setCart] = useState<CartItem[]>([]);
   const [customOpen, setCustomOpen] = useState(false);
@@ -230,7 +231,7 @@ export function PosWorkspace() {
       <div className="pos-layout">
         <section className="panel catalog-panel">
           <div className="panel-body"><div className="toolbar"><form className="search" onSubmit={scan} role="search"><MagnifyingGlass size={17} weight="bold" /><input ref={searchInput} className="input" value={query} onChange={(event) => { setQuery(event.target.value); setUnknownCode(null); }} placeholder="Search name, SKU, or scan barcode" autoFocus aria-label="Search products" aria-keyshortcuts="/" /></form><button className="button" onClick={() => setCustomOpen(true)}><Plus size={15} weight="bold" /> Custom item</button></div></div>
-          {unknownCode ? <div className="notice error-notice scan-notice" role="alert"><span>No product with code <strong>{unknownCode}</strong>.</span><Link className="button" href={`/inventory?barcode=${encodeURIComponent(unknownCode)}`} onClick={holdBeforeAddingProduct}><Plus size={15} weight="bold" /> {cart.length ? "Hold sale & add product" : "Add product"}</Link></div> : null}
+          {unknownCode ? <div className="notice error-notice scan-notice" role="alert"><span>No product with code <strong>{unknownCode}</strong>.{isOwnerView(role) ? null : " Ask the shop owner to add it."}</span>{isOwnerView(role) ? <Link className="button" href={`/inventory?barcode=${encodeURIComponent(unknownCode)}`} onClick={holdBeforeAddingProduct}><Plus size={15} weight="bold" /> {cart.length ? "Hold sale & add product" : "Add product"}</Link> : null}</div> : null}
           <div className="product-grid">{availableProducts.map((product) => {
             const inCart = cart.find((item) => item.productId === product.id)?.quantity ?? 0;
             const soldOut = product.stock <= inCart;

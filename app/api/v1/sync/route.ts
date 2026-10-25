@@ -1,5 +1,6 @@
 import { requestSchema, rpcPayloadFor } from "@/lib/sync/request-schema";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { activeMembership } from "@/lib/access/membership";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -36,13 +37,7 @@ export async function POST(request: Request) {
     return Response.json({ error: "The sync request is invalid.", details: parsed.error.flatten() }, { status: 400 });
   }
 
-  const { data: membership, error: membershipError } = await supabase
-    .from("business_members")
-    .select("business_id")
-    .eq("user_id", user.id)
-    .eq("status", "active")
-    .limit(1)
-    .maybeSingle();
+  const { data: membership, error: membershipError } = await activeMembership(supabase, user.id);
 
   if (membershipError) {
     return Response.json({ error: membershipError.message }, { status: 502 });

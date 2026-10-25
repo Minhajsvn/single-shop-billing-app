@@ -14,7 +14,11 @@ function applySteps(products: Product[], steps: Map<string, StockStep[]>): Produ
 
 export function mergeSnapshot(server: DemoState, local: DemoState): DemoState {
   const kept = local.syncOperations.filter((operation) => operation.status !== "synced");
-  const merged: DemoState = { ...server, syncOperations: kept };
+  // A cashier's snapshot cannot see an old sale they refunded by invoice number, so the server's credit note comes
+  // back without that invoice number; the browser's own copy still has it.
+  const localInvoice = new Map(local.creditNotes.map((note) => [note.id, note.invoiceNumber]));
+  const creditNotes = server.creditNotes.map((note) => note.invoiceNumber || !localInvoice.get(note.id) ? note : { ...note, invoiceNumber: localInvoice.get(note.id)! });
+  const merged: DemoState = { ...server, creditNotes, syncOperations: kept };
   const steps = new Map<string, StockStep[]>();
   const addStep = (productId: string | undefined, step: StockStep) => {
     if (productId) steps.set(productId, [...(steps.get(productId) ?? []), step]);

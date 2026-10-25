@@ -1,4 +1,5 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { activeMembership } from "@/lib/access/membership";
 import { mapSnapshotRows } from "@/lib/snapshot/map-rows";
 import type { SnapshotRows } from "@/lib/snapshot/types";
 
@@ -7,6 +8,8 @@ export const runtime = "nodejs";
 
 const HISTORY_DAYS = 90;
 const PAGE = 1000;
+/** No date window: for non-owners the rows are whatever row security returns. */
+const ALL_TIME = "1970-01-01T00:00:00.000Z";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type Page = PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>;
@@ -32,11 +35,14 @@ export async function GET(request: Request) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return Response.json({ error: "Authentication is required." }, { status: 401 });
 
-    const { data: membership, error: membershipError } = await supabase.from("business_members").select("business_id, role").eq("user_id", user.id).eq("status", "active").limit(1).maybeSingle();
+    const { data: membership, error: membershipError } = await activeMembership(supabase, user.id);
     if (membershipError) return Response.json({ error: membershipError.message }, { status: 502 });
     if (!membership) return Response.json({ error: "No business is configured for this account." }, { status: 404 });
     const businessId = membership.business_id as string;
-    const since = new Date(Date.now() - HISTORY_DAYS * 86_400_000).toISOString();
+    // Owners get the last 90 days. Other members read only what selling needs: row security already limits their sales
+    // and credit notes to today's (Dubai) and the open shift's, so no date window applies, and stock movements are left out.
+    const owner = membership.role === "owner";
+    const since = owner ? new Date(Date.now() - HISTORY_DAYS * 86_400_000).toISOString() : ALL_TIME;
 
     const [business, devices, products, customers, sales, creditNotes, stockMovements, register] = await Promise.all([
       supabase.from("businesses").select("id, legal_name, trn, address, phone, invoice_prefix, receipt_footer, country, currency").eq("id", businessId).single(),
@@ -45,7 +51,9 @@ export async function GET(request: Request) {
       fetchAll((from, to) => supabase.from("customers").select("id, name, phone, email, address, trn, created_at, updated_at").eq("business_id", businessId).order("created_at", { ascending: false }).order("id").range(from, to)),
       fetchAll((from, to) => supabase.from("sales").select("id, device_id, invoice_number, created_at, supply_date, payment_method, net_fils, vat_fils, gross_fils, status, customer_snapshot, supplier_snapshot, sale_items!sale_items_sale_id_fkey(id, product_id, description, sku, quantity, unit_gross_fils, list_unit_gross_fils, net_fils, vat_fils, gross_fils)").eq("business_id", businessId).gte("created_at", since).order("created_at", { ascending: false }).order("id").range(from, to)),
       fetchAll((from, to) => supabase.from("credit_notes").select("id, device_id, credit_note_number, sale_id, payment_method, created_at, sales!credit_notes_sale_id_fkey(invoice_number), net_fils, vat_fils, gross_fils, credit_note_items!credit_note_items_credit_note_id_fkey(id, sale_item_id, product_id, description, sku, quantity, unit_gross_fils, net_fils, vat_fils, gross_fils)").eq("business_id", businessId).gte("created_at", since).order("created_at", { ascending: false }).order("id").range(from, to)),
-      fetchAll((from, to) => supabase.from("stock_movements").select("id, product_id, type, quantity_delta, reason, created_at").eq("business_id", businessId).gte("created_at", since).order("created_at", { ascending: false }).order("id").range(from, to)),
+      owner
+        ? fetchAll((from, to) => supabase.from("stock_movements").select("id, product_id, type, quantity_delta, reason, created_at").eq("business_id", businessId).gte("created_at", since).order("created_at", { ascending: false }).order("id").range(from, to))
+        : Promise.resolve({ data: [] as unknown[], error: null }),
       deviceId
         ? supabase.from("register_sessions").select("id, status, opened_at, opening_cash_fils, closed_at, counted_cash_fils, expected_cash_fils, variance_fils, cash_movements(id, type, amount_fils, reason, created_at)").eq("business_id", businessId).eq("device_id", deviceId).order("opened_at", { ascending: false }).limit(1).maybeSingle()
         : Promise.resolve({ data: null, error: null }),

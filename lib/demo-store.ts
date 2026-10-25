@@ -20,6 +20,7 @@ import {
 import { saleBlockReason } from "@/lib/checkout/register-status";
 import { dubaiSupplyDate, nextCreditNoteNumber, nextInvoiceNumber } from "@/lib/invoice-numbers";
 import { clearOfflineCache, clearSyncedOutbox, loadOfflineCustomers, loadOfflineSnapshot, persistOfflineSnapshot } from "@/lib/offline-db";
+import { refundedQuantities, type InvoiceLookup } from "@/lib/sales/invoice-lookup";
 import { mergeSnapshot } from "@/lib/snapshot/merge";
 import { registerTotals } from "@/lib/store/register-totals";
 import type { BusinessProfile, MemberRole, ShopSnapshot, TillDevice } from "@/lib/snapshot/types";
@@ -39,7 +40,8 @@ import {
   type HostedCache,
   type HostedContext,
 } from "@/lib/store/hosted";
-import { isSupabaseConfigured } from "@/lib/supabase/client";
+import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import type { ChecklistFlags } from "@/lib/onboarding/checklist";
 import type { ImportPlan } from "@/lib/catalogue/classify";
 import { heldStockOperations, stampSequence, supersedeProductOperations, syncOrder, withTaxCategories } from "@/lib/store/product-sync";
 import { useSyncExternalStore } from "react";
@@ -111,6 +113,8 @@ export type ShopContext = {
   entitlementsStale: boolean;
   role: MemberRole | null;
   lastRefreshedAt: string | null;
+  /** The owner's get-ready-to-sell facts; null for everyone else, in sample mode, or until first loaded. */
+  onboarding: ChecklistFlags | null;
 };
 
 function sampleRequested() {
@@ -129,6 +133,8 @@ function initialMode(): StoreMode {
 let mode: StoreMode = initialMode();
 let state: DemoState = mode === "hosted" ? emptyShopState() : initialState;
 let hostedContext: HostedContext = emptyHostedContext();
+// Not cached: re-read from the server with every snapshot refresh, so it never carries over between accounts.
+let onboardingFlags: ChecklistFlags | null = null;
 let hydrated = false;
 // The signed-in user whose hosted shop is loaded; every hosted cache is keyed by it (ruling R17).
 let activeUserId: string | null = null;
@@ -151,6 +157,7 @@ function buildContext(): ShopContext {
     entitlementsStale: stale,
     role: mode === "hosted" ? hostedContext.role ?? null : "owner",
     lastRefreshedAt: hostedContext.lastRefreshedAt,
+    onboarding: mode === "hosted" && hostedContext.role === "owner" ? onboardingFlags : null,
   };
 }
 
@@ -304,6 +311,20 @@ function applySnapshot(snapshot: ShopSnapshot) {
   };
   save(merged);
   emitContext();
+  if (snapshot.role === "owner") void refreshOnboarding(snapshot.business.id);
+}
+
+async function refreshOnboarding(businessId: string) {
+  try {
+    const { data, error } = await createClient().rpc("onboarding_status", { p_business_id: businessId });
+    if (error || !data || typeof data !== "object") return;
+    const flags = data as Partial<ChecklistFlags>;
+    if (mode !== "hosted" || hostedContext.business?.id !== businessId) return;
+    onboardingFlags = { hasProduct: flags.hasProduct === true, hasOpenedRegister: flags.hasOpenedRegister === true, hasSale: flags.hasSale === true };
+    emitContext();
+  } catch {
+    // Offline: keep the last flags; the strip is a nudge, not a gate.
+  }
 }
 
 async function fetchSnapshot(): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -407,6 +428,7 @@ export function startSampleStore() {
   activeUserId = null;
   state = initialState;
   hostedContext = emptyHostedContext();
+  onboardingFlags = null;
   hydrate();
   emit();
   emitContext();
@@ -426,6 +448,7 @@ export function clearHostedStore(): { cleared: boolean; pending: number } {
   activeUserId = null;
   state = emptyShopState();
   hostedContext = emptyHostedContext();
+  onboardingFlags = null;
   emit();
   emitContext();
   return { cleared: !pending, pending };
@@ -730,20 +753,21 @@ export function completeSale(inputLines: CheckoutLine[], paymentMethod: PaymentM
 }
 
 export function returnedQuantities(saleId: string) {
-  const quantities = new Map<string, number>();
-  for (const note of state.creditNotes.filter((item) => item.saleId === saleId)) {
-    for (const item of note.lines) quantities.set(item.originalLineId, (quantities.get(item.originalLineId) ?? 0) + item.quantity);
-  }
-  return quantities;
+  return refundedQuantities(saleId, state.creditNotes);
 }
 
-export function createCreditNote(saleId: string, requestedQuantities: Record<string, number>): { ok: true; creditNote: CreditNote } | { ok: false; error: string } {
+/**
+ * Issues a credit note for a sale this browser holds or, with `found`, for one fetched from the server by its invoice
+ * number (owner decision 8: any sale of the shop can be refunded from its receipt). The server's existing credit
+ * notes for that sale count against what is left to return.
+ */
+export function createCreditNote(saleId: string, requestedQuantities: Record<string, number>, found?: InvoiceLookup): { ok: true; creditNote: CreditNote } | { ok: false; error: string } {
   const till = tillNumber();
   if (till === null) return { ok: false, error: "Choose which till this browser is before processing a refund." };
   if (!state.register || state.register.status !== "open") return { ok: false, error: "Open the register before processing a refund." };
-  const sale = state.sales.find((item) => item.id === saleId);
+  const sale = state.sales.find((item) => item.id === saleId) ?? (found?.sale.id === saleId ? found.sale : undefined);
   if (!sale) return { ok: false, error: "Original invoice not found." };
-  const alreadyReturned = returnedQuantities(saleId);
+  const alreadyReturned = refundedQuantities(saleId, state.creditNotes, found?.sale.id === saleId ? found.creditNotes : []);
   const validLines: { item: InvoiceLine; quantity: number }[] = [];
   for (const item of sale.lines) {
     const quantity = Math.floor(Number(requestedQuantities[item.id] ?? 0));
