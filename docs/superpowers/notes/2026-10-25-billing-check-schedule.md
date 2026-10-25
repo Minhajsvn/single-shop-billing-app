@@ -15,6 +15,16 @@ Production only). Never put them in the code or in a `NEXT_PUBLIC_` variable.
 | `PLATFORM_STAFF_EMAILS` | Your staff sign-in email(s), comma-separated, e.g. `you@yourcompany.example`. The account must have a confirmed email. |
 | `ADMIN_CRON_SECRET` | A long random secret, **at least 32 characters**. A shorter or missing secret turns the scheduled call off. |
 
+**Protect the staff check before you list anyone.** The app treats a user as staff when their email is on
+`PLATFORM_STAFF_EMAILS` and confirmed, so it relies on the hosted Supabase project confirming emails:
+
+1. Keep **Confirm email** turned on in the hosted Supabase project (Authentication → Sign In / Providers → Email).
+   With it off, anyone who signs up with an allowlisted address is staff at once.
+2. Register (and confirm) the staff account first, then add its email to `PLATFORM_STAFF_EMAILS`. Never list an
+   address that has no account yet, or someone could sign up with it.
+
+Details: `docs/superpowers/notes/2026-10-21-hosted-auth-setup.md`, section 7.
+
 Make a secret on your own computer, for example:
 
 ```
@@ -36,7 +46,10 @@ No body is needed (it checks every shop with a Stripe subscription). Answers:
 
 - `200 {"checked": N, "mismatches": M, "failed": F}`: done. `failed` counts shops Stripe could not answer for.
 - `200 {"error": "Billing is not set up yet."}`: Stripe is not configured on this host; nothing was done.
-- `401`: the secret header is missing or wrong (or `ADMIN_CRON_SECRET` is shorter than 32 characters).
+- `404 {"error": "Not found"}`: the secret header is missing or wrong (or `ADMIN_CRON_SECRET` is shorter than 32
+  characters, or missing). This is the same answer as a page that does not exist, so nobody without the secret can
+  tell the endpoint is there. A misconfigured scheduler just sees a non-2xx answer: if every run fails with 404,
+  check the URL, the header name and the secret value on both sides.
 
 Pick **one** of the options below.
 

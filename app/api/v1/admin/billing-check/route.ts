@@ -1,5 +1,5 @@
 import { adminNotFound, requireStaff } from "@/lib/admin/require-staff";
-import { billingCheckCaller, CRON_SECRET_HEADER } from "@/lib/admin/staff";
+import { billingCheckRefusal, CRON_SECRET_HEADER } from "@/lib/admin/staff";
 import { readBody, refused } from "@/lib/admin/action-route";
 import { runBillingCheck } from "@/lib/admin/billing-check-run";
 import { isShopId } from "@/lib/admin/shop-view";
@@ -8,15 +8,14 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 /**
- * Daily billing check: a staff session, or the scheduler's `x-admin-cron-secret` header. Neither → 401 (this route
- * only; every other admin route answers 404). Body `{ businessId? }` checks one shop; no body checks every shop.
- * It only records flags; it never changes a subscription.
+ * Daily billing check: a staff session, or the scheduler's `x-admin-cron-secret` header. Neither (or a missing or
+ * wrong secret) → the same 404 as a missing route, like every other admin route. Body `{ businessId? }` checks one
+ * shop; no body checks every shop. It only records flags; it never changes a subscription.
  */
 export async function POST(request: Request) {
   const staff = await requireStaff();
-  if (!billingCheckCaller(staff.ok, request.headers.get(CRON_SECRET_HEADER))) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const refusal = billingCheckRefusal(staff.ok, request.headers.get(CRON_SECRET_HEADER));
+  if (refusal) return refusal;
 
   const body = await readBody(request);
   const input = body && typeof body === "object" && !Array.isArray(body) ? (body as Record<string, unknown>) : {};

@@ -1,5 +1,7 @@
 // SERVER ONLY. Never import this from a client component (the `server-only` package is not installed).
 import { createHash, timingSafeEqual } from "node:crypto";
+// Relative .ts import so the unit tests can load this file directly.
+import { adminNotFound } from "./not-found.ts";
 
 type Env = Record<string, string | undefined>;
 
@@ -37,8 +39,16 @@ export function cronSecretMatches(header: string | null, env: Env = process.env)
   return timingSafeEqual(expected, actual);
 }
 
-/** Who may run the billing check: a staff session first, else the scheduler's cron header; null answers 401. */
+/** Who may run the billing check: a staff session first, else the scheduler's cron header; null is refused. */
 export function billingCheckCaller(staffSession: boolean, header: string | null, env: Env = process.env): "staff" | "cron" | null {
   if (staffSession) return "staff";
   return cronSecretMatches(header, env) ? "cron" : null;
+}
+
+/**
+ * The billing check route's answer to a caller it refuses (no staff session, missing or wrong cron secret): the same
+ * 404 as a missing route, so nobody off the allowlist can tell the admin API exists. null lets the caller through.
+ */
+export function billingCheckRefusal(staffSession: boolean, header: string | null, env: Env = process.env): Response | null {
+  return billingCheckCaller(staffSession, header, env) ? null : adminNotFound();
 }

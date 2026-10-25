@@ -4,7 +4,8 @@ import { compareSubscription, flagFieldLabel, flagValueText, MISSING_SUBSCRIPTIO
 import { billingProvider, BILLING_NOT_SET_UP } from "../lib/billing/provider.ts";
 import { normalizeStripeEvent, subscriptionSnapshot } from "../lib/billing/stripe-events.ts";
 import { runBillingCheckWith } from "../lib/admin/billing-check-run.ts";
-import { billingCheckCaller, CRON_SECRET_HEADER } from "../lib/admin/staff.ts";
+import { billingCheckCaller, billingCheckRefusal, CRON_SECRET_HEADER } from "../lib/admin/staff.ts";
+import { adminNotFound } from "../lib/admin/not-found.ts";
 
 const HOUR = 60 * 60 * 1000;
 const at = (iso, ms = 0) => new Date(Date.parse(iso) + ms).toISOString();
@@ -242,4 +243,18 @@ test("the billing check route takes a staff session or the cron secret, nothing 
   // A short or missing secret disables the cron path, even when the header matches it.
   assert.equal(billingCheckCaller(false, "short", { ADMIN_CRON_SECRET: "short" }), null);
   assert.equal(billingCheckCaller(false, "anything", {}), null);
+});
+
+test("a billing check caller with neither a staff session nor the cron secret gets exactly the admin 404", async () => {
+  const env = { ADMIN_CRON_SECRET: "s".repeat(32) };
+  const snapshot = async (response) => ({ status: response.status, type: response.headers.get("content-type"), body: await response.text() });
+  const expected = await snapshot(adminNotFound());
+  for (const header of [null, "", "wrong", "s".repeat(31)]) {
+    const refusal = billingCheckRefusal(false, header, env);
+    assert.ok(refusal, `refused for header ${JSON.stringify(header)}`);
+    assert.deepEqual(await snapshot(refusal), expected);
+  }
+  assert.deepEqual(await snapshot(billingCheckRefusal(false, "anything", {})), expected);
+  assert.equal(billingCheckRefusal(true, null, env), null);
+  assert.equal(billingCheckRefusal(false, "s".repeat(32), env), null);
 });
