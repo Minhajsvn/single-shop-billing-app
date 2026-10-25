@@ -1,7 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { BillingCheck } from "@/components/admin/billing-check";
 import { CopyText } from "@/components/admin/copy-text";
+import { NeedsLookBadge } from "@/components/admin/needs-look-badge";
 import { ShopActions } from "@/components/admin/shop-actions";
+import { flagFieldLabel, flagValueText } from "@/lib/billing/billing-check";
 import { requireStaff } from "@/lib/admin/require-staff";
 import { getShop } from "@/lib/admin/shops";
 import { adminDateTime, tillsLine } from "@/lib/admin/shop-view";
@@ -52,7 +55,10 @@ export default async function AdminShopPage({ params }: { params: Promise<{ id: 
     <div className="space-y-4">
       <div>
         <Link href="/admin" className="text-sm text-slate-500 underline">All shops</Link>
-        <h1 className="mt-1 text-xl font-semibold">{shop.name}</h1>
+        <h1 className="mt-1 flex flex-wrap items-center gap-2 text-xl font-semibold">
+          {shop.name}
+          {shop.billingCheck.flags.length ? <NeedsLookBadge /> : null}
+        </h1>
         <p className="text-sm text-slate-600">{shop.statusText}</p>
       </div>
 
@@ -94,6 +100,22 @@ export default async function AdminShopPage({ params }: { params: Promise<{ id: 
           ["Stripe subscription", <CopyText key="subscription" value={s?.stripeSubscriptionId ?? null} />],
           ["Last Stripe event", adminDateTime(s?.lastEventAt ?? null)],
         ]} />
+      </Section>
+
+      <Section title="Billing check">
+        <BillingCheck
+          shopId={shop.id}
+          shopName={shop.name}
+          lastChecked={shop.billingCheck.lastCheckedAt ? adminDateTime(shop.billingCheck.lastCheckedAt) : "never"}
+          flags={shop.billingCheck.flags.map((flag) => ({
+            id: flag.id,
+            label: flagFieldLabel(flag.field),
+            ours: flagValueText(flag.field, flag.ours, adminDateTime),
+            theirs: flagValueText(flag.field, flag.theirs, adminDateTime),
+            firstSeen: adminDateTime(flag.firstSeen),
+            lastSeen: adminDateTime(flag.lastSeen),
+          }))}
+        />
       </Section>
 
       <Section title="Tills">

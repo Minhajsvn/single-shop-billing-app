@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { NOTE_MAX, adminErrorMessage, parseEndExtraTill, parseExtendTrial, parseExtraTill, refusalMessage } from "../lib/admin/actions.ts";
+import { NOTE_MAX, adminErrorMessage, parseEndExtraTill, parseExtendTrial, parseExtraTill, parseFlagSeen, refusalMessage } from "../lib/admin/actions.ts";
 
 const now = new Date("2026-10-25T10:00:00Z");
 const DAY = 24 * 60 * 60 * 1000;
@@ -82,4 +82,12 @@ test("refusalMessage reads only known refusal codes from a database error", () =
   assert.deepEqual(refusalMessage({ code: "P0001", message: "who knows" }), { known: false, message: "That did not work. Try again." });
   assert.deepEqual(refusalMessage({ code: "42501", message: "not_trialing" }), { known: false, message: "That did not work. Try again." });
   assert.deepEqual(refusalMessage(null), { known: false, message: "That did not work. Try again." });
+});
+
+test("marking a flag looked at needs a note; flag refusals have plain words", () => {
+  assert.deepEqual(parseFlagSeen({ note: "  Checked in Stripe " }), { ok: true, note: "Checked in Stripe" });
+  assert.deepEqual(parseFlagSeen({ note: "" }), { ok: false, error: "Write a note of up to 500 characters." });
+  assert.deepEqual(parseFlagSeen(null), { ok: false, error: "Write a note of up to 500 characters." });
+  assert.equal(adminErrorMessage("flag_not_found"), "This flag no longer exists.");
+  assert.equal(adminErrorMessage("flag_already_seen"), "This flag was already marked looked at.");
 });

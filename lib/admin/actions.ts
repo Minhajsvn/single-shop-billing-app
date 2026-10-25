@@ -17,6 +17,8 @@ const MESSAGES: Record<string, string> = {
   no_extra_till: "This shop has no extra till to end.",
   shop_not_found: "This shop no longer exists.",
   plan_has_no_till_limit: "This plan has no till limit, so an extra till is not needed.",
+  flag_not_found: "This flag no longer exists.",
+  flag_already_seen: "This flag was already marked looked at.",
 };
 const FALLBACK = "That did not work. Try again.";
 
@@ -96,4 +98,9 @@ export function parseExtraTill(body: unknown, now: Date): { ok: true; until: str
 export function parseEndExtraTill(body: unknown): { ok: true; note: string } | Fail {
   const cleaned = note(record(body)?.note);
   return cleaned === null ? fail("note_required") : { ok: true, note: cleaned };
+}
+
+/** `{ note }` for marking a billing flag as looked at. */
+export function parseFlagSeen(body: unknown): { ok: true; note: string } | Fail {
+  return parseEndExtraTill(body);
 }

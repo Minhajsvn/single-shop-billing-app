@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { NeedsLookBadge } from "@/components/admin/needs-look-badge";
 import { requireStaff } from "@/lib/admin/require-staff";
 import { listShops } from "@/lib/admin/shops";
 import { adminDateTime } from "@/lib/admin/shop-view";
@@ -9,9 +10,10 @@ function one(value: string | string[] | undefined): string {
   return (Array.isArray(value) ? value[0] : value) ?? "";
 }
 
-function pageHref(query: string, page: number): string {
+function pageHref(query: string, page: number, needsLook: boolean): string {
   const params = new URLSearchParams();
   if (query) params.set("q", query);
+  if (needsLook) params.set("look", "1");
   if (page > 1) params.set("page", String(page));
   const text = params.toString();
   return text ? `/admin?${text}` : "/admin";
@@ -22,7 +24,8 @@ export default async function AdminShopsPage({ searchParams }: { searchParams: P
 
   const params = await searchParams;
   const query = one(params.q).trim().slice(0, 200);
-  const { rows, total, page, pages } = await listShops({ query, page: Number.parseInt(one(params.page), 10) });
+  const needsLook = one(params.look) === "1";
+  const { rows, total, page, pages, needsLookCount } = await listShops({ query, page: Number.parseInt(one(params.page), 10), needsLook });
 
   return (
     <div className="space-y-4">
@@ -34,13 +37,23 @@ export default async function AdminShopsPage({ searchParams }: { searchParams: P
             placeholder="Shop name, owner email, TRN or shop id"
             className="min-w-0 flex-1 rounded border border-slate-300 bg-white px-3 py-1.5 text-sm sm:w-80"
           />
+          {needsLook ? <input type="hidden" name="look" value="1" /> : null}
           <button type="submit" className="rounded bg-slate-900 px-3 py-1.5 text-sm text-white">Search</button>
         </form>
       </div>
 
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+        <p className={needsLookCount ? "font-medium text-red-700" : "text-slate-500"}>
+          {needsLookCount === 1 ? "1 shop needs a look" : `${needsLookCount} shops need a look`}
+        </p>
+        <Link href={pageHref(query, 1, !needsLook)} className="underline">
+          {needsLook ? "Show all shops" : "Needs a look only"}
+        </Link>
+      </div>
+
       <p className="text-sm text-slate-500">
-        {total === 1 ? "1 shop" : `${total} shops`}{query ? ` matching “${query}”` : ""}
-        {query ? <> · <Link href="/admin" className="underline">Clear</Link></> : null}
+        {total === 1 ? "1 shop" : `${total} shops`}{needsLook ? " needing a look" : ""}{query ? ` matching “${query}”` : ""}
+        {query || needsLook ? <> · <Link href="/admin" className="underline">Clear</Link></> : null}
       </p>
 
       <div className="overflow-x-auto rounded border border-slate-200 bg-white">
@@ -57,7 +70,9 @@ export default async function AdminShopsPage({ searchParams }: { searchParams: P
           <tbody>
             {rows.map((row) => (
               <tr key={row.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
-                <td className="px-3 py-2"><Link href={`/admin/shops/${row.id}`} className="font-medium underline-offset-2 hover:underline">{row.name}</Link></td>
+                <td className="px-3 py-2"><Link href={`/admin/shops/${row.id}`} className="font-medium underline-offset-2 hover:underline">{row.name}</Link>
+                  {row.openFlags ? <> <NeedsLookBadge /></> : null}
+                </td>
                 <td className="px-3 py-2">{row.ownerEmail || "—"}</td>
                 <td className="px-3 py-2">{row.planId ? PLANS[row.planId as PlanId]?.name ?? row.planId : "—"}</td>
                 <td className="px-3 py-2">{row.statusText}</td>
@@ -73,9 +88,9 @@ export default async function AdminShopsPage({ searchParams }: { searchParams: P
 
       {pages > 1 ? (
         <nav className="flex items-center justify-between text-sm" aria-label="Pages">
-          {page > 1 ? <Link href={pageHref(query, page - 1)} className="underline">Previous</Link> : <span />}
+          {page > 1 ? <Link href={pageHref(query, page - 1, needsLook)} className="underline">Previous</Link> : <span />}
           <span className="text-slate-500">Page {page} of {pages}</span>
-          {page < pages ? <Link href={pageHref(query, page + 1)} className="underline">Next</Link> : <span />}
+          {page < pages ? <Link href={pageHref(query, page + 1, needsLook)} className="underline">Next</Link> : <span />}
         </nav>
       ) : null}
     </div>

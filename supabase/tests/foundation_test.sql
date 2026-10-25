@@ -1912,4 +1912,167 @@ begin
 end $$;
 reset role;
 
+-- 26d. Billing check flags. Shop K gets a Stripe-like subscription id; shop I has none and is never checked.
+-- One open flag per (shop, field): a repeat run updates it, "looked at" closes it with an audit row, and a field
+-- still wrong on the next run opens a new flag. The check never touches subscriptions.
+update public.subscriptions set stripe_subscription_id = 'sub_26d_k', stripe_customer_id = 'cus_26d_k'
+where business_id = 'b2600000-0000-4000-8000-000000000002';
+set local role service_role;
+do $$
+declare
+  biz constant uuid := 'b2600000-0000-4000-8000-000000000002';
+  staff constant uuid := '00000000-0000-4000-8000-000000000015';
+  sub_before public.subscriptions;
+  flag public.admin_billing_flags;
+  first_flag uuid;
+  first_last_seen timestamptz;
+  ev public.audit_events;
+  failure text;
+begin
+  select * into sub_before from public.subscriptions where business_id = biz;
+  assert biz in (select public.admin_billing_check_shops()), 'a shop with a Stripe subscription id is checked';
+  assert 'b2600000-0000-4000-8000-000000000001'::uuid not in (select public.admin_billing_check_shops()), 'a shop without one is not';
+
+  -- An agreeing run records the check time and opens nothing.
+  perform public.admin_record_billing_check(biz, '[]'::jsonb);
+  assert (select count(*) from public.admin_billing_flags where business_id = biz) = 0, 'agreement opens no flag';
+  assert (select checked_at from public.admin_billing_check_runs where business_id = biz) is not null, 'the check time is recorded';
+
+  perform public.admin_record_billing_check(biz, jsonb_build_array(
+    jsonb_build_object('field', 'status', 'ours', 'active', 'theirs', 'past_due'),
+    jsonb_build_object('field', 'cancel_at', 'ours', null, 'theirs', '2026-12-01T00:00:00.000Z')));
+  assert (select count(*) from public.admin_billing_flags where business_id = biz and seen_at is null) = 2, 'one open flag per field';
+  select * into flag from public.admin_billing_flags where business_id = biz and field = 'status';
+  assert flag.ours = 'active' and flag.theirs = 'past_due' and flag.first_seen = flag.last_seen, 'the status flag holds both values';
+  assert (select ours from public.admin_billing_flags where business_id = biz and field = 'cancel_at') is null, 'a missing value is null';
+  first_flag := flag.id;
+
+  -- Same mismatch again (Review Focus 4): last_seen moves, values update, no duplicate.
+  update public.admin_billing_flags set first_seen = now() - interval '1 day', last_seen = now() - interval '1 day' where id = first_flag;
+  first_last_seen := now() - interval '1 day';
+  perform public.admin_record_billing_check(biz, jsonb_build_array(
+    jsonb_build_object('field', 'status', 'ours', 'active', 'theirs', 'unpaid')));
+  assert (select count(*) from public.admin_billing_flags where business_id = biz and field = 'status') = 1, 'no duplicate status flag';
+  select * into flag from public.admin_billing_flags where id = first_flag;
+  assert flag.last_seen > first_last_seen and flag.first_seen = first_last_seen, 'last_seen moves, first_seen stays';
+  assert flag.theirs = 'unpaid', 'the flag holds the latest values';
+  assert (select count(*) from public.admin_billing_flags where business_id = biz and field = 'cancel_at' and seen_at is null) = 1,
+    'agreement on a field does not close its flag';
+
+  -- Looked at: the flag closes with the staff id and note, and one audit row.
+  perform public.admin_mark_flag_seen(first_flag, staff, '  Checked in Stripe, webhook was late  ');
+  select * into flag from public.admin_billing_flags where id = first_flag;
+  assert flag.seen_at is not null and flag.seen_by = staff and flag.seen_note = 'Checked in Stripe, webhook was late', 'the flag is closed';
+  select * into ev from public.audit_events where business_id = biz and action = 'admin.flag_seen';
+  assert ev.actor_id = staff and ev.entity_type = 'billing_flag' and ev.entity_id = first_flag, 'audit row for the flag';
+  assert ev.summary->>'note' = 'Checked in Stripe, webhook was late', 'the audit note is the trimmed note';
+  assert ev.summary->'before'->>'field' = 'status' and ev.summary->'before'->>'theirs' = 'unpaid'
+    and ev.summary->'before'->'seenAt' = 'null'::jsonb and ev.summary->'after'->>'seenAt' is not null, 'summary has before and after';
+
+  failure := null;
+  begin
+    perform public.admin_mark_flag_seen(first_flag, staff, 'again');
+    assert false, 'marking twice must be refused';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'flag_already_seen', 'mark twice, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin
+    perform public.admin_mark_flag_seen(gen_random_uuid(), staff, 'nothing');
+    assert false, 'an unknown flag must be refused';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'flag_not_found', 'unknown flag, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin
+    perform public.admin_mark_flag_seen((select id from public.admin_billing_flags where business_id = biz and field = 'cancel_at'), staff, '   ');
+    assert false, 'a blank note must be refused';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'note_required', 'blank note, got ' || coalesce(failure, 'null');
+
+  -- Still wrong on the next run: a new open flag; the looked-at one stays closed.
+  perform public.admin_record_billing_check(biz, jsonb_build_array(
+    jsonb_build_object('field', 'status', 'ours', 'active', 'theirs', 'unpaid')));
+  assert (select count(*) from public.admin_billing_flags where business_id = biz and field = 'status') = 2, 'a new flag after looked at';
+  assert (select count(*) from public.admin_billing_flags where business_id = biz and field = 'status' and seen_at is null) = 1, 'only one is open';
+  assert (select id from public.admin_billing_flags where business_id = biz and field = 'status' and seen_at is null) <> first_flag, 'it is a new flag';
+
+  failure := null;
+  begin
+    perform public.admin_record_billing_check(biz, jsonb_build_array(jsonb_build_object('field', 'plan', 'ours', 'a', 'theirs', 'b')));
+    assert false, 'an unknown field must be refused';
+  exception when others then failure := sqlstate;
+  end;
+  assert failure = '23514', 'unknown field refused by the check, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin
+    perform public.admin_record_billing_check(biz, '{"field": "status"}'::jsonb);
+    assert false, 'mismatches must be an array';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'mismatches_not_array', 'not an array, got ' || coalesce(failure, 'null');
+
+  assert (select row(s.*)::text from public.subscriptions s where business_id = biz) = row(sub_before.*)::text,
+    'the billing check never changes subscriptions';
+end $$;
+reset role;
+
+-- 26e. Flags are service-role only: a signed-in user cannot run the flag functions or read the flags table.
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-000000000016","role":"authenticated"}', true);
+do $$
+declare
+  biz constant uuid := 'b2600000-0000-4000-8000-000000000002';
+  failure text;
+begin
+  begin
+    perform public.admin_record_billing_check(biz, '[]'::jsonb);
+    assert false, 'an owner must not record a billing check';
+  exception when others then failure := sqlstate;
+  end;
+  assert failure = '42501', 'record refused, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin
+    perform public.admin_mark_flag_seen((select gen_random_uuid()), '00000000-0000-4000-8000-000000000016', 'self-service');
+    assert false, 'an owner must not close a flag';
+  exception when others then failure := sqlstate;
+  end;
+  assert failure = '42501', 'mark seen refused, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin
+    perform public.admin_billing_check_shops();
+    assert false, 'an owner must not list checked shops';
+  exception when others then failure := sqlstate;
+  end;
+  assert failure = '42501', 'list refused, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin
+    perform count(*) from public.admin_billing_flags;
+    assert false, 'an owner must not read flags';
+  exception when others then failure := sqlstate;
+  end;
+  assert failure = '42501', 'flags table refused, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin
+    perform count(*) from public.admin_billing_check_runs;
+    assert false, 'an owner must not read check times';
+  exception when others then failure := sqlstate;
+  end;
+  assert failure = '42501', 'check runs table refused, got ' || coalesce(failure, 'null');
+end $$;
+reset role;
+do $$ begin
+  assert not has_function_privilege('anon', 'public.admin_record_billing_check(uuid, jsonb)', 'execute'), 'anon cannot record';
+  assert not has_function_privilege('authenticated', 'public.admin_mark_flag_seen(uuid, uuid, text)', 'execute'), 'authenticated cannot mark';
+  assert not has_function_privilege('anon', 'public.admin_billing_check_shops()', 'execute'), 'anon cannot list';
+  assert not has_table_privilege('anon', 'public.admin_billing_flags', 'select'), 'anon cannot read flags';
+  assert not has_table_privilege('authenticated', 'public.admin_billing_flags', 'select'), 'authenticated cannot read flags';
+  assert (select relrowsecurity from pg_class where oid = 'public.admin_billing_flags'::regclass), 'RLS is on for flags';
+  assert (select count(*) from pg_policies where schemaname = 'public' and tablename = 'admin_billing_flags') = 0, 'no policies on flags';
+  assert has_function_privilege('service_role', 'public.admin_record_billing_check(uuid, jsonb)', 'execute'), 'service_role records';
+  assert has_function_privilege('service_role', 'public.admin_mark_flag_seen(uuid, uuid, text)', 'execute'), 'service_role marks';
+  assert has_function_privilege('service_role', 'public.admin_billing_check_shops()', 'execute'), 'service_role lists';
+end $$;
+
 rollback;

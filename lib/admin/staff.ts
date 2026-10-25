@@ -36,3 +36,9 @@ export function cronSecretMatches(header: string | null, env: Env = process.env)
   const actual = createHash("sha256").update(header).digest();
   return timingSafeEqual(expected, actual);
 }
+
+/** Who may run the billing check: a staff session first, else the scheduler's cron header; null answers 401. */
+export function billingCheckCaller(staffSession: boolean, header: string | null, env: Env = process.env): "staff" | "cron" | null {
+  if (staffSession) return "staff";
+  return cronSecretMatches(header, env) ? "cron" : null;
+}

@@ -1,5 +1,8 @@
 import Stripe from "stripe";
-import type { BillingInterval } from "./stripe-events.ts";
+import type { ProviderSubscription } from "./billing-check.ts";
+import { subscriptionSnapshot, type BillingInterval } from "./stripe-events.ts";
+
+export type { ProviderSubscription } from "./billing-check.ts";
 
 export type BillingProviderKind = "stripe" | "pretend" | "none";
 
@@ -17,6 +20,8 @@ export type BillingProvider = {
   kind: BillingProviderKind;
   startCheckout(input: CheckoutInput): Promise<string>;
   openPortal(input: PortalInput): Promise<string>;
+  /** The provider's view of a subscription for the billing check; null when the provider has no such subscription. */
+  getSubscription(id: string): Promise<ProviderSubscription | null>;
 };
 
 type Env = Record<string, string | undefined>;
@@ -90,6 +95,46 @@ function stripeProvider(env: Env): BillingProvider {
       });
       return session.url;
     },
+    async getSubscription(id) {
+      try {
+        return subscriptionSnapshot(await client().subscriptions.retrieve(id));
+      } catch (error) {
+        if (isMissingResource(error)) return null;
+        throw error;
+      }
+    },
+  };
+}
+
+/** Stripe answers an unknown subscription id with a 404 resource_missing error. */
+function isMissingResource(error: unknown): boolean {
+  const e = error as { code?: unknown; statusCode?: unknown } | null;
+  return e?.code === "resource_missing" || e?.statusCode === 404;
+}
+
+/** Subscription ids the pretend provider makes (lib/billing/pretend-events.ts): pretend_sub_<business id>. */
+const PRETEND_SUBSCRIPTION_PREFIX = "pretend_sub_";
+
+/**
+ * The pretend provider's view of a subscription is our own row, so a local check agrees end to end. An id it did not
+ * make (for example a Stripe-like sub_… set by hand in a test) does not exist there, which the check flags.
+ */
+async function pretendSubscription(id: string): Promise<ProviderSubscription | null> {
+  if (!id.startsWith(PRETEND_SUBSCRIPTION_PREFIX)) return null;
+  const { createAdminClient } = await import("../supabase/admin.ts");
+  const { data, error } = await createAdminClient()
+    .from("subscriptions")
+    .select("status, current_period_end, cancel_at, trial_ends_at")
+    .eq("stripe_subscription_id", id)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  return {
+    exists: true,
+    status: data.status as string,
+    currentPeriodEnd: data.current_period_end as string | null,
+    cancelAt: data.cancel_at as string | null,
+    trialEnd: data.trial_ends_at as string | null,
   };
 }
 
@@ -101,6 +146,7 @@ const pretendProvider: BillingProvider = {
   async openPortal(input) {
     return billingUrl(input.origin, "/billing/pretend/portal");
   },
+  getSubscription: pretendSubscription,
 };
 
 const noProvider: BillingProvider = {
@@ -109,6 +155,9 @@ const noProvider: BillingProvider = {
     throw new Error(BILLING_NOT_SET_UP);
   },
   async openPortal() {
+    throw new Error(BILLING_NOT_SET_UP);
+  },
+  async getSubscription() {
     throw new Error(BILLING_NOT_SET_UP);
   },
 };
