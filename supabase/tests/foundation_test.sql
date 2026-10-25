@@ -2131,4 +2131,95 @@ begin
 end $$;
 reset role;
 
+-- 26g. Owners never read admin.* audit rows (staff notes, staff ids, before/after values) but still read their own.
+-- Shop K has admin.extra_till / admin.end_extra_till / admin.flag_seen rows from 26c-26d; add one ordinary row.
+insert into public.audit_events (business_id, actor_id, action, entity_type, entity_id, summary)
+values ('b2600000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000016', 'sale.created', 'sale',
+  gen_random_uuid(), '{"test":"26g"}'::jsonb);
+do $$ begin
+  assert (select count(*) from public.audit_events where business_id = 'b2600000-0000-4000-8000-000000000002' and action like 'admin.%') > 0,
+    '26g fixture: shop K has admin audit rows';
+end $$;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-000000000016","role":"authenticated"}', true);
+do $$ begin
+  assert (select count(*) from public.audit_events where business_id = 'b2600000-0000-4000-8000-000000000002' and action like 'admin.%') = 0,
+    'an owner must not read admin audit rows';
+  assert (select count(*) from public.audit_events where business_id = 'b2600000-0000-4000-8000-000000000002' and summary->>'test' = '26g') = 1,
+    'an owner still reads their own non-admin audit rows';
+end $$;
+reset role;
+
+-- 26h. The till choice keeps up to the current till limit. Shop K is Pro (limit 2) with 3 active tills K1-K3 after
+-- its extra till ended in 26c: keeping 3 is too many, keeping none is refused, a cashier is refused, keeping 2 pauses 1.
+insert into auth.users (id, instance_id, aud, role, email) values
+  ('00000000-0000-4000-8000-000000000017', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'cashier-k@test.local');
+insert into public.business_members (business_id, user_id, role) values ('b2600000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000017', 'cashier');
+do $$ begin
+  assert (public.entitlements_internal('b2600000-0000-4000-8000-000000000002', now())->'limits'->>'tills')::integer = 2, '26h starts at the Pro limit of 2';
+  assert (select count(*) from public.devices where business_id = 'b2600000-0000-4000-8000-000000000002' and status = 'active') = 3, '26h starts with 3 active tills';
+end $$;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-000000000017","role":"authenticated"}', true);
+do $$
+declare failure text;
+begin
+  begin
+    perform public.choose_active_tills('b2600000-0000-4000-8000-000000000002',
+      array['d2600000-0000-4000-8000-0000000000c1', 'd2600000-0000-4000-8000-0000000000c2']::uuid[]);
+    assert false, 'a cashier must not choose the tills that stay';
+  exception when others then failure := sqlstate;
+  end;
+  assert failure = '42501', 'choose_active_tills is owner only, got ' || coalesce(failure, 'null');
+end $$;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-000000000016","role":"authenticated"}', true);
+do $$
+declare
+  biz constant uuid := 'b2600000-0000-4000-8000-000000000002';
+  k1 constant uuid := 'd2600000-0000-4000-8000-0000000000c1';
+  k2 constant uuid := 'd2600000-0000-4000-8000-0000000000c2';
+  k3 constant uuid := 'd2600000-0000-4000-8000-0000000000c3';
+  paused integer;
+  failure text;
+begin
+  begin
+    perform public.choose_active_tills(biz, array[k1, k2, k3]);
+    assert false, 'keeping more tills than the limit must be refused';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'too_many_tills', 'keep 3 on a limit of 2, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin
+    perform public.choose_active_tills(biz, array[]::uuid[]);
+    assert false, 'keeping no till must be refused';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'keep_at_least_one', 'keep 0, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin
+    perform public.choose_active_tills(biz, array[k1, gen_random_uuid()]);
+    assert false, 'an unknown till cannot be kept';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'till_not_found', 'unknown till, got ' || coalesce(failure, 'null');
+  assert (select count(*) from public.devices where business_id = biz and status = 'active') = 3, 'refusals pause nothing';
+
+  paused := public.choose_active_tills(biz, array[k1, k3]);
+  assert paused = 1, 'one till paused, got ' || coalesce(paused::text, 'null');
+  assert (select count(*) from public.devices where business_id = biz and status = 'active') = 2, 'two tills stay active';
+  assert (select status::text from public.devices where id = k2) = 'paused', 'the till not kept is paused';
+  assert (select status::text from public.devices where id = k1) = 'active' and (select status::text from public.devices where id = k3) = 'active',
+    'the kept tills stay active';
+
+  -- The one-till form still works: it keeps one and pauses the rest.
+  paused := public.choose_active_till(biz, k3);
+  assert paused = 1, 'choose_active_till pauses the other active till, got ' || coalesce(paused::text, 'null');
+  assert (select count(*) from public.devices where business_id = biz and status = 'active') = 1, 'one till left active';
+end $$;
+reset role;
+do $$ begin
+  assert not has_function_privilege('anon', 'public.choose_active_tills(uuid, uuid[])', 'execute'), 'anon cannot choose tills';
+  assert has_function_privilege('authenticated', 'public.choose_active_tills(uuid, uuid[])', 'execute'), 'signed-in users call it (owner check inside)';
+end $$;
+
 rollback;
