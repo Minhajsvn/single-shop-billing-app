@@ -1664,4 +1664,226 @@ do $$ begin
   assert has_function_privilege('authenticated', 'public.resume_till(uuid, uuid)', 'execute'), 'members can call resume';
 end $$;
 
+-- 26. Stage 1H admin console writes. Staff member ...15 (a plain auth user; the staff check is in the app).
+-- Shop I (owner ...14) is a Pro trial; shop K (owner ...16) is an active Pro shop with tills K1 and K2.
+reset role;
+insert into auth.users (id, instance_id, aud, role, email) values
+  ('00000000-0000-4000-8000-000000000014', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'owner-i@test.local'),
+  ('00000000-0000-4000-8000-000000000015', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'staff@test.local'),
+  ('00000000-0000-4000-8000-000000000016', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'owner-k@test.local');
+insert into public.businesses (id, owner_id, legal_name, trn, address, phone) values
+  ('b2600000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000014', 'Shop I LLC', '100000000000011', 'Satwa, Dubai', '+971500000261'),
+  ('b2600000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000016', 'Shop K LLC', '100000000000012', 'Satwa, Dubai', '+971500000262');
+update public.subscriptions set status = 'trialing', plan_id = 'pro', addon_tills = 0, has_payment_method = false,
+  trial_ends_at = now() - interval '1 day', grace_ends_at = null, canceled_at = null
+where business_id = 'b2600000-0000-4000-8000-000000000001';
+update public.subscriptions set status = 'active', plan_id = 'pro', addon_tills = 0, has_payment_method = true,
+  trial_ends_at = now() - interval '1 day', grace_ends_at = null, canceled_at = null
+where business_id = 'b2600000-0000-4000-8000-000000000002';
+insert into public.devices (id, business_id, name) values
+  ('d2600000-0000-4000-8000-0000000000c1', 'b2600000-0000-4000-8000-000000000002', 'Till K1'),
+  ('d2600000-0000-4000-8000-0000000000c2', 'b2600000-0000-4000-8000-000000000002', 'Till K2');
+
+-- 26a. Only the service role runs the admin functions: a signed-in user (even the shop owner) gets 42501.
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-000000000014","role":"authenticated"}', true);
+do $$
+declare
+  biz constant uuid := 'b2600000-0000-4000-8000-000000000001';
+  staff constant uuid := '00000000-0000-4000-8000-000000000015';
+  failure text;
+begin
+  begin
+    perform public.admin_extend_trial(biz, now() + interval '7 days', staff, 'self-service');
+    assert false, 'an owner must not extend their own trial';
+  exception when others then failure := sqlstate;
+  end;
+  assert failure = '42501', 'extend trial refused, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin
+    perform public.admin_give_extra_till(biz, now() + interval '3 days', staff, 'self-service');
+    assert false, 'an owner must not give themselves an extra till';
+  exception when others then failure := sqlstate;
+  end;
+  assert failure = '42501', 'extra till refused, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin
+    perform public.admin_end_extra_till(biz, staff, 'self-service');
+    assert false, 'an owner must not end an extra till';
+  exception when others then failure := sqlstate;
+  end;
+  assert failure = '42501', 'end extra till refused, got ' || coalesce(failure, 'null');
+end $$;
+reset role;
+do $$ begin
+  assert not has_function_privilege('anon', 'public.admin_extend_trial(uuid, timestamptz, uuid, text)', 'execute'), 'anon cannot extend';
+  assert not has_function_privilege('authenticated', 'public.admin_give_extra_till(uuid, timestamptz, uuid, text)', 'execute'), 'authenticated cannot give';
+  assert not has_function_privilege('authenticated', 'public.admin_end_extra_till(uuid, uuid, text)', 'execute'), 'authenticated cannot end';
+  assert has_function_privilege('service_role', 'public.admin_extend_trial(uuid, timestamptz, uuid, text)', 'execute'), 'service_role extends';
+  assert has_function_privilege('service_role', 'public.admin_give_extra_till(uuid, timestamptz, uuid, text)', 'execute'), 'service_role gives';
+  assert has_function_privilege('service_role', 'public.admin_end_extra_till(uuid, uuid, text)', 'execute'), 'service_role ends';
+end $$;
+
+-- 26b. Extending a just-expired trial restores full access, updates trial_ends_at and writes one audit row.
+set local role service_role;
+do $$
+declare
+  biz constant uuid := 'b2600000-0000-4000-8000-000000000001';
+  staff constant uuid := '00000000-0000-4000-8000-000000000015';
+  old_end timestamptz;
+  new_end timestamptz := now() + interval '7 days';
+  ev public.audit_events;
+  failure text;
+begin
+  old_end := (select trial_ends_at from public.subscriptions where business_id = biz);
+  assert public.entitlements_internal(biz, now())->>'access' = 'read_only', '26b starts with the trial run out (read-only)';
+
+  perform public.admin_extend_trial(biz, new_end, staff, 'Owner asked for one more week');
+  assert (select trial_ends_at from public.subscriptions where business_id = biz) = new_end, 'trial_ends_at is the new end';
+  assert public.entitlements_internal(biz, now())->>'access' = 'full', 'the extended trial has full access';
+  assert (select count(*) from public.audit_events where business_id = biz and action = 'admin.extend_trial') = 1, 'one audit row';
+  select * into ev from public.audit_events where business_id = biz and action = 'admin.extend_trial';
+  assert ev.actor_id = staff, 'the staff member is the actor';
+  assert ev.entity_type = 'subscription' and ev.entity_id = biz, 'the audit row points at the subscription';
+  assert (ev.summary->'before'->>'trialEndsAt')::timestamptz = old_end, 'summary has the old trial end';
+  assert (ev.summary->'after'->>'trialEndsAt')::timestamptz = new_end, 'summary has the new trial end';
+  assert ev.summary->>'note' = 'Owner asked for one more week', 'summary has the note';
+
+  -- Refusals change nothing and write no audit row.
+  begin
+    perform public.admin_extend_trial(biz, now() - interval '1 hour', staff, 'past');
+    assert false, 'a past end must be refused';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'end_not_in_future', 'past end, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin
+    perform public.admin_extend_trial(biz, now() + interval '14 days', staff, '   ');
+    assert false, 'a blank note must be refused';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'note_required', 'blank note, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin
+    perform public.admin_extend_trial(biz, now() + interval '14 days', staff, null);
+    assert false, 'a missing note must be refused';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'note_required', 'missing note, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin
+    perform public.admin_extend_trial(biz, now() + interval '14 days', staff, repeat('x', 501));
+    assert false, 'a note over 500 characters must be refused';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'note_required', 'long note, got ' || coalesce(failure, 'null');
+
+  update public.subscriptions set has_payment_method = true where business_id = biz;
+  failure := null;
+  begin
+    perform public.admin_extend_trial(biz, now() + interval '14 days', staff, 'card on file');
+    assert false, 'a trial with a card must be refused';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'trial_has_card', 'trial with card, got ' || coalesce(failure, 'null');
+
+  update public.subscriptions set has_payment_method = false, status = 'active' where business_id = biz;
+  failure := null;
+  begin
+    perform public.admin_extend_trial(biz, now() + interval '14 days', staff, 'paid');
+    assert false, 'an active subscription must be refused';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'not_trialing', 'active, got ' || coalesce(failure, 'null');
+  update public.subscriptions set status = 'trialing' where business_id = biz;
+
+  assert (select trial_ends_at from public.subscriptions where business_id = biz) = new_end, 'refusals leave the trial end';
+  assert (select count(*) from public.audit_events where business_id = biz and action = 'admin.extend_trial') = 1, 'refusals write no audit row';
+end $$;
+reset role;
+
+-- 26c. An extra till lifts a Pro shop from 2 to 3 tills; a new one replaces the active one; ending it drops the
+-- limit back to 2 and leaves the third till active (the till choice handles it at the next register open).
+set local role service_role;
+do $$
+declare
+  biz constant uuid := 'b2600000-0000-4000-8000-000000000002';
+  staff constant uuid := '00000000-0000-4000-8000-000000000015';
+  first_id uuid;
+  second_id uuid;
+  ev public.audit_events;
+  failure text;
+begin
+  assert (public.entitlements_internal(biz, now())->'limits'->>'tills')::integer = 2, '26c starts at the Pro limit of 2';
+  begin
+    insert into public.devices (id, business_id, name) values ('d2600000-0000-4000-8000-0000000000c3', biz, 'Till K3');
+    assert false, 'a third till must not fit before the extra till';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'plan_limit_reached', 'third till before extra, got ' || coalesce(failure, 'null');
+
+  failure := null;
+  begin
+    perform public.admin_end_extra_till(biz, staff, 'nothing to end');
+    assert false, 'ending with no extra till must be refused';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'no_extra_till', 'end without extra, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin
+    perform public.admin_give_extra_till(biz, now() - interval '1 hour', staff, 'past');
+    assert false, 'a past until must be refused';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'until_not_in_future', 'past until, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin
+    perform public.admin_give_extra_till(biz, now() + interval '3 days', staff, '');
+    assert false, 'an empty note must be refused';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'note_required', 'empty note, got ' || coalesce(failure, 'null');
+  assert not exists (select 1 from public.entitlement_overrides where business_id = biz), 'refusals create no override';
+
+  first_id := public.admin_give_extra_till(biz, now() + interval '3 days', staff, 'Busy weekend');
+  assert (select kind from public.entitlement_overrides where id = first_id) = 'extra_till', 'the override is an extra till';
+  assert (select max_tills from public.entitlement_overrides where id = first_id) = 3, 'max_tills is the plan''s 2 + 1';
+  assert (select note from public.entitlement_overrides where id = first_id) = 'Busy weekend', 'the override keeps the note';
+  assert (public.entitlements_internal(biz, now())->'limits'->>'tills')::integer = 3, 'the limit is 3 with the extra till';
+  insert into public.devices (id, business_id, name) values ('d2600000-0000-4000-8000-0000000000c3', biz, 'Till K3');
+  assert (select count(*) from public.devices where business_id = biz and status = 'active') = 3, 'a third active till fits';
+  select * into ev from public.audit_events where business_id = biz and action = 'admin.extra_till';
+  assert ev.actor_id = staff and ev.entity_type = 'entitlement_override' and ev.entity_id = first_id, 'audit row for the first extra till';
+  assert ev.summary->>'note' = 'Busy weekend' and (ev.summary->'after'->>'maxTills')::integer = 3, 'summary has the note and the new limit';
+  assert ev.summary->'before'->'replaced' = 'null'::jsonb, 'nothing was replaced';
+
+  second_id := public.admin_give_extra_till(biz, now() + interval '5 days', staff, 'Longer');
+  assert second_id <> first_id, 'a new override is created';
+  assert (select count(*) from public.entitlement_overrides where business_id = biz and kind = 'extra_till'
+    and (expires_at is null or expires_at > now())) = 1, 'only one extra till is active';
+  assert (select expires_at from public.entitlement_overrides where id = first_id) <= now(), 'the first one is ended';
+  assert (public.entitlements_internal(biz, now())->'limits'->>'tills')::integer = 3, 'still 3 with the replacement';
+  assert (select count(*) from public.audit_events where business_id = biz and action = 'admin.extra_till') = 2, 'two give audit rows';
+  select * into ev from public.audit_events where business_id = biz and action = 'admin.extra_till' and entity_id = second_id;
+  assert (ev.summary->'before'->'replaced'->>'id')::uuid = first_id, 'the replacement records the one it ended';
+
+  perform public.admin_end_extra_till(biz, staff, 'Weekend is over');
+  assert (public.entitlements_internal(biz, now())->'limits'->>'tills')::integer = 2, 'the limit is back to 2';
+  assert (select expires_at from public.entitlement_overrides where id = second_id) <= now(), 'the second one is ended';
+  assert (select status::text from public.devices where id = 'd2600000-0000-4000-8000-0000000000c3') = 'active',
+    'the third till stays active until the till choice';
+  select * into ev from public.audit_events where business_id = biz and action = 'admin.end_extra_till';
+  assert ev.actor_id = staff and ev.entity_id = second_id and ev.summary->>'note' = 'Weekend is over', 'audit row for ending';
+  assert (ev.summary->'after'->>'expiresAt')::timestamptz <= now(), 'summary has the new expiry';
+
+  failure := null;
+  begin
+    perform public.admin_end_extra_till(biz, staff, 'again');
+    assert false, 'ending twice must be refused';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'no_extra_till', 'end twice, got ' || coalesce(failure, 'null');
+end $$;
+reset role;
+
 rollback;
