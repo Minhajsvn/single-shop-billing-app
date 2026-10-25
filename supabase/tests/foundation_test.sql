@@ -1843,7 +1843,18 @@ begin
   exception when others then failure := sqlerrm;
   end;
   assert failure = 'note_required', 'empty note, got ' || coalesce(failure, 'null');
+  -- A plan with no till limit (enterprise) has nothing to add one to.
+  update public.subscriptions set plan_id = 'enterprise' where business_id = biz;
+  failure := null;
+  begin
+    perform public.admin_give_extra_till(biz, now() + interval '3 days', staff, 'unlimited');
+    assert false, 'an extra till on an unlimited plan must be refused';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'plan_has_no_till_limit', 'unlimited plan, got ' || coalesce(failure, 'null');
+  update public.subscriptions set plan_id = 'pro' where business_id = biz;
   assert not exists (select 1 from public.entitlement_overrides where business_id = biz), 'refusals create no override';
+  assert not exists (select 1 from public.audit_events where business_id = biz), 'refusals write no audit row';
 
   first_id := public.admin_give_extra_till(biz, now() + interval '3 days', staff, 'Busy weekend');
   assert (select kind from public.entitlement_overrides where id = first_id) = 'extra_till', 'the override is an extra till';
@@ -1867,7 +1878,22 @@ begin
   select * into ev from public.audit_events where business_id = biz and action = 'admin.extra_till' and entity_id = second_id;
   assert (ev.summary->'before'->'replaced'->>'id')::uuid = first_id, 'the replacement records the one it ended';
 
+  -- The extra till is one more than the current limit, not a number frozen when it was given.
+  update public.subscriptions set plan_id = 'starter' where business_id = biz;
+  assert (public.entitlements_internal(biz, now())->'limits'->>'tills')::integer = 2, 'Starter with an extra till is 1 + 1';
+  update public.subscriptions set plan_id = 'business' where business_id = biz;
+  assert (public.entitlements_internal(biz, now())->'limits'->>'tills')::integer = 7, 'Business with an extra till is 6 + 1';
+  update public.subscriptions set plan_id = 'enterprise' where business_id = biz;
+  assert public.entitlements_internal(biz, now())->'limits'->'tills' = 'null'::jsonb, 'unlimited stays unlimited';
+  update public.subscriptions set plan_id = 'pro', addon_tills = 1 where business_id = biz;
+  assert (public.entitlements_internal(biz, now())->'limits'->>'tills')::integer = 4, 'add-on tills add on top: 2 + 1 + 1';
+  update public.subscriptions set addon_tills = 0 where business_id = biz;
+  insert into public.entitlement_overrides (business_id, max_tills, note) values (biz, 4, 'manual four tills');
+  assert (public.entitlements_internal(biz, now())->'limits'->>'tills')::integer = 5, 'a manual override of 4 plus an extra till is 5';
+
   perform public.admin_end_extra_till(biz, staff, 'Weekend is over');
+  assert (public.entitlements_internal(biz, now())->'limits'->>'tills')::integer = 4, 'ending the extra till leaves the manual override';
+  update public.entitlement_overrides set expires_at = now() where business_id = biz and kind = 'manual';
   assert (public.entitlements_internal(biz, now())->'limits'->>'tills')::integer = 2, 'the limit is back to 2';
   assert (select expires_at from public.entitlement_overrides where id = second_id) <= now(), 'the second one is ended';
   assert (select status::text from public.devices where id = 'd2600000-0000-4000-8000-0000000000c3') = 'active',
