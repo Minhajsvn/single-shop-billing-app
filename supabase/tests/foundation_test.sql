@@ -1630,6 +1630,33 @@ begin
 end $$;
 reset role;
 
+-- 25i. Re-pausing a till cannot extend an old shift: a paused till only accepts a shift opened within the 72 hours
+-- before its pause. Shop H's H2 and H3 are both paused (just now) at the end of 25h.
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-000000000012","role":"authenticated"}', true);
+do $$
+declare
+  biz constant uuid := 'b2500000-0000-4000-8000-000000000003';
+  failure text;
+begin
+  assert (select count(*) from public.devices where business_id = biz and status = 'paused') = 2, '25i starts with H2 and H3 paused';
+  begin
+    perform public.apply_register_sync(gen_random_uuid(), biz, 'e2500000-0000-4000-8000-0000000000e2', jsonb_build_object(
+      'deviceId', 'd2500000-0000-4000-8000-0000000000d2', 'action', 'open',
+      'register', jsonb_build_object('openingCashFils', 0, 'openedAt', now() - interval '73 hours')));
+    assert false, 'a shift opened more than 72 hours before the pause must be refused';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'till_paused', 'old shift on a paused till, got ' || coalesce(failure, 'null');
+
+  perform public.apply_register_sync(gen_random_uuid(), biz, 'e2500000-0000-4000-8000-0000000000e3', jsonb_build_object(
+    'deviceId', 'd2500000-0000-4000-8000-0000000000d3', 'action', 'open',
+    'register', jsonb_build_object('openingCashFils', 0, 'openedAt', now() - interval '1 hour')));
+  assert exists (select 1 from public.register_sessions where id = 'e2500000-0000-4000-8000-0000000000e3'),
+    'a shift opened an hour before the pause is accepted';
+end $$;
+reset role;
+
 -- Function privileges: anon cannot call them.
 do $$ begin
   assert not has_function_privilege('anon', 'public.pause_till(uuid, uuid)', 'execute'), 'anon cannot pause';
