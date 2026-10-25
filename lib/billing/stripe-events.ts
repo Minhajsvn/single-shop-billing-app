@@ -1,4 +1,5 @@
 import Stripe from "stripe";
+import type { ProviderSubscription } from "./billing-check.ts";
 
 export type BillingEventKind =
   | "checkout_completed"
@@ -71,6 +72,15 @@ function fromSubscription(sub: Obj) {
     cancelAt: isoFromSeconds(cancelAt),
     interval: priceInterval(items[0]),
   };
+}
+
+/**
+ * The billing check's view of a retrieved Stripe subscription, read exactly as the webhook reads it
+ * (period end from the subscription items, cancel_at_period_end as a cancel at the period end).
+ */
+export function subscriptionSnapshot(subscription: unknown): ProviderSubscription {
+  const sub = fromSubscription(asObj(subscription) ?? {});
+  return { exists: true, status: sub.status, currentPeriodEnd: sub.currentPeriodEnd, cancelAt: sub.cancelAt, trialEnd: sub.trialEnd };
 }
 
 function fromCheckoutSession(session: Obj) {

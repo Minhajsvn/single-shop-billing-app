@@ -1,6 +1,7 @@
 import { dubaiSupplyDate } from "../invoice-numbers.ts";
 import type { TillDevice } from "../snapshot/types.ts";
 import type { Entitlements } from "./entitlements.ts";
+import { PLANS } from "./plans.ts";
 
 export type Role = "owner" | "manager" | "cashier";
 export type LifecycleState = "full" | "trial" | "grace" | "read_only";
@@ -97,8 +98,10 @@ export function billingSummary(e: Entitlements, now: Date): string {
     const text = `Pro trial · ${days(end ? dubaiDaysLeft(end, now) : 0)} left`;
     return e.hasPaymentMethod && end ? `${text} · Starter starts ${dubaiDate(end, false)}` : text;
   }
-  if (e.cancelAt) return `Starter · cancels on ${dubaiDate(e.cancelAt, true)}`;
-  const plan = `Starter · ${e.billingInterval === "year" ? "annual" : "monthly"}`;
+  // The trial line keeps "Starter starts": a card added during the trial buys Starter (self-serve checkout).
+  const name = (e.planId && PLANS[e.planId]?.name) || "Starter";
+  if (e.cancelAt) return `${name} · cancels on ${dubaiDate(e.cancelAt, true)}`;
+  const plan = `${name} · ${e.billingInterval === "year" ? "annual" : "monthly"}`;
   // While active there is no access end; the renewal date is the period end.
   const renews = dubaiDate(e.currentPeriodEnd ?? e.accessEndsAt, true);
   return renews ? `${plan} · renews ${renews}` : plan;

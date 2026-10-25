@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { pauseTillPrompt, resumeLimitMessage, tillRowAction } from "../lib/access/tills.ts";
+import { initialKeptTills, keepTillsButton, pauseTillPrompt, resumeLimitMessage, tillRowAction, toggleKeptTill } from "../lib/access/tills.ts";
 
 const till = (id, status, tillNumber = 1) => ({ id, status, tillNumber });
 
@@ -29,4 +29,30 @@ test("resumeLimitMessage and pauseTillPrompt copy", () => {
   assert.equal(resumeLimitMessage(1), "Your plan allows 1 till. Pause another till first or upgrade.");
   assert.equal(resumeLimitMessage(2), "Your plan allows 2 tills. Pause another till first or upgrade.");
   assert.deepEqual(pauseTillPrompt(3), { title: "Pause Till 3?", body: "It stops selling until you resume it. A shift already open on it can still finish." });
+});
+
+test("initialKeptTills: this browser's till first, then others, up to the limit", () => {
+  const active = [till("a", "active", 1), till("b", "active", 2), till("c", "active", 3)];
+  assert.deepEqual(initialKeptTills(active, "c", 2), ["c", "a"]);
+  assert.deepEqual(initialKeptTills(active, "zz", 2), ["a", "b"]);
+  assert.deepEqual(initialKeptTills(active, undefined, 1), ["a"]);
+  assert.deepEqual(initialKeptTills(active, "b", 5), ["b", "a", "c"]);
+  assert.deepEqual(initialKeptTills([], "a", 2), []);
+  // A limit below one still keeps one till (a shop always keeps one selling till).
+  assert.deepEqual(initialKeptTills(active, "b", 0), ["b"]);
+});
+
+test("toggleKeptTill: adds while under the limit, removes on a second tap, never exceeds the limit", () => {
+  assert.deepEqual(toggleKeptTill(["a"], "b", 2), ["a", "b"]);
+  assert.deepEqual(toggleKeptTill(["a", "b"], "c", 2), ["a", "b"]);
+  assert.deepEqual(toggleKeptTill(["a", "b"], "a", 2), ["b"]);
+  // With a limit of one, choosing another till swaps (radio-like).
+  assert.deepEqual(toggleKeptTill(["a"], "b", 1), ["b"]);
+  assert.deepEqual(toggleKeptTill(["a"], "a", 1), []);
+});
+
+test("keepTillsButton names how many tills stay", () => {
+  assert.equal(keepTillsButton(1), "Keep this till");
+  assert.equal(keepTillsButton(2), "Keep these 2 tills");
+  assert.equal(keepTillsButton(0), "Keep this till");
 });

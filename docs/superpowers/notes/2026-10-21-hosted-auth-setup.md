@@ -15,8 +15,12 @@ deployed. The ones from this release, and from Stage 1F (billing) in case they a
 - Stage 1F: `202610190023_billing_lifecycle.sql`, `202610190024_register_access_gate.sql`,
   `202610190025_members_read_devices.sql`, `202610200026_entitlements_period_end.sql`,
   `202610200027_canceled_is_final.sql`, `202610200028_paused_at_server_stamped.sql`
-- Stage 1G (this release): `202610210029_cashier_access.sql`, `202610210030_till_status_guard.sql`,
-  `202610210031_onboarding_status.sql`, `202610220032_refund_lock_invoice_case.sql`
+- Stage 1G: `202610210029_cashier_access.sql`, `202610210030_till_status_guard.sql`,
+  `202610210031_onboarding_status.sql`, `202610220032_refund_lock_invoice_case.sql`,
+  `202610220033_pause_resume_till.sql`, `202610220034_paused_shift_age.sql`
+- Stage 1H (admin console): `202610250035_admin_console.sql`, `202610250036_billing_flags.sql`,
+  `202610250037_trial_end_from_stripe.sql`, `202610250038_owner_audit_hides_admin.sql`,
+  `202610250039_choose_active_tills.sql`
 
 Take a backup of the hosted database before applying them.
 
@@ -106,3 +110,20 @@ Notes on this line (checked against `supabase/migrations/202610110010_members_br
 - Each person can be added to a shop once; running it twice for the same cashier gives a "duplicate key" error, which is harmless.
 - The shop's plan limits how many members it can have. If the shop is at its limit, the insert is refused with a plan-limit error.
 - To remove a cashier later, set their status to `disabled` instead of deleting the row.
+
+## 7. Platform staff (admin console)
+
+The admin console (`/admin`) is open only to signed-in users whose email is on the `PLATFORM_STAFF_EMAILS` server
+variable **and** is confirmed. The app trusts Supabase to have confirmed the address, so the order of these steps
+matters:
+
+1. Keep **Confirm email** turned on in the hosted project (step 1 above). If it is off, every new sign-up counts as
+   confirmed straight away, and anyone who signs up with an allowlisted address becomes staff.
+2. Register the staff account first: sign up at `https://YOUR-APP-ADDRESS/signup` with the staff email and click
+   the confirmation link (or create it under **Authentication → Users → Add user → Create new user** with
+   **Auto Confirm User**, if you own that mailbox). Do not fill in "Set up your shop" with it.
+3. Only then add that email to `PLATFORM_STAFF_EMAILS` on the host and redeploy.
+
+Never list an email that has no account yet: until it is registered, anyone can sign up with that address, and only
+the confirmation email stands between them and the admin console. To remove someone from staff, take their email off `PLATFORM_STAFF_EMAILS` and
+redeploy.
