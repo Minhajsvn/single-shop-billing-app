@@ -15,8 +15,12 @@ deployed. The ones from this release, and from Stage 1F (billing) in case they a
 - Stage 1F: `202610190023_billing_lifecycle.sql`, `202610190024_register_access_gate.sql`,
   `202610190025_members_read_devices.sql`, `202610200026_entitlements_period_end.sql`,
   `202610200027_canceled_is_final.sql`, `202610200028_paused_at_server_stamped.sql`
-- Stage 1G (this release): `202610210029_cashier_access.sql`, `202610210030_till_status_guard.sql`,
-  `202610210031_onboarding_status.sql`, `202610220032_refund_lock_invoice_case.sql`
+- Stage 1G: `202610210029_cashier_access.sql`, `202610210030_till_status_guard.sql`,
+  `202610210031_onboarding_status.sql`, `202610220032_refund_lock_invoice_case.sql`,
+  `202610220033_pause_resume_till.sql`, `202610220034_paused_shift_age.sql`
+- Stage 1H (admin console): `202610250035_admin_console.sql`, `202610250036_billing_flags.sql`,
+  `202610250037_trial_end_from_stripe.sql`, `202610250038_owner_audit_hides_admin.sql`,
+  `202610250039_choose_active_tills.sql`
 
 Take a backup of the hosted database before applying them.
 

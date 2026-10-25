@@ -80,7 +80,7 @@ When a shop owner writes in ("can I have a few more trial days?", "my billing lo
 ## 8. Testing
 - Unit: staff check (allowlist parsing, case, unconfirmed email, missing env → nobody is staff), plain-word status, effective till limit with an override, billing comparison (each field, tolerance, missing subscription), flag open/update/close/reopen rules.
 - SQL: extending a trial and adding/ending an override via the admin functions are service-role only; audit rows are written; the till limit honours the override until it expires.
-- Route: non-staff → 404 for pages and APIs; cron route without/with a wrong secret → 401; with the secret → runs.
+- Route: non-staff → 404 for pages and APIs; cron route without/with a wrong secret → 404, identical to a missing route (ruled during the build: §6 — nobody off the allowlist can tell the admin API exists — beats the 401 first written here); with the secret → runs.
 - Browser (local, pretend provider): staff opens `/admin`, searches a shop, extends a trial (read-only shop becomes usable after refresh), gives an extra till (a third till can be registered on Pro), ends it (till choice at next register open), runs the billing check, a flag injected in the test shows "Needs a look", marks it looked at; a normal owner gets 404 on `/admin`.
 
 ## 9. Designer calls (owner may overrule)
