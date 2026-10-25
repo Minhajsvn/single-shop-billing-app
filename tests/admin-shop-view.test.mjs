@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { adminDateTime, isShopId, overrideActive, searchFilter, shopStatusText, tillsLine } from "../lib/admin/shop-view.ts";
+import {
+  OWNER_ID_CAP, adminDateTime, emailNeedle, isShopId, matchingOwnerIds, overrideActive, pageWindow, searchFilter, searchTerm, shopStatusText, tillsLine,
+} from "../lib/admin/shop-view.ts";
 
 const now = new Date("2026-10-19T10:00:00Z"); // 14:00 in Dubai
 const base = {
@@ -41,6 +43,42 @@ test("searchFilter quotes the term so commas and brackets cannot break the filte
 test("searchFilter is null for an empty or wildcard-only term", () => {
   assert.equal(searchFilter("   ", []), null);
   assert.equal(searchFilter("%*", []), null);
+});
+
+test("shopStatusText names a paid Pro shop as Pro", () => {
+  assert.equal(shopStatusText({ ...base, planId: "pro" }, now), "Pro · monthly · renews 19 Nov 2026");
+});
+
+test("searchTerm cleans the query once: wildcards, quotes and backslashes dropped, trimmed, at most 200 chars", () => {
+  assert.equal(searchTerm('  a "b" 5%*\\ '), "a b 5");
+  assert.equal(searchTerm("%*"), "");
+  assert.equal(searchTerm("x".repeat(250)).length, 200);
+});
+
+test("emailNeedle skips email search for terms shorter than 3 characters", () => {
+  assert.equal(emailNeedle(""), null);
+  assert.equal(emailNeedle("ab"), null);
+  assert.equal(emailNeedle("Com"), "com");
+  assert.equal(emailNeedle("Plain-Owner@x"), "plain-owner@x");
+});
+
+test("matchingOwnerIds keeps only shop owners and caps the list", () => {
+  const owners = new Set(["u1", "u3"]);
+  assert.deepEqual(matchingOwnerIds(["u1", "u2", "u3"], owners), ["u1", "u3"]);
+  const many = Array.from({ length: 300 }, (_, i) => `u${i}`);
+  const capped = matchingOwnerIds(many, new Set(many));
+  assert.equal(capped.length, OWNER_ID_CAP);
+  assert.equal(OWNER_ID_CAP, 200);
+  assert.deepEqual(matchingOwnerIds(["u1", "u1"], owners), ["u1"]);
+});
+
+test("pageWindow clamps the page into range and gives the offset", () => {
+  assert.deepEqual(pageWindow(1, 0, 50), { page: 1, pages: 1, from: 0 });
+  assert.deepEqual(pageWindow(99, 120, 50), { page: 3, pages: 3, from: 100 });
+  assert.deepEqual(pageWindow(2, 120, 50), { page: 2, pages: 3, from: 50 });
+  assert.deepEqual(pageWindow(0, 120, 50), { page: 1, pages: 3, from: 0 });
+  assert.deepEqual(pageWindow(Number.NaN, 100, 50), { page: 1, pages: 2, from: 0 });
+  assert.deepEqual(pageWindow(5, 100, 50), { page: 2, pages: 2, from: 50 });
 });
 
 test("overrideActive: no expiry or a future expiry", () => {

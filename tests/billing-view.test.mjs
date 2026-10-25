@@ -104,3 +104,15 @@ test("billingSummary describes each state in plain words", () => {
   assert.equal(billingSummary(pastDue("2026-10-24T09:00:00Z"), at), "Payment failed · grace ends 24 Oct");
   assert.equal(billingSummary(readOnly, at), "Read-only since 1 Oct");
 });
+
+test("billingSummary names the shop's own plan once it is paid", () => {
+  const at = new Date("2026-10-19T08:00:00Z");
+  const pro = { ...base, planId: "pro" };
+  assert.equal(billingSummary({ ...pro, currentPeriodEnd: "2026-11-19T08:00:00Z" }, at), "Pro · monthly · renews 19 Nov 2026");
+  assert.equal(
+    billingSummary({ ...pro, accessEndsAt: "2026-11-19T08:00:00Z", cancelAt: "2026-11-19T08:00:00Z" }, at),
+    "Pro · cancels on 19 Nov 2026",
+  );
+  assert.equal(billingSummary({ ...base, planId: "business", billingInterval: "year" }, at), "Business · annual");
+  assert.equal(billingSummary({ ...base, planId: null }, at), "Starter · monthly");
+});

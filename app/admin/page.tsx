@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireStaff } from "@/lib/admin/require-staff";
-import { listShops, SHOPS_PAGE_SIZE } from "@/lib/admin/shops";
+import { listShops } from "@/lib/admin/shops";
 import { adminDateTime } from "@/lib/admin/shop-view";
 import { PLANS, type PlanId } from "@/lib/billing/plans";
 
@@ -22,9 +22,7 @@ export default async function AdminShopsPage({ searchParams }: { searchParams: P
 
   const params = await searchParams;
   const query = one(params.q).trim().slice(0, 200);
-  const page = Math.max(1, Number.parseInt(one(params.page), 10) || 1);
-  const { rows, total } = await listShops({ query, page });
-  const pages = Math.max(1, Math.ceil(total / SHOPS_PAGE_SIZE));
+  const { rows, total, page, pages } = await listShops({ query, page: Number.parseInt(one(params.page), 10) });
 
   return (
     <div className="space-y-4">

@@ -4,7 +4,9 @@
 import type { User } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { parseEntitlements, READ_ONLY_ENTITLEMENTS, type Entitlements } from "@/lib/billing/entitlements";
-import { isShopId, overrideActive, searchFilter, shopStatusText } from "@/lib/admin/shop-view";
+import {
+  emailNeedle, isShopId, matchingOwnerIds, overrideActive, pageWindow, searchFilter, searchTerm, shopStatusText,
+} from "@/lib/admin/shop-view";
 
 export const SHOPS_PAGE_SIZE = 50;
 
@@ -59,10 +61,8 @@ async function usersById(admin: AdminClient, ids: string[]): Promise<Map<string,
   return new Map(found.filter((user): user is User => user !== null).map((user) => [user.id, user]));
 }
 
-/** Ids of users whose email contains the term. Pages through every user (fine at pilot scale). */
-async function userIdsByEmail(admin: AdminClient, term: string): Promise<string[]> {
-  const needle = term.trim().toLowerCase();
-  if (!needle) return [];
+/** Ids of users whose email contains the needle. Pages through every user (fine at pilot scale). */
+async function userIdsByEmail(admin: AdminClient, needle: string): Promise<string[]> {
   const ids: string[] = [];
   const perPage = 1000;
   for (let page = 1; ; page += 1) {
@@ -71,6 +71,26 @@ async function userIdsByEmail(admin: AdminClient, term: string): Promise<string[
     for (const user of data.users) if (user.email?.toLowerCase().includes(needle)) ids.push(user.id);
     if (data.users.length < perPage) return ids;
   }
+}
+
+/** Every shop owner's user id, read in pages (no id list goes into a URL). */
+async function shopOwnerIds(admin: AdminClient): Promise<Set<string>> {
+  const owners = new Set<string>();
+  const size = 1000;
+  for (let from = 0; ; from += size) {
+    const { data, error } = await admin.from("businesses").select("owner_id").order("id").range(from, from + size - 1);
+    if (error) throw error;
+    for (const row of data ?? []) owners.add(row.owner_id as string);
+    if ((data ?? []).length < size) return owners;
+  }
+}
+
+/** Owners whose email contains the term and who own a shop, capped; none for terms under 3 characters. */
+async function ownerIdsByEmail(admin: AdminClient, term: string): Promise<string[]> {
+  const needle = emailNeedle(term);
+  if (!needle) return [];
+  const [userIds, owners] = await Promise.all([userIdsByEmail(admin, needle), shopOwnerIds(admin)]);
+  return matchingOwnerIds(userIds, owners);
 }
 
 async function entitlementsFor(admin: AdminClient, businessId: string): Promise<Entitlements> {
@@ -94,25 +114,38 @@ async function toRows(admin: AdminClient, businesses: BusinessRow[], now: Date):
   }));
 }
 
-/** Newest first, pages of 50 (page starts at 1). Search: name / owner email / TRN contains, or the exact shop id. */
-export async function listShops(input: { query: string; page: number }): Promise<{ rows: AdminShopRow[]; total: number }> {
+/**
+ * Newest first, pages of 50 (page starts at 1; a page past the end gives the last page).
+ * Search: name / TRN contains, owner email contains (3+ characters), or the exact shop id.
+ */
+export async function listShops(input: { query: string; page: number }): Promise<{ rows: AdminShopRow[]; total: number; page: number; pages: number }> {
   const admin = createAdminClient();
-  const page = Math.max(1, Math.floor(input.page) || 1);
-  const from = (page - 1) * SHOPS_PAGE_SIZE;
-
-  let request = admin.from("businesses").select("id, legal_name, owner_id, created_at", { count: "exact" });
+  const term = searchTerm(input.query);
+  let filter: string | null = null;
   if (input.query.trim()) {
-    const filter = searchFilter(input.query, await userIdsByEmail(admin, input.query));
-    if (!filter) return { rows: [], total: 0 };
-    request = request.or(filter);
+    filter = searchFilter(term, await ownerIdsByEmail(admin, term));
+    if (!filter) return { rows: [], total: 0, page: 1, pages: 1 };
   }
-  const { data, count, error } = await request
+
+  // Count first, so the requested page can be clamped: a range past the last row is a PostgREST error (PGRST103).
+  let counting = admin.from("businesses").select("id", { count: "exact", head: true });
+  if (filter) counting = counting.or(filter);
+  const { count, error: countError } = await counting;
+  if (countError) throw countError;
+  const total = count ?? 0;
+  const { page, pages, from } = pageWindow(input.page, total, SHOPS_PAGE_SIZE);
+  if (total === 0) return { rows: [], total, page, pages };
+
+  let request = admin.from("businesses").select("id, legal_name, owner_id, created_at");
+  if (filter) request = request.or(filter);
+  const { data, error } = await request
     .order("created_at", { ascending: false })
     .order("id", { ascending: false })
     .range(from, from + SHOPS_PAGE_SIZE - 1);
-  if (error) throw error;
+  // A shop removed between the count and this read can still push the range past the end.
+  if (error && error.code !== "PGRST103") throw error;
 
-  return { rows: await toRows(admin, (data ?? []) as BusinessRow[], new Date()), total: count ?? 0 };
+  return { rows: await toRows(admin, ((error ? [] : data) ?? []) as BusinessRow[], new Date()), total, page, pages };
 }
 
 export async function getShop(id: string): Promise<AdminShop | null> {

@@ -18,14 +18,39 @@ export function isShopId(value: string): boolean {
   return UUID.test(value);
 }
 
+/** The search term, cleaned once for every lookup: quotes, backslashes and wildcards dropped, trimmed, at most 200 chars. */
+export function searchTerm(query: string): string {
+  return query.replace(/[%*"\\]/g, "").trim().slice(0, 200).trim();
+}
+
+/** Lower-cased needle for the owner-email lookup; null below 3 characters, where almost every email would match. */
+export function emailNeedle(term: string): string | null {
+  return term.length >= 3 ? term.toLowerCase() : null;
+}
+
+/** At most this many owner ids go into `owner_id.in.(…)`, so the request URL stays short. */
+export const OWNER_ID_CAP = 200;
+
+/** Email-matched user ids that own a shop, without repeats, capped at OWNER_ID_CAP. */
+export function matchingOwnerIds(userIds: string[], shopOwners: Set<string>): string[] {
+  return [...new Set(userIds)].filter((id) => shopOwners.has(id)).slice(0, OWNER_ID_CAP);
+}
+
+/** Clamps a requested page (from 1) into the pages that exist, so a page past the end shows the last page. */
+export function pageWindow(requested: number, total: number, size: number): { page: number; pages: number; from: number } {
+  const pages = Math.max(1, Math.ceil(total / size));
+  const page = Math.min(pages, Math.max(1, Math.floor(requested) || 1));
+  return { page, pages, from: (page - 1) * size };
+}
+
 /**
  * A PostgREST `or` filter for the shop search: name or TRN contains the term, the owner is one of `ownerIds`
  * (matched by email elsewhere), or the term is exactly the shop id. Values are double-quoted so commas and
- * brackets in the term cannot change the filter; quotes, backslashes and wildcards are dropped from the term.
+ * brackets in the term cannot change the filter; the term is cleaned with searchTerm (idempotent).
  * Null when nothing is left to search for.
  */
 export function searchFilter(query: string, ownerIds: string[]): string | null {
-  const term = query.replace(/[%*"\\]/g, "").trim();
+  const term = searchTerm(query);
   if (!term) return null;
   const parts = [`legal_name.ilike."%${term}%"`, `trn.ilike."%${term}%"`];
   if (ownerIds.length) parts.push(`owner_id.in.(${ownerIds.join(",")})`);
