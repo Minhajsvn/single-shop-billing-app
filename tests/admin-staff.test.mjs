@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { cronSecretMatches, isStaff, parseStaffEmails } from "../lib/admin/staff.ts";
 import { routeDecision } from "../lib/auth/access-rules.ts";
+import { ADMIN_ROUTE_METHODS, adminNotFound } from "../lib/admin/not-found.ts";
+import * as catchAll from "../app/api/v1/[...path]/route.ts";
 
 const SECRET = "s".repeat(32);
 const confirmed = (email) => ({ email, email_confirmed_at: "2026-10-01T00:00:00Z" });
@@ -57,10 +59,37 @@ test("the cron secret never matches when the env secret is missing or short", ()
   assert.equal(cronSecretMatches(short, { ADMIN_CRON_SECRET: short }), false);
 });
 
-test("the proxy lets /admin paths through for signed-out visitors so they can 404", () => {
-  for (const pathname of ["/admin", "/admin/shops/x"]) {
-    assert.equal(routeDecision({ signedIn: false, pathname, sampleCookie: undefined }), "allow");
+test("signed-out visitors on /admin paths go to login exactly like any unknown path", () => {
+  for (const pathname of ["/admin", "/admin/shops/x", "/no-such-page"]) {
+    assert.equal(routeDecision({ signedIn: false, pathname, sampleCookie: undefined }), "login");
   }
+});
+
+test("signed-in visitors reach /admin paths so the page itself can 404 non-staff", () => {
+  for (const pathname of ["/admin", "/admin/shops/x"]) {
+    assert.equal(routeDecision({ signedIn: true, pathname, sampleCookie: undefined }), "allow");
+  }
+});
+
+async function snapshot(response) {
+  return { status: response.status, type: response.headers.get("content-type"), body: await response.text() };
+}
+
+test("the admin 404 is a plain JSON not-found", async () => {
+  assert.deepEqual(await snapshot(adminNotFound()), { status: 404, type: "application/json", body: '{"error":"Not found"}' });
+});
+
+test("every method on an unknown /api/v1 path answers exactly the admin 404", async () => {
+  const expected = await snapshot(adminNotFound());
+  for (const method of ADMIN_ROUTE_METHODS) {
+    assert.equal(typeof catchAll[method], "function", `catch-all exports ${method}`);
+    const actual = await snapshot(await catchAll[method](new Request(`http://x/api/v1/nope`, { method })));
+    assert.deepEqual(actual, expected, method);
+  }
+});
+
+test("the admin method list covers every method Next would otherwise answer with 405 or an automatic OPTIONS", () => {
+  assert.deepEqual([...ADMIN_ROUTE_METHODS].sort(), ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]);
 });
 
 test("paths that only start with the letters admin still go to login", () => {

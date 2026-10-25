@@ -16,7 +16,11 @@ export async function requireStaff(): Promise<StaffCheck> {
   }
 }
 
-/** The 404 every admin route answers to non-staff, so the console's existence is not revealed. */
-export function adminNotFound() {
-  return Response.json({ error: "Not found" }, { status: 404 });
-}
+/**
+ * Admin route pattern (Tasks 3–5 copy app/api/v1/admin/ping/route.ts):
+ * - each implemented handler starts with `if (!(await requireStaff()).ok) return adminNotFound();`
+ * - every method in ADMIN_ROUTE_METHODS the file does not implement is exported as `adminNotFound`,
+ *   so no 405 or automatic OPTIONS reveals the route (HEAD may be left out when GET exists).
+ * The response is identical to the catch-all app/api/v1/[...path]/route.ts for unknown paths.
+ */
+export { ADMIN_ROUTE_METHODS, adminNotFound } from "@/lib/admin/not-found";

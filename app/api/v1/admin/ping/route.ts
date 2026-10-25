@@ -8,3 +8,10 @@ export async function GET() {
   if (!(await requireStaff()).ok) return adminNotFound();
   return Response.json({ ok: true });
 }
+
+// Unsupported methods answer the same 404 as a missing route instead of Next's 405 / automatic OPTIONS.
+export const POST = adminNotFound;
+export const PUT = adminNotFound;
+export const PATCH = adminNotFound;
+export const DELETE = adminNotFound;
+export const OPTIONS = adminNotFound;

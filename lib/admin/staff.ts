@@ -1,3 +1,4 @@
+// SERVER ONLY. Never import this from a client component (the `server-only` package is not installed).
 import { createHash, timingSafeEqual } from "node:crypto";
 
 type Env = Record<string, string | undefined>;
