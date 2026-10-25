@@ -2075,4 +2075,60 @@ do $$ begin
   assert has_function_privilege('service_role', 'public.admin_billing_check_shops()', 'execute'), 'service_role lists';
 end $$;
 
+-- 26f. A trial end changed in Stripe reaches the shop: subscription_changed with status trialing and a trialEnd sets
+-- trial_ends_at (so access follows it); an active event leaves trial_ends_at alone; canceled is still final.
+-- Shop I becomes a Pro trial with a card on file and Stripe ids.
+update public.subscriptions set status = 'trialing', plan_id = 'pro', has_payment_method = true,
+  trial_ends_at = now() + interval '5 days', current_period_end = now() + interval '5 days', cancel_at = null,
+  stripe_subscription_id = 'sub_26f_i', stripe_customer_id = 'cus_26f_i', last_event_at = null
+where business_id = 'b2600000-0000-4000-8000-000000000001';
+set local role service_role;
+do $$
+declare
+  biz constant uuid := 'b2600000-0000-4000-8000-000000000001';
+  new_end timestamptz := date_trunc('second', now() + interval '12 days');
+  later_end timestamptz := date_trunc('second', now() + interval '20 days');
+  e jsonb;
+  result text;
+  s public.subscriptions;
+begin
+  result := public.apply_billing_event(jsonb_build_object(
+    'id', 'evt_26f_1', 'created', now() - interval '3 minutes', 'kind', 'subscription_changed', 'businessId', biz,
+    'customerId', 'cus_26f_i', 'subscriptionId', 'sub_26f_i', 'status', 'trialing',
+    'trialEnd', new_end, 'currentPeriodEnd', new_end, 'cancelAt', null, 'interval', 'month'));
+  assert result = 'applied', '26f trialing change applied, got ' || result;
+  select * into s from public.subscriptions where business_id = biz;
+  assert s.trial_ends_at = new_end, 'trial_ends_at follows the Stripe trial end';
+  assert s.status = 'trialing', 'still trialing';
+  e := public.entitlements_internal(biz, now());
+  assert (e->>'accessEndsAt')::timestamptz = new_end + interval '2 days', 'access end moves with the new trial end, got ' || coalesce(e->>'accessEndsAt', 'null');
+  -- What the billing check then compares: our trial end agrees with Stripe's.
+  assert abs(extract(epoch from s.trial_ends_at - new_end)) <= 3600, 'trial_end agrees after the event';
+
+  -- A trialing event without a trial end keeps ours.
+  result := public.apply_billing_event(jsonb_build_object(
+    'id', 'evt_26f_2', 'created', now() - interval '2 minutes', 'kind', 'subscription_changed', 'businessId', biz,
+    'status', 'trialing', 'trialEnd', null, 'currentPeriodEnd', new_end, 'cancelAt', null));
+  assert result = 'applied', '26f second change applied, got ' || result;
+  assert (select trial_ends_at from public.subscriptions where business_id = biz) = new_end, 'no trialEnd leaves trial_ends_at';
+
+  -- An active event (trial over) does not touch trial_ends_at, even if it carries a trial end.
+  result := public.apply_billing_event(jsonb_build_object(
+    'id', 'evt_26f_3', 'created', now() - interval '1 minute', 'kind', 'subscription_changed', 'businessId', biz,
+    'status', 'active', 'trialEnd', later_end, 'currentPeriodEnd', later_end, 'cancelAt', null, 'interval', 'month'));
+  assert result = 'applied', '26f active change applied, got ' || result;
+  select * into s from public.subscriptions where business_id = biz;
+  assert s.status = 'active' and s.trial_ends_at = new_end, 'an active event leaves trial_ends_at alone';
+
+  -- Canceled is final: a later trialing change is recorded and ignored.
+  update public.subscriptions set status = 'canceled', canceled_at = now(), last_event_at = now() - interval '1 minute' where business_id = biz;
+  result := public.apply_billing_event(jsonb_build_object(
+    'id', 'evt_26f_4', 'created', now(), 'kind', 'subscription_changed', 'businessId', biz,
+    'status', 'trialing', 'trialEnd', later_end, 'currentPeriodEnd', later_end, 'cancelAt', null));
+  assert result = 'stale', 'a canceled subscription ignores the change, got ' || result;
+  select * into s from public.subscriptions where business_id = biz;
+  assert s.status = 'canceled' and s.trial_ends_at = new_end, 'canceled keeps its trial end';
+end $$;
+reset role;
+
 rollback;

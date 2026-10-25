@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { compareSubscription, flagFieldLabel, flagValueText, MISSING_SUBSCRIPTION, ourStatusFor, TIME_TOLERANCE_MS } from "../lib/billing/billing-check.ts";
 import { billingProvider, BILLING_NOT_SET_UP } from "../lib/billing/provider.ts";
-import { subscriptionSnapshot } from "../lib/billing/stripe-events.ts";
+import { normalizeStripeEvent, subscriptionSnapshot } from "../lib/billing/stripe-events.ts";
 import { runBillingCheckWith } from "../lib/admin/billing-check-run.ts";
 import { billingCheckCaller, CRON_SECRET_HEADER } from "../lib/admin/staff.ts";
 
@@ -99,6 +99,20 @@ test("subscriptionSnapshot reads the period end from subscription items (API 202
     cancelAt: new Date(1795003600 * 1000).toISOString(),
     trialEnd: null,
   });
+});
+
+test("after a trial end changed in Stripe is applied, the check agrees on trial_end", () => {
+  const stripeSub = {
+    id: "sub_t", status: "trialing", trial_end: 1795000000, cancel_at: null, cancel_at_period_end: false,
+    items: { data: [{ current_period_end: 1795000000 }] }, metadata: { business_id: "b" },
+  };
+  const event = normalizeStripeEvent({ id: "evt_t", type: "customer.subscription.updated", created: 1794000000, data: { object: stripeSub } });
+  // apply_billing_event (202610250037) stores trialEnd as trial_ends_at for a trialing subscription_changed.
+  const row = { status: "trialing", trial_ends_at: event.trialEnd, current_period_end: event.currentPeriodEnd, cancel_at: event.cancelAt };
+  assert.deepEqual(compareSubscription(row, subscriptionSnapshot(stripeSub)), []);
+  // Before the fix our old trial end stayed, which the check flags every day.
+  const stale = { ...row, trial_ends_at: new Date((1795000000 - 7 * 86400) * 1000).toISOString() };
+  assert.deepEqual(compareSubscription(stale, subscriptionSnapshot(stripeSub)).map((m) => m.field), ["trial_end"]);
 });
 
 test("getSubscription: none throws the plain message", async () => {
