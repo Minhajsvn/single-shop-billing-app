@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { ConfirmHost } from "@/components/ui/confirm-host";
+import { Toaster } from "@/components/ui/toaster";
 import { requireStaff } from "@/lib/admin/require-staff";
 
 // Static metadata would also render on the non-staff 404 and reveal the console, so it is gated too.
@@ -24,6 +26,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         </div>
       </header>
       <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
+      <ConfirmHost />
+      <Toaster />
     </div>
   );
 }

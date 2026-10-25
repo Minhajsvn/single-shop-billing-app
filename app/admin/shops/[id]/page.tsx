@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CopyText } from "@/components/admin/copy-text";
+import { ShopActions } from "@/components/admin/shop-actions";
 import { requireStaff } from "@/lib/admin/require-staff";
 import { getShop } from "@/lib/admin/shops";
 import { adminDateTime, tillsLine } from "@/lib/admin/shop-view";
@@ -54,6 +55,18 @@ export default async function AdminShopPage({ params }: { params: Promise<{ id: 
         <h1 className="mt-1 text-xl font-semibold">{shop.name}</h1>
         <p className="text-sm text-slate-600">{shop.statusText}</p>
       </div>
+
+      <Section title="Actions">
+        <ShopActions
+          shopId={shop.id}
+          shopName={shop.name}
+          status={s?.status ?? null}
+          hasPaymentMethod={s?.hasPaymentMethod ?? false}
+          trialEndsAt={s?.trialEndsAt ?? null}
+          tillLimited={shop.tillsAllowed !== null}
+          extraTillUntil={shop.overrides.find((o) => o.kind === "extra_till" && o.active)?.expiresAt ?? null}
+        />
+      </Section>
 
       <Section title="Shop">
         <Fields items={[
