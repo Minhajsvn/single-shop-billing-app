@@ -7,11 +7,13 @@ import { ChooseTill } from "@/components/billing/choose-till";
 import { EmptyState } from "@/components/ui/list-parts";
 import { useListParams } from "@/components/ui/use-list-params";
 import { MEMBER_SETTINGS_TAB, isOwnerView } from "@/lib/access/cashier";
+import { pauseTillPrompt, resumeLimitMessage, tillRowAction } from "@/lib/access/tills";
 import { createDemoStateBackup, reconcilePendingOperations, refreshSnapshot, restoreDemoStateBackup, switchThisTill, useDemoStore, useShopContext } from "@/lib/demo-store";
 import { formatDateTime } from "@/lib/domain";
-import { isSupabaseConfigured } from "@/lib/supabase/client";
+import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { syncCatalogToSupabase } from "@/lib/supabase/catalog-sync";
 import { requestConfirm } from "@/lib/ui/confirm-store";
+import { toast } from "@/lib/ui/toast-store";
 
 const TABS = [
   { tab: "business", label: "Business" },
@@ -183,6 +185,28 @@ export default function SettingsPage() {
     switchThisTill();
   }
 
+  const [tillBusy, setTillBusy] = useState("");
+  async function changeTill(till: (typeof devices)[number], action: "pause" | "resume") {
+    if (!business) return;
+    setTillMessage("");
+    if (action === "pause" && !(await requestConfirm({ ...pauseTillPrompt(till.tillNumber), confirmLabel: "Pause till" }))) return;
+    setTillBusy(till.id);
+    const rpc = action === "pause" ? "pause_till" : "resume_till";
+    const { error } = await createClient().rpc(rpc, { p_business_id: business.id, p_device_id: till.id });
+    if (error) {
+      setTillBusy("");
+      const active = devices.filter((item) => item.status === "active").length;
+      return setTillMessage(error.message.includes("plan_limit_reached") ? resumeLimitMessage(tillLimit ?? active)
+        : error.message.includes("last_active_till") ? "A shop keeps one till selling. Resume another till before pausing this one."
+        : error.message.includes("till_not_found") ? "That till has changed. Refresh and try again."
+        : "The till could not be changed. Check the connection and try again.");
+    }
+    const refreshed = await refreshSnapshot();
+    setTillBusy("");
+    if (!refreshed.ok) setTillMessage(refreshed.error);
+    toast(action === "pause" ? "Till paused" : "Till resumed");
+  }
+
   const failed = store.syncOperations.filter((operation) => operation.status === "failed");
   const saveButton = <div className="modal-footer"><button className="button primary" type="submit" disabled={settingsBusy}>{settingsBusy ? "Saving…" : "Save settings"}</button></div>;
   const savedMessage = settingsMessage && <div className="backup-message" role="alert">{settingsMessage}</div>;
@@ -211,7 +235,10 @@ export default function SettingsPage() {
           {tillMessage && <div className="backup-message" role="alert">{tillMessage}</div>}
           {/* Over the plan's till limit: the choice can be made here too, also from a till whose register is open. */}
           {hosted && overTillLimit ? <div className="panel-body"><ChooseTill compact /></div> : null}
-          {hosted && devices.length ? <div className="table-wrap"><table><thead><tr><th>Till</th><th>Name</th><th>Branch</th><th>Status</th></tr></thead><tbody>{devices.map((item) => <tr key={item.id}><td className="product-name">Till {item.tillNumber}{item.id === device?.id ? <div className="product-meta">This browser</div> : null}</td><td>{item.name}</td><td>{item.branchName}</td><td><span className={`badge ${item.status === "active" ? "green" : item.status === "paused" ? "yellow" : "red"}`}>{item.status === "active" ? "Active" : item.status === "paused" ? "Paused" : "Revoked"}</span></td></tr>)}</tbody></table></div>
+          {hosted && devices.length ? <div className="table-wrap"><table><thead><tr><th>Till</th><th>Name</th><th>Branch</th><th>Status</th>{role === "owner" ? <th><span className="sr-only">Actions</span></th> : null}</tr></thead><tbody>{devices.map((item) => {
+            const action = tillRowAction(role, item, devices);
+            return <tr key={item.id}><td className="product-name">Till {item.tillNumber}{item.id === device?.id ? <div className="product-meta">This browser</div> : null}</td><td>{item.name}</td><td>{item.branchName}</td><td><span className={`badge ${item.status === "active" ? "green" : item.status === "paused" ? "yellow" : "red"}`}>{item.status === "active" ? "Active" : item.status === "paused" ? "Paused" : "Revoked"}</span></td>{role === "owner" ? <td>{action ? <button className="button" type="button" disabled={tillBusy !== ""} onClick={() => void changeTill(item, action)}>{tillBusy === item.id ? "Saving…" : action === "pause" ? "Pause till" : "Resume till"}</button> : null}</td> : null}</tr>;
+          })}</tbody></table></div>
             : <EmptyState compact icon={<CashRegister size={28} weight="duotone" />} title={hosted ? "No tills yet" : "One till: this browser"} hint={hosted ? "Register a till from the till picker." : "Tills are set up when you use a shop account."} />}
         </section> : null}
 

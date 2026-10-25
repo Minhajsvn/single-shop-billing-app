@@ -1490,4 +1490,151 @@ begin
 end $$;
 reset role;
 
+-- 25h. Owners pause and resume tills by hand. Shop H is on Pro (2 tills): owner ...12, cashier ...13,
+-- tills H1 and H2 start active; H3 is added once H2 is paused.
+insert into auth.users (id, instance_id, aud, role, email) values
+  ('00000000-0000-4000-8000-000000000012', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'owner-h@test.local'),
+  ('00000000-0000-4000-8000-000000000013', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'cashier-h@test.local');
+insert into public.businesses (id, owner_id, legal_name, trn, address, phone)
+values ('b2500000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000012', 'Shop H LLC', '100000000000010', 'Satwa, Dubai', '+971500000253');
+update public.subscriptions set status = 'active', plan_id = 'pro', addon_tills = 0, trial_ends_at = now() - interval '1 day', grace_ends_at = null
+where business_id = 'b2500000-0000-4000-8000-000000000003';
+insert into public.business_members (business_id, user_id, role, status)
+values ('b2500000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000013', 'cashier', 'active');
+insert into public.devices (id, business_id, name) values
+  ('d2500000-0000-4000-8000-0000000000d1', 'b2500000-0000-4000-8000-000000000003', 'Till H1'),
+  ('d2500000-0000-4000-8000-0000000000d2', 'b2500000-0000-4000-8000-000000000003', 'Till H2');
+
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-000000000012","role":"authenticated"}', true);
+do $$
+declare
+  biz constant uuid := 'b2500000-0000-4000-8000-000000000003';
+  h1 constant uuid := 'd2500000-0000-4000-8000-0000000000d1';
+  h2 constant uuid := 'd2500000-0000-4000-8000-0000000000d2';
+  h3 constant uuid := 'd2500000-0000-4000-8000-0000000000d3';
+  failure text;
+begin
+  perform public.pause_till(biz, h2);
+  assert (select status::text from public.devices where id = h2) = 'paused', 'the owner pauses an active till';
+  assert (select paused_at from public.devices where id = h2) between now() - interval '1 minute' and now() + interval '1 minute',
+    'pausing stamps paused_at';
+
+  begin
+    perform public.pause_till(biz, h1);
+    assert false, 'the last active till must not be paused';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'last_active_till', 'last till is kept, got ' || coalesce(failure, 'null');
+  assert (select status::text from public.devices where id = h1) = 'active', 'the last till stays active';
+
+  -- H2 is paused, so a second active till fits; now the shop is at its Pro limit of 2.
+  insert into public.devices (id, business_id, name) values (h3, biz, 'Till H3');
+  failure := null;
+  begin
+    perform public.resume_till(biz, h2);
+    assert false, 'resuming beyond the plan limit must fail';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'plan_limit_reached', 'resume at the limit, got ' || coalesce(failure, 'null');
+  assert (select status::text from public.devices where id = h2) = 'paused', 'H2 stays paused at the limit';
+
+  perform public.pause_till(biz, h3);
+  perform public.resume_till(biz, h2);
+  assert (select status::text from public.devices where id = h2) = 'active', 'the owner resumes a till under the limit';
+  assert (select paused_at from public.devices where id = h2) is null, 'resuming clears paused_at';
+
+  failure := null;
+  begin
+    perform public.resume_till(biz, h1);
+    assert false, 'an active till cannot be resumed';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'till_not_found', 'resume active, got ' || coalesce(failure, 'null');
+
+  failure := null;
+  begin
+    perform public.resume_till(biz, gen_random_uuid());
+    assert false, 'an unknown till cannot be resumed';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'till_not_found', 'resume unknown, got ' || coalesce(failure, 'null');
+
+  failure := null;
+  begin
+    perform public.pause_till(biz, h3);
+    assert false, 'a paused till cannot be paused again';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'till_not_found', 'pause paused, got ' || coalesce(failure, 'null');
+
+  -- Another shop's till is not found from this shop.
+  failure := null;
+  begin
+    perform public.pause_till(biz, 'd2500000-0000-4000-8000-00000000000c');
+    assert false, 'another shop''s till cannot be paused from this shop';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'till_not_found', 'pause foreign till, got ' || coalesce(failure, 'null');
+
+  -- Under the limit (only H1 active), so the plan-limit trigger does not mask the status guard.
+  perform public.pause_till(biz, h2);
+  failure := null;
+  begin
+    update public.devices set status = 'active' where id = h3;
+    assert false, 'an owner must not un-pause a till directly';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'till_status_locked', 'direct un-pause still locked, got ' || coalesce(failure, 'null');
+
+  failure := null;
+  begin
+    update public.devices set status = 'paused' where id = h1;
+    assert false, 'an owner must not pause a till directly';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'till_status_locked', 'direct pause still locked, got ' || coalesce(failure, 'null');
+end $$;
+
+-- A cashier of the shop, and the owner of another shop, are refused with 42501.
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-000000000013","role":"authenticated"}', true);
+do $$
+declare
+  failure text;
+begin
+  begin
+    perform public.pause_till('b2500000-0000-4000-8000-000000000003', 'd2500000-0000-4000-8000-0000000000d2');
+    assert false, 'a cashier must not pause a till';
+  exception when others then failure := sqlstate;
+  end;
+  assert failure = '42501', 'cashier pause refused, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin
+    perform public.resume_till('b2500000-0000-4000-8000-000000000003', 'd2500000-0000-4000-8000-0000000000d3');
+    assert false, 'a cashier must not resume a till';
+  exception when others then failure := sqlstate;
+  end;
+  assert failure = '42501', 'cashier resume refused, got ' || coalesce(failure, 'null');
+end $$;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-000000000011","role":"authenticated"}', true);
+do $$
+declare
+  failure text;
+begin
+  begin
+    perform public.resume_till('b2500000-0000-4000-8000-000000000003', 'd2500000-0000-4000-8000-0000000000d3');
+    assert false, 'another shop owner must not resume a till';
+  exception when others then failure := sqlstate;
+  end;
+  assert failure = '42501', 'other owner refused, got ' || coalesce(failure, 'null');
+end $$;
+reset role;
+
+-- Function privileges: anon cannot call them.
+do $$ begin
+  assert not has_function_privilege('anon', 'public.pause_till(uuid, uuid)', 'execute'), 'anon cannot pause';
+  assert not has_function_privilege('anon', 'public.resume_till(uuid, uuid)', 'execute'), 'anon cannot resume';
+  assert has_function_privilege('authenticated', 'public.resume_till(uuid, uuid)', 'execute'), 'members can call resume';
+end $$;
+
 rollback;
