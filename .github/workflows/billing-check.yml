@@ -1,0 +1,17 @@
+
+name: Daily billing check
+
+on:
+  schedule:
+    - cron: "0 23 * * *"
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check shop billing
+        run: |
+          curl --fail-with-body -sS -X POST \
+            "https://single-shop-billing-app.vercel.app/api/v1/admin/billing-check" \
+            -H "x-admin-cron-secret: ${{ secrets.ADMIN_CRON_SECRET }}"
