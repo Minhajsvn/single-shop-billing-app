@@ -567,11 +567,17 @@ tbody tr:hover { background: var(--surface-hover); }
 .product-name { font-weight: 600; }
 .product-meta { color: var(--muted); font-size: 11px; margin-top: 4px; font-family: var(--ff-num); font-variant-numeric: tabular-nums; }
 
-.badge { display: inline-flex; align-items: center; gap: 5px; min-height: 24px; padding: 0 10px; border-radius: var(--r-full); border: 1px solid transparent; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; font-weight: 700; white-space: nowrap; }
-.badge.green { background: var(--green-bg); color: var(--green); border-color: color-mix(in srgb, var(--green) 30%, transparent); }
-.badge.red { background: var(--red-bg); color: var(--red); border-color: color-mix(in srgb, var(--red) 30%, transparent); }
-.badge.yellow { background: var(--yellow-bg); color: var(--yellow); border-color: color-mix(in srgb, var(--yellow) 30%, transparent); }
-.badge.blue { background: var(--blue-bg); color: var(--blue); border-color: color-mix(in srgb, var(--blue) 30%, transparent); }
+/* Status pills: sentence case, a coloured dot, a faint tint and no border. The dot carries the colour so the label stays calm. */
+.badge {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 24px; padding: 0 10px 0 8px;
+  border-radius: var(--r-full); border: 0; background: var(--surface-hover); color: var(--text-muted);
+  font-size: 12px; font-weight: 500; line-height: 1; letter-spacing: 0; text-transform: none; white-space: nowrap;
+}
+.badge::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: var(--r-full); background: currentColor; }
+.badge.green { background: var(--green-bg); color: var(--green); }
+.badge.red { background: var(--red-bg); color: var(--red); }
+.badge.yellow { background: var(--yellow-bg); color: var(--yellow); }
+.badge.blue { background: var(--blue-bg); color: var(--blue); }
 
 .toolbar { display: flex; gap: 10px; margin-bottom: 16px; }
 .search { position: relative; flex: 1; }
@@ -1184,7 +1190,8 @@ kbd { min-width: 22px; display: inline-grid; place-items: center; padding: 2px 6
   .numeric, .numeric * { font-variant-numeric: tabular-nums !important; }
   .product-name { font-weight: 620; }
   .product-meta { font-size: 10px; }
-  .badge { gap: normal; min-height: 23px; padding: 0 8px; letter-spacing: .065em; border: 0 solid currentColor; border-radius: 999px; }
+  .badge { gap: normal; min-height: 23px; padding: 0 8px; letter-spacing: .065em; border: 0 solid currentColor; border-radius: 999px; text-transform: uppercase; font-weight: 700; line-height: inherit; }
+  .badge::before { display: none; }
   .badge.green, .badge.red, .badge.yellow, .badge.blue { border-color: currentColor; }
   .breakdown-track, .breakdown-track span { border-radius: 999px; }
   .panel-header, th { background: transparent; }
