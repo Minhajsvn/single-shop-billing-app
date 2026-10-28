@@ -641,10 +641,10 @@ tbody tr:hover { background: var(--surface-hover); }
 
 .error-notice { background: var(--red-bg); color: var(--red); border-color: color-mix(in srgb, var(--red) 35%, transparent); }
 .error-notice strong { color: var(--red); }
-/* A compact heading on the till so the cart starts high enough to show totals and payment at rest. */
-.pos-heading { margin-bottom: 16px; align-items: center; }
-.pos-heading .page-title { margin-top: 6px; font-size: clamp(26px, 2.4vw, 34px); }
-.pos-heading .page-copy { margin-top: 4px; font-size: 13px; }
+/* The till heading is one slim row: title, register status and shortcuts. */
+.pos-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; min-height: 40px; margin-bottom: 12px; }
+.pos-title { margin: 0; font-size: 24px; font-weight: 600; letter-spacing: -.02em; line-height: 1.1; }
+.pos-heading .keyboard-hint { margin-left: auto; }
 .pos-status { display: grid; justify-items: end; gap: 8px; }
 .keyboard-hint { color: var(--muted); font-size: 11px; }
 kbd { min-width: 22px; display: inline-grid; place-items: center; padding: 2px 6px; margin-left: 5px; border: 1px solid var(--border-strong); border-bottom-width: 2px; border-radius: 6px; background: var(--surface-raised); color: var(--text); font: 600 11px var(--ff-ui); }
@@ -993,19 +993,71 @@ kbd { min-width: 22px; display: inline-grid; place-items: center; padding: 2px 6
 /*
  * The till fills the screen on ≥768px: the product grid and the cart lines scroll inside their
  * own panels, so totals and payment stay in view and no gap opens under the cart.
- * 232px is the space above the panels (top bar, heading) plus a small bottom margin.
+ * 184px is the space above the panels (top bar, slim heading) plus a small bottom margin.
  */
 @media (min-width: 768px) {
-  .pos-layout { height: max(480px, calc(100dvh - 232px)); align-items: stretch; }
+  .pos-layout { height: max(480px, calc(100dvh - 184px)); align-items: stretch; }
+  /* The lock reason sits beside the payment buttons on these screens. */
+  .pos-lock-top { display: none !important; }
   .catalog-panel { min-height: 0; display: flex; flex-direction: column; }
   .catalog-panel > .product-grid { flex: 1 1 auto; min-height: 0; overflow-y: auto; align-content: start; overscroll-behavior: contain; }
   .cart-panel { position: relative; top: auto; height: auto; min-height: 0; }
 }
-/* Tighter cart lines and checkout block leave more height for the list. */
-.cart-line { padding: 10px 14px; }
-.cart-line-bottom { margin-top: 8px; }
-.checkout-block { padding: 14px; }
-.customer-selector { min-height: 44px; padding-bottom: 10px; margin-bottom: 8px; }
+@media (max-width: 767px) {
+  .pos-lock-cart { display: none !important; }
+  /* Phones have no F-keys; the hint only costs a line. */
+  .pos-heading .keyboard-hint { display: none; }
+}
+.pos-lock-cart { margin: 10px 0 0; padding: 10px 12px; }
+.pos-lock-top { margin-bottom: 12px; }
+
+/*
+ * Cart lines: two compact rows, name · SKU on top, then quantity, price, discount and remove.
+ * (A one-row layout was tried; at cart widths it squeezed names into two lines and saved little.)
+ * Discount and remove are 44px icon buttons; their labels stay available to screen readers.
+ */
+.cart-line {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto 44px 44px; align-items: center;
+  column-gap: 8px; row-gap: 6px; padding: 10px 14px;
+}
+.cart-line-top, .cart-line-bottom { display: contents; }
+.cart-line-top > div:first-child { grid-row: 1; grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px; min-width: 0; }
+.cart-line-top > div:first-child .product-name { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.cart-line-top > div:first-child .product-meta { margin-top: 0; }
+.cart-line-top > div:first-child .discount-meta { flex-basis: 100%; margin-top: 2px; }
+.cart-line .quantity-stepper { grid-row: 2; grid-column: 1; }
+.cart-line-bottom > strong { grid-row: 2; grid-column: 3; text-align: right; }
+.cart-line .discount-button { grid-row: 2; grid-column: 4; width: 44px; min-height: 44px; margin: 0; padding: 0; gap: 0; font-size: 0; }
+.cart-line .discount-button.on { color: var(--success); border-color: color-mix(in srgb, var(--success) 45%, transparent); background: var(--success-bg); }
+.cart-line .cart-remove { grid-row: 2; grid-column: 5; }
+/* Just added or increased: a short accent wash so the scan is visibly confirmed. */
+.cart-line.flash { animation: line-flash 900ms var(--ease-out); }
+@keyframes line-flash { from { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); } to { background: transparent; box-shadow: inset 3px 0 0 transparent; } }
+
+/* Denser product cards, a clear keyboard focus ring and a "×n in cart" badge. */
+.product-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+.product-card { min-height: 118px; padding: 12px 14px; }
+.product-card h3 { margin: 10px 0 2px; font-size: 14px; }
+.product-card strong { margin-top: 10px; font-size: 15px; }
+.product-card:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-color: var(--focus); box-shadow: 0 0 0 4px var(--accent-ring); }
+.in-cart-badge {
+  position: absolute; top: 10px; right: 10px; min-width: 28px; height: 24px; padding: 0 8px;
+  display: grid; place-items: center; border-radius: var(--r-full);
+  background: var(--accent); color: var(--on-accent); font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums;
+  box-shadow: var(--glow);
+}
+.cart-empty p { max-width: 240px; text-align: center; line-height: 1.6; }
+
+/* Checkout block: compact customer chip, Net and VAT side by side, then total and payment. */
+.checkout-block { display: grid; grid-template-columns: 1fr 1fr; column-gap: 16px; padding: 14px; }
+.checkout-block > * { grid-column: 1 / -1; }
+.checkout-block > .summary-line.net { grid-column: 1; }
+.checkout-block > .summary-line.vat { grid-column: 2; }
+.customer-selector { grid-template-columns: 28px 1fr auto; min-height: 44px; padding: 0 10px; margin: 0 0 10px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-solid); }
+.customer-selector:hover { border-color: var(--focus); }
+.customer-selector-icon { width: 28px; height: 28px; }
+.customer-selector small { display: none; }
+.customer-selector strong { margin-top: 0; }
 .summary-line.total { margin-top: 8px; padding-block: 10px; }
 .summary-line.total strong { font-size: 24px; }
 .payment-grid { margin-top: 12px; }
