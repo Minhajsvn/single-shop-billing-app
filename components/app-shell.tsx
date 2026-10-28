@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, DotsThreeOutline, Gear, House, Receipt, ShoppingCart } from "@phosphor-icons/react";
+import { Archive, DotsThreeOutline, Gear, House, Receipt, ShoppingCart } from "@/components/icons";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
@@ -12,7 +12,7 @@ import { MoreSheet, moreLinksFor } from "@/components/nav/more-sheet";
 import { navIcon, pathOf } from "@/components/nav/nav-icons";
 import { canUsePage, navLinksFor } from "@/lib/access/cashier";
 import { UserMenu } from "@/components/nav/user-menu";
-import { OfflineRuntime } from "@/components/offline-runtime";
+import { OfflineRuntime, useSyncStatusText } from "@/components/offline-runtime";
 import { ConfirmHost } from "@/components/ui/confirm-host";
 import { Toaster } from "@/components/ui/toaster";
 import { clearHostedStore, useDemoStore, useShopContext } from "@/lib/demo-store";
@@ -45,6 +45,7 @@ export function AppShell({ children, loading = false }: { children: ReactNode; l
   const settingsLink = navLinks.find((link) => pathOf(link.href) === "/settings");
   const workspaceLinks = navLinks.filter((link) => link !== settingsLink);
   const moreLinks = moreLinksFor(role);
+  const syncStatus = useSyncStatusText();
 
   // A page this role cannot use, opened by address, goes to Overview (the server checks every write anyway).
   useEffect(() => {
@@ -97,18 +98,18 @@ export function AppShell({ children, loading = false }: { children: ReactNode; l
             return (
               <Link className={`nav-link ${active(href) ? "active" : ""}`} href={href} key={href} aria-current={active(href) ? "page" : undefined}>
                 <Icon size={17} weight={active(href) ? "fill" : "bold"} />
-                {label}
+                <span className="nav-text">{label}</span>
               </Link>
             );
           })}
         </nav>
 
         {settingsLink ? <>
-          <div className="nav-label" style={{ marginTop: 22 }}>System</div>
+          <div className="nav-label">System</div>
           <nav className="nav">
             <Link className={`nav-link ${active("/settings") ? "active" : ""}`} href={settingsLink.href} aria-current={active("/settings") ? "page" : undefined}>
               <Gear size={17} weight={active("/settings") ? "fill" : "bold"} />
-              {settingsLink.label}
+              <span className="nav-text">{settingsLink.label}</span>
             </Link>
           </nav>
         </> : null}
@@ -135,6 +136,9 @@ export function AppShell({ children, loading = false }: { children: ReactNode; l
         <header className="topbar">
           <div className="topbar-title" title={shopName}>{shopName}</div>
           <div className="topbar-actions">
+            {syncStatus.attention
+              ? <Link className={`sync-line sync-pill ${syncStatus.tone}`} href={syncStatus.href}><span className="sync-dot" /><span>{syncStatus.text}</span></Link>
+              : <span className={`sync-line sync-pill ${syncStatus.tone}`}><span className="sync-dot" /><span>{syncStatus.text}</span></span>}
             {mode === "sample" ? <span className="badge yellow">Sample shop</span> : device ? <span className="topbar-till">{tillLabel}</span> : null}
             <Link className="button primary" href="/sale"><ShoppingCart size={15} weight="bold" /> New sale</Link>
           </div>

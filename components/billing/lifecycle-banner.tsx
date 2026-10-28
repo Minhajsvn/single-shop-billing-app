@@ -1,6 +1,6 @@
 "use client";
 
-import { CreditCard, Info, WarningCircle } from "@phosphor-icons/react";
+import { CreditCard, Info, WarningCircle } from "@/components/icons";
 import Link from "next/link";
 import { useState } from "react";
 import { useEntitlement } from "@/components/billing/use-entitlement";

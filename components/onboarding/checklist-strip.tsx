@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle, ListChecks } from "@phosphor-icons/react";
+import { CheckCircle, ListChecks } from "@/components/icons";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useShopContext } from "@/lib/demo-store";

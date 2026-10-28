@@ -1,6 +1,6 @@
 "use client";
 
-import { X } from "@phosphor-icons/react";
+import { X } from "@/components/icons";
 import { useState, type FormEvent } from "react";
 import { parsePriceCell } from "@/lib/catalogue/parse";
 import { formatAED, type Product } from "@/lib/domain";

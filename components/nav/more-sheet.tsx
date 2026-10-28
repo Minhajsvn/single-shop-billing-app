@@ -1,6 +1,6 @@
 "use client";
 
-import { SignOut, X } from "@phosphor-icons/react";
+import { SignOut, X } from "@/components/icons";
 import Link from "next/link";
 import { useEffect, useRef, type KeyboardEvent } from "react";
 import { navIcon } from "@/components/nav/nav-icons";

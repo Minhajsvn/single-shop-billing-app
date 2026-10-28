@@ -12,8 +12,8 @@ import { PLANS, type PlanId } from "@/lib/billing/plans";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="rounded border border-slate-200 bg-white">
-      <h2 className="border-b border-slate-200 px-4 py-2 text-sm font-semibold">{title}</h2>
+    <section className="rounded border border-line bg-surface">
+      <h2 className="border-b border-line px-4 py-2 text-sm font-semibold">{title}</h2>
       <div className="p-4">{children}</div>
     </section>
   );
@@ -24,7 +24,7 @@ function Fields({ items }: { items: [string, React.ReactNode][] }) {
     <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-[12rem_1fr]">
       {items.map(([label, value]) => (
         <div key={label} className="contents">
-          <dt className="text-slate-500">{label}</dt>
+          <dt className="text-muted">{label}</dt>
           <dd className="min-w-0 break-words">{value}</dd>
         </div>
       ))}
@@ -54,12 +54,12 @@ export default async function AdminShopPage({ params }: { params: Promise<{ id: 
   return (
     <div className="space-y-4">
       <div>
-        <Link href="/admin" className="text-sm text-slate-500 underline">All shops</Link>
+        <Link href="/admin" className="text-sm text-muted underline">All shops</Link>
         <h1 className="mt-1 flex flex-wrap items-center gap-2 text-xl font-semibold">
           {shop.name}
           {shop.billingCheck.flags.length ? <NeedsLookBadge /> : null}
         </h1>
-        <p className="text-sm text-slate-600">{shop.statusText}</p>
+        <p className="text-sm text-muted">{shop.statusText}</p>
       </div>
 
       <Section title="Actions">
@@ -123,12 +123,12 @@ export default async function AdminShopPage({ params }: { params: Promise<{ id: 
         {shop.tills.length ? (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
-              <thead className="text-xs text-slate-500">
+              <thead className="text-xs text-muted">
                 <tr><th className="py-1 pr-4 font-medium">Number</th><th className="py-1 pr-4 font-medium">Name</th><th className="py-1 pr-4 font-medium">Branch</th><th className="py-1 font-medium">Status</th></tr>
               </thead>
               <tbody>
                 {shop.tills.map((till) => (
-                  <tr key={till.tillNumber} className="border-t border-slate-100">
+                  <tr key={till.tillNumber} className="border-t border-line">
                     <td className="py-1 pr-4">{till.tillNumber}</td>
                     <td className="py-1 pr-4">{till.name}</td>
                     <td className="py-1 pr-4">{till.branchName || "—"}</td>
@@ -138,38 +138,38 @@ export default async function AdminShopPage({ params }: { params: Promise<{ id: 
               </tbody>
             </table>
           </div>
-        ) : <p className="text-sm text-slate-500">No tills yet.</p>}
+        ) : <p className="text-sm text-muted">No tills yet.</p>}
       </Section>
 
       <Section title="Extras">
         {shop.overrides.length ? (
           <ul className="space-y-2 text-sm">
             {shop.overrides.map((o) => (
-              <li key={o.id} className="border-t border-slate-100 pt-2 first:border-0 first:pt-0">
+              <li key={o.id} className="border-t border-line pt-2 first:border-0 first:pt-0">
                 <span className="font-medium">{KIND[o.kind] ?? o.kind}</span>
                 {o.maxTills !== null ? ` · ${o.maxTills} tills` : ""}
-                {" · "}<span className={o.active ? "text-emerald-700" : "text-slate-500"}>{o.active ? "Active" : "Ended"}</span>
+                {" · "}<span className={o.active ? "text-emerald-700" : "text-muted"}>{o.active ? "Active" : "Ended"}</span>
                 {" · "}{o.expiresAt ? `${o.active ? "until" : "ended"} ${adminDateTime(o.expiresAt)}` : "no expiry"}
-                <div className="text-slate-600">{o.note}</div>
-                <div className="text-xs text-slate-400">Given {adminDateTime(o.createdAt)}</div>
+                <div className="text-muted">{o.note}</div>
+                <div className="text-xs text-muted">Given {adminDateTime(o.createdAt)}</div>
               </li>
             ))}
           </ul>
-        ) : <p className="text-sm text-slate-500">No extras.</p>}
+        ) : <p className="text-sm text-muted">No extras.</p>}
       </Section>
 
       <Section title="Activity">
         {shop.activity.length ? (
           <ul className="space-y-2 text-sm">
             {shop.activity.map((event, index) => (
-              <li key={`${event.createdAt}-${index}`} className="border-t border-slate-100 pt-2 first:border-0 first:pt-0">
+              <li key={`${event.createdAt}-${index}`} className="border-t border-line pt-2 first:border-0 first:pt-0">
                 <span className="font-medium">{ACTION[event.action] ?? event.action}</span>
                 {" · "}{event.actorEmail || "unknown"}{" · "}{adminDateTime(event.createdAt)}
-                {event.note ? <div className="text-slate-600">{event.note}</div> : null}
+                {event.note ? <div className="text-muted">{event.note}</div> : null}
               </li>
             ))}
           </ul>
-        ) : <p className="text-sm text-slate-500">No admin actions yet.</p>}
+        ) : <p className="text-sm text-muted">No admin actions yet.</p>}
       </Section>
     </div>
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import { WarningCircle } from "@phosphor-icons/react";
+import { WarningCircle } from "@/components/icons";
 import { useEffect } from "react";
 
 export default function DashboardError({ error, retry }: { error: Error & { digest?: string }; retry: () => void }) {

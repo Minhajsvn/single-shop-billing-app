@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle, Info, X } from "@phosphor-icons/react";
+import { CheckCircle, Info, X } from "@/components/icons";
 import { useSyncExternalStore } from "react";
 import { dismissToast, getServerToasts, getToasts, subscribeToasts } from "@/lib/ui/toast-store";
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { Printer, X } from "@phosphor-icons/react";
+import { Printer, X } from "@/components/icons";
 import { useEffect, useMemo, useState } from "react";
 import { LABEL_PAGE_SIZE, LabelSheet, type LabelItem, type LabelSize } from "@/components/catalogue/label-sheet";
 import { barcodeFor } from "@/lib/catalogue/barcode";

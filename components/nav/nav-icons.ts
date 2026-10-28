@@ -1,4 +1,4 @@
-import { Archive, CashRegister, ChartBar, Gear, House, IdentificationCard, Receipt, ShoppingCart, type Icon } from "@phosphor-icons/react";
+import { Archive, CashRegister, ChartBar, Gear, House, IdentificationCard, Receipt, ShoppingCart, type Icon } from "@/components/icons";
 
 /** The icon for each page, by its path (a link's query, such as Settings' ?tab=data, is ignored). */
 const NAV_ICONS: Record<string, Icon> = {

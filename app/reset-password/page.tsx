@@ -1,6 +1,6 @@
 "use client";
 
-import { Key, WarningCircle } from "@phosphor-icons/react";
+import { Key, WarningCircle } from "@/components/icons";
 import { CONFIRM_FAILED, isNetworkError, NETWORK_ERROR, PASSWORD_RULE } from "@/lib/auth/signup";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import Link from "next/link";

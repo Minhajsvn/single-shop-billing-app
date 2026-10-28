@@ -16,7 +16,7 @@ export async function requirePretendOwner(): Promise<{ denied: string | null }> 
 
 export function TestBadge() {
   return (
-    <span style={{ display: "inline-block", padding: "2px 10px", borderRadius: 999, background: "#fde68a", color: "#78350f", fontSize: 12, fontWeight: 600 }}>
+    <span style={{ display: "inline-block", padding: "2px 10px", borderRadius: 999, background: "var(--warning-bg)", color: "var(--warning)", fontSize: 12, fontWeight: 600 }}>
       Test billing — no real charges
     </span>
   );

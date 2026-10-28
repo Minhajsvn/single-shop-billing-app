@@ -1,7 +1,7 @@
 "use client";
 
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
-import { ArrowsClockwise, CashRegister, CheckCircle, DownloadSimple, ShieldCheck, UploadSimple } from "@phosphor-icons/react";
+import { ArrowsClockwise, CashRegister, CheckCircle, DownloadSimple, ShieldCheck, UploadSimple } from "@/components/icons";
 import { BillingPanel } from "@/components/billing/billing-panel";
 import { ChooseTill } from "@/components/billing/choose-till";
 import { EmptyState } from "@/components/ui/list-parts";
@@ -258,7 +258,7 @@ export default function SettingsPage() {
           <section className="panel sync-diagnostics">
             <div className="panel-header"><div><div className="panel-title">Offline outbox</div><div className="panel-subtitle">Supported customer, sale, refund, register, and inventory changes sync automatically; other pending operations are retained</div></div><button className="button" type="button" onClick={() => void syncNow()} disabled={syncBusy || (!hosted && !store.syncOperations.some((item) => item.status === "pending" || item.status === "failed"))}><ArrowsClockwise size={15} weight="bold" />{syncBusy ? "Syncing…" : "Sync now"}</button></div>
             {syncMessage && <div className="backup-message" role="status">{syncMessage}</div>}
-            {store.syncOperations.length ? <div className="table-wrap"><table><thead><tr><th>Operation</th><th>Entity</th><th>Created</th><th>Status</th></tr></thead><tbody>{store.syncOperations.slice(0, 12).map((operation) => <tr key={operation.id}><td className="product-meta">{operation.id}</td><td>{operation.entity}</td><td>{formatDateTime(operation.createdAt)}</td><td><span className={`badge ${operation.status === "synced" ? "green" : operation.status === "failed" ? "red" : "yellow"}`}>{operation.status}</span>{operation.error && <div className="product-meta">{operation.error}</div>}</td></tr>)}</tbody></table></div> : <EmptyState compact icon={<CheckCircle size={28} weight="duotone" />} title="Outbox is clear" hint="Offline sales, returns, customers, and stock changes appear here until reconnect." />}
+            {store.syncOperations.length ? <div className="table-wrap"><table><thead><tr><th>Operation</th><th>Entity</th><th>Created</th><th>Status</th></tr></thead><tbody>{store.syncOperations.slice(0, 12).map((operation) => <tr key={operation.id}><td className="product-meta">{operation.id}</td><td>{operation.entity}</td><td>{formatDateTime(operation.createdAt)}</td><td><span className={`badge ${operation.status === "synced" ? "green" : operation.status === "failed" ? "red" : "yellow"}`}>{operation.status.charAt(0).toUpperCase() + operation.status.slice(1)}</span>{operation.error && <div className="product-meta">{operation.error}</div>}</td></tr>)}</tbody></table></div> : <EmptyState compact icon={<CheckCircle size={28} weight="duotone" />} title="Outbox is clear" hint="Offline sales, returns, customers, and stock changes appear here until reconnect." />}
           </section>
           {failed.length ? <section className="panel sync-diagnostics">
             <div className="panel-header"><div><div className="panel-title">Needs attention</div><div className="panel-subtitle">{failed.length} change{failed.length === 1 ? "" : "s"} could not sync. They stay saved here; fix the cause and choose Sync now.</div></div></div>

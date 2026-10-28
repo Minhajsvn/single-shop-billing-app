@@ -1,6 +1,6 @@
 "use client";
 
-import { LockSimple, PauseCircle } from "@phosphor-icons/react";
+import { LockSimple, PauseCircle } from "@/components/icons";
 import Link from "next/link";
 import { ChooseTill } from "@/components/billing/choose-till";
 import { CHOOSE_PLAN_HREF, UpdateCardButton, fixesInPortal } from "@/components/billing/lifecycle-banner";

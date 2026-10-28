@@ -63,9 +63,9 @@ export function PretendActions({ buttons, interval }: { buttons: PretendButton[]
           style={{
             padding: "10px 14px",
             borderRadius: 8,
-            border: "1px solid #888",
-            background: button.tone === "primary" ? "#111" : "transparent",
-            color: button.tone === "primary" ? "#fff" : "inherit",
+            border: "1px solid var(--border-strong)",
+            background: button.tone === "primary" ? "var(--violet)" : "transparent",
+            color: button.tone === "primary" ? "var(--on-accent)" : "inherit",
             cursor: busy ? "default" : "pointer",
           }}
         >

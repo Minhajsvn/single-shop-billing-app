@@ -1,6 +1,6 @@
 "use client";
 
-import { CreditCard } from "@phosphor-icons/react";
+import { CreditCard } from "@/components/icons";
 import { useEffect, useState } from "react";
 import { fixesInPortal } from "@/components/billing/lifecycle-banner";
 import { useEntitlement } from "@/components/billing/use-entitlement";

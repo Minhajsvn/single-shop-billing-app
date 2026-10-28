@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowCounterClockwise, MagnifyingGlass, Receipt } from "@phosphor-icons/react";
+import { ArrowCounterClockwise, MagnifyingGlass, Receipt } from "@/components/icons";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useMemo, useState } from "react";
@@ -132,13 +132,13 @@ export function SalesWorkspace() {
           {serverUnavailable ? <p className="notice list-notice" role="status">{online ? ERROR_MESSAGE : OFFLINE_MESSAGE}</p> : null}
         </div>
         {useServer && server.status !== "loaded" && !rows.length ? <Skeleton variant="list" /> : rows.length ? (
-          <div className="table-wrap"><table><thead><tr><th>Invoice</th><th>Customer</th><th>Issued</th><th>Payment</th><th className="numeric">Total</th></tr></thead><tbody>{rows.map((row) => (
+          <div className="table-wrap stack-table sales-table"><table><thead><tr><th>Invoice</th><th>Customer</th><th>Issued</th><th>Payment</th><th className="numeric">Total</th></tr></thead><tbody>{rows.map((row) => (
             <tr key={row.id}>
-              <td><Link className="invoice-link" href={`/sales/${row.id}`}>{row.invoiceNumber}</Link>{creditedSaleIds.has(row.id) ? <div className="product-meta">Credit issued</div> : null}{row.local ? <div className="product-meta">Not synced yet</div> : null}</td>
-              <td>{row.customerName ?? "Walk-in"}{row.customerPhone ? <div className="product-meta">{row.customerPhone}</div> : null}</td>
-              <td>{formatDateTime(row.createdAt)}</td>
-              <td><span className={`badge ${row.paymentMethod === "cash" ? "green" : "blue"}`}>{row.paymentMethod}</span></td>
-              <td className="numeric product-name">{formatAED(row.grossFils)}</td>
+              <td data-label="Invoice"><Link className="invoice-link" href={`/sales/${row.id}`}>{row.invoiceNumber}</Link>{creditedSaleIds.has(row.id) ? <div className="product-meta">Credit issued</div> : null}{row.local ? <div className="product-meta">Not synced yet</div> : null}</td>
+              <td data-label="Customer">{row.customerName ?? "Walk-in"}{row.customerPhone ? <div className="product-meta">{row.customerPhone}</div> : null}</td>
+              <td data-label="Issued">{formatDateTime(row.createdAt)}</td>
+              <td data-label="Payment"><span className={`badge ${row.paymentMethod === "cash" ? "green" : "blue"}`}>{row.paymentMethod === "cash" ? "Cash" : "Card"}</span></td>
+              <td data-label="Total" className="numeric product-name">{formatAED(row.grossFils)}</td>
             </tr>
           ))}</tbody></table></div>
         ) : (

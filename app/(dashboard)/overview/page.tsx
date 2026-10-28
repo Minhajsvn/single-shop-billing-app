@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle, Receipt, WarningCircle } from "@phosphor-icons/react";
+import { CheckCircle, Receipt, WarningCircle } from "@/components/icons";
 import Link from "next/link";
 import { EmptyState } from "@/components/ui/list-parts";
 import { getRegisterTotals, useDemoStore, useShopContext } from "@/lib/demo-store";
@@ -39,7 +39,7 @@ export default function OverviewPage() {
       <div className="grid-two">
         <section className="panel">
           <div className="panel-header"><div><div className="panel-title">Recent invoices</div><div className="panel-subtitle">Latest completed sales</div></div><Link href="/sales" className="button">View all</Link></div>
-          {store.sales.length ? <div className="table-wrap"><table><thead><tr><th>Invoice</th><th>Time</th><th>Payment</th><th className="numeric">Total</th></tr></thead><tbody>{store.sales.slice(0, 5).map((sale) => <tr key={sale.id}><td><Link className="invoice-link" href={`/sales/${sale.id}`}>{sale.invoiceNumber}</Link></td><td>{formatTime(sale.createdAt)}</td><td><span className={`badge ${sale.paymentMethod === "cash" ? "green" : "blue"}`}>{sale.paymentMethod}</span></td><td className="numeric">{formatAED(sale.grossFils)}</td></tr>)}</tbody></table></div> : <EmptyState compact icon={<Receipt size={28} weight="duotone" />} title="No sales yet" hint="Completed sales appear here." action={<Link className="button primary" href="/sale">New sale</Link>} />}
+          {store.sales.length ? <div className="table-wrap"><table><thead><tr><th>Invoice</th><th>Time</th><th>Payment</th><th className="numeric">Total</th></tr></thead><tbody>{store.sales.slice(0, 5).map((sale) => <tr key={sale.id}><td><Link className="invoice-link" href={`/sales/${sale.id}`}>{sale.invoiceNumber}</Link></td><td>{formatTime(sale.createdAt)}</td><td><span className={`badge ${sale.paymentMethod === "cash" ? "green" : "blue"}`}>{sale.paymentMethod === "cash" ? "Cash" : "Card"}</span></td><td className="numeric">{formatAED(sale.grossFils)}</td></tr>)}</tbody></table></div> : <EmptyState compact icon={<Receipt size={28} weight="duotone" />} title="No sales yet" hint="Completed sales appear here." action={<Link className="button primary" href="/sale">New sale</Link>} />}
         </section>
 
         <section className="panel">

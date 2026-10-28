@@ -18,11 +18,11 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   if (!staff.ok) notFound();
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
-      <header className="border-b border-slate-200 bg-white">
+    <div className="min-h-screen bg-raised text-fg">
+      <header className="border-b border-line bg-surface">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3">
           <span className="text-sm font-semibold">Shop Ledger · Admin</span>
-          <span className="truncate text-xs text-slate-500">{staff.email}</span>
+          <span className="truncate text-xs text-muted">{staff.email}</span>
         </div>
       </header>
       <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>

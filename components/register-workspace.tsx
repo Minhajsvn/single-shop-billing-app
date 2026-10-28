@@ -1,6 +1,6 @@
 "use client";
 
-import { CashRegister, CheckCircle, X } from "@phosphor-icons/react";
+import { CashRegister, CheckCircle, X } from "@/components/icons";
 import { FormEvent, useState } from "react";
 import { staleRegister } from "@/lib/checkout/register-status";
 import { addCashAdjustment, closeRegister, getRegisterTotals, openRegister, useDemoStore, useShopContext } from "@/lib/demo-store";

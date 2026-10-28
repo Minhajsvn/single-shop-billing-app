@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle, FilePdf, Plus, Printer } from "@phosphor-icons/react";
+import { CheckCircle, FilePdf, Plus, Printer } from "@/components/icons";
 import Link from "next/link";
 import { useEffect, useRef } from "react";
 import { ReceiptDocument, type ReceiptShop } from "@/components/receipt-document";

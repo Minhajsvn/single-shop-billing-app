@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowClockwise, WarningCircle } from "@phosphor-icons/react";
+import { ArrowClockwise, WarningCircle } from "@/components/icons";
 import { TillPicker } from "@/components/till-picker";
 import { getStoreMode, startHostedStore, useShopContext } from "@/lib/demo-store";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";

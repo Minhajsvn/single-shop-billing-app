@@ -1,6 +1,6 @@
 "use client";
 
-import { PaperPlaneTilt, WarningCircle } from "@phosphor-icons/react";
+import { PaperPlaneTilt, WarningCircle } from "@/components/icons";
 import { INVALID_EMAIL, isNetworkError, isValidEmail, NETWORK_ERROR, RATE_LIMITED } from "@/lib/auth/signup";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import Link from "next/link";

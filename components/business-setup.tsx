@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle, Storefront } from "@phosphor-icons/react";
+import { CheckCircle, Storefront } from "@/components/icons";
 import { storeDeviceId } from "@/lib/device";
 import { enabledCountries } from "@/lib/fiscal/countries";
 import { createClient } from "@/lib/supabase/client";
