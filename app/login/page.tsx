@@ -1,6 +1,6 @@
 "use client";
 
-import { EnvelopeSimple, LockKey, SignIn, Storefront } from "@phosphor-icons/react";
+import { EnvelopeSimple, LockKey, SignIn, Storefront } from "@/components/icons";
 import { ResendLinkButton } from "@/components/check-email";
 import { CONFIRM_FAILED, isEmailNotConfirmed, isNetworkError, NETWORK_ERROR } from "@/lib/auth/signup";
 import { startSampleStore } from "@/lib/demo-store";

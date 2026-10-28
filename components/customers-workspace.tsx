@@ -1,6 +1,6 @@
 "use client";
 
-import { IdentificationCard, MagnifyingGlass, PencilSimple, Plus, X } from "@phosphor-icons/react";
+import { IdentificationCard, MagnifyingGlass, PencilSimple, Plus, X } from "@/components/icons";
 import Link from "next/link";
 import { FormEvent, useMemo, useState } from "react";
 import { READ_ONLY_REASON, useEntitlement } from "@/components/billing/use-entitlement";

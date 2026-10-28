@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, ArrowCounterClockwise, Barcode, DownloadSimple, FileArrowUp, MagnifyingGlass, PencilSimple, Plus, WarningCircle, X } from "@phosphor-icons/react";
+import { Archive, ArrowCounterClockwise, Barcode, DownloadSimple, FileArrowUp, MagnifyingGlass, PencilSimple, Plus, WarningCircle, X } from "@/components/icons";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { READ_ONLY_REASON, useEntitlement } from "@/components/billing/use-entitlement";
 import { ImportDialog } from "@/components/catalogue/import-dialog";

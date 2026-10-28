@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowCounterClockwise, ArrowLeft, FilePdf, Printer, Receipt, X } from "@phosphor-icons/react";
+import { ArrowCounterClockwise, ArrowLeft, FilePdf, Printer, Receipt, X } from "@/components/icons";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";

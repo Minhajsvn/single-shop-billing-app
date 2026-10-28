@@ -1,6 +1,6 @@
 "use client";
 
-import { DownloadSimple, FileArrowUp, Printer, X } from "@phosphor-icons/react";
+import { DownloadSimple, FileArrowUp, Printer, X } from "@/components/icons";
 import { useMemo, useState, type ChangeEvent } from "react";
 import { READ_ONLY_REASON, useEntitlement } from "@/components/billing/use-entitlement";
 import { useDemoProducts } from "@/hooks/use-demo-products";

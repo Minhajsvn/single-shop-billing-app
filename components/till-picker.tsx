@@ -1,6 +1,6 @@
 "use client";
 
-import { CashRegister, PauseCircle, Plus, Storefront } from "@phosphor-icons/react";
+import { CashRegister, PauseCircle, Plus, Storefront } from "@/components/icons";
 import { FormEvent, useState } from "react";
 import { READ_ONLY_REASON, useEntitlement } from "@/components/billing/use-entitlement";
 import { isOwnerView } from "@/lib/access/cashier";

@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarBlank, DownloadSimple, Printer, Receipt } from "@phosphor-icons/react";
+import { CalendarBlank, DownloadSimple, Printer, Receipt } from "@/components/icons";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useDemoStore } from "@/lib/demo-store";

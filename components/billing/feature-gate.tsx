@@ -1,6 +1,6 @@
 "use client";
 
-import { Sparkle } from "@phosphor-icons/react";
+import { Sparkle } from "@/components/icons";
 import type { ReactNode } from "react";
 import { useEntitlement } from "@/components/billing/use-entitlement";
 import type { FeatureKey } from "@/lib/billing/plans";

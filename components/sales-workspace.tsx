@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowCounterClockwise, MagnifyingGlass, Receipt } from "@phosphor-icons/react";
+import { ArrowCounterClockwise, MagnifyingGlass, Receipt } from "@/components/icons";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useMemo, useState } from "react";

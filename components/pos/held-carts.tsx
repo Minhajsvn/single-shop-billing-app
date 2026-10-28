@@ -1,6 +1,6 @@
 "use client";
 
-import { ClockCounterClockwise, PauseCircle, Trash, X } from "@phosphor-icons/react";
+import { ClockCounterClockwise, PauseCircle, Trash, X } from "@/components/icons";
 import { useEffect, useState } from "react";
 import { MAX_HELD_CARTS, heldCartsKey, holdCart, resumeCart, type HeldCart } from "@/lib/checkout/held-carts";
 import { cartTotals, formatItemCount } from "@/lib/checkout/pricing";

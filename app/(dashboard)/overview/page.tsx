@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle, Receipt, WarningCircle } from "@phosphor-icons/react";
+import { CheckCircle, Receipt, WarningCircle } from "@/components/icons";
 import Link from "next/link";
 import { EmptyState } from "@/components/ui/list-parts";
 import { getRegisterTotals, useDemoStore, useShopContext } from "@/lib/demo-store";

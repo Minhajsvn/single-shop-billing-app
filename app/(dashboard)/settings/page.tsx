@@ -1,7 +1,7 @@
 "use client";
 
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
-import { ArrowsClockwise, CashRegister, CheckCircle, DownloadSimple, ShieldCheck, UploadSimple } from "@phosphor-icons/react";
+import { ArrowsClockwise, CashRegister, CheckCircle, DownloadSimple, ShieldCheck, UploadSimple } from "@/components/icons";
 import { BillingPanel } from "@/components/billing/billing-panel";
 import { ChooseTill } from "@/components/billing/choose-till";
 import { EmptyState } from "@/components/ui/list-parts";

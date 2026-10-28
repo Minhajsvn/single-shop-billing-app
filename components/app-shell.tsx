@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, DotsThreeOutline, Gear, House, Receipt, ShoppingCart } from "@phosphor-icons/react";
+import { Archive, DotsThreeOutline, Gear, House, Receipt, ShoppingCart } from "@/components/icons";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";

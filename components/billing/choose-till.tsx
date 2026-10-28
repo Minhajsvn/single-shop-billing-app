@@ -1,6 +1,6 @@
 "use client";
 
-import { CashRegister } from "@phosphor-icons/react";
+import { CashRegister } from "@/components/icons";
 import { useState } from "react";
 import { useEntitlement } from "@/components/billing/use-entitlement";
 import { initialKeptTills, keepTillsButton, toggleKeptTill } from "@/lib/access/tills";

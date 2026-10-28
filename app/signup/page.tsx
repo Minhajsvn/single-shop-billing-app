@@ -1,6 +1,6 @@
 "use client";
 
-import { UserPlus, WarningCircle } from "@phosphor-icons/react";
+import { UserPlus, WarningCircle } from "@/components/icons";
 import { CheckEmail } from "@/components/check-email";
 import { NETWORK_ERROR, signupErrorMessage, validateSignup } from "@/lib/auth/signup";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";

@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle, CreditCard, Money, X } from "@phosphor-icons/react";
+import { CheckCircle, CreditCard, Money, X } from "@/components/icons";
 import { FormEvent, useState } from "react";
 import { changeDue, parseMoneyInput, quickCashAmounts } from "@/lib/checkout/pricing";
 import { formatAED } from "@/lib/domain";

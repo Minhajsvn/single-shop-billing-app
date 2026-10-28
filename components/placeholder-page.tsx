@@ -1,4 +1,4 @@
-import { HourglassMedium } from "@phosphor-icons/react/dist/ssr";
+import { HourglassMedium } from "@/components/icons";
 
 export function PlaceholderPage({ eyebrow, title, description, sprint }: { eyebrow: string; title: string; description: string; sprint: string }) {
   return (

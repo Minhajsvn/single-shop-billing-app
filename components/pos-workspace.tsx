@@ -1,6 +1,6 @@
 "use client";
 
-import { CreditCard, IdentificationCard, MagnifyingGlass, Minus, Money, Plus, ShoppingCart, Tag, Trash, User, X } from "@phosphor-icons/react";
+import { CreditCard, IdentificationCard, MagnifyingGlass, Minus, Money, Plus, ShoppingCart, Tag, Trash, User, X } from "@/components/icons";
 import Link from "next/link";
 import { FormEvent, KeyboardEvent, MouseEvent, useMemo, useRef, useState } from "react";
 import { RegisterStop } from "@/components/billing/register-stop";

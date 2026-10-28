@@ -1,6 +1,6 @@
 "use client";
 
-import { CaretUp, Gear, SignOut } from "@phosphor-icons/react";
+import { CaretUp, Gear, SignOut } from "@/components/icons";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useSyncStatusText } from "@/components/offline-runtime";

@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, IdentificationCard, Receipt } from "@phosphor-icons/react";
+import { ArrowLeft, IdentificationCard, Receipt } from "@/components/icons";
 import Link from "next/link";
 import { useDemoStore } from "@/lib/demo-store";
 import { formatAED, formatDateTime } from "@/lib/domain";
