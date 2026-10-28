@@ -979,13 +979,41 @@ kbd { min-width: 22px; display: inline-grid; place-items: center; padding: 2px 6
 .cart-panel .panel-header > div:first-child { flex: 1 0 auto; }
 .cart-panel .panel-title { white-space: nowrap; }
 .cart-panel .held-carts { flex: 0 1 auto; flex-wrap: nowrap; margin: 0 0 0 auto; }
-/* With items in the cart, Clear joins the row: title on top, Hold / Held left and Clear right. */
-.cart-panel .panel-header:has(> .button) > div:first-child { flex-basis: 100%; }
-.cart-panel .panel-header:has(> .button) .held-carts { margin-left: 0; }
-.cart-panel .panel-header > .button { margin-left: auto; }
 .cart-panel .held-carts .button { padding: 0 12px; font-size: 12px; }
 .cart-panel .held-carts .form-error { margin: 0; white-space: normal; }
 .cart-panel .panel-header > .button { padding: 0 12px; font-size: 12px; min-height: 44px; }
+/* Only a narrow cart (tablets) needs two rows: title on top, Hold / Held left and Clear right. */
+.cart-panel { container-type: inline-size; }
+@container (max-width: 379px) {
+  .cart-panel .panel-header:has(> .button) > div:first-child { flex-basis: 100%; }
+  .cart-panel .panel-header:has(> .button) .held-carts { margin-left: 0; }
+  .cart-panel .panel-header > .button { margin-left: auto; }
+}
+
+/*
+ * The till fills the screen on ≥768px: the product grid and the cart lines scroll inside their
+ * own panels, so totals and payment stay in view and no gap opens under the cart.
+ * 232px is the space above the panels (top bar, heading) plus a small bottom margin.
+ */
+@media (min-width: 768px) {
+  .pos-layout { height: max(480px, calc(100dvh - 232px)); align-items: stretch; }
+  .catalog-panel { min-height: 0; display: flex; flex-direction: column; }
+  .catalog-panel > .product-grid { flex: 1 1 auto; min-height: 0; overflow-y: auto; align-content: start; overscroll-behavior: contain; }
+  .cart-panel { position: relative; top: auto; height: auto; min-height: 0; }
+}
+/* Tighter cart lines and checkout block leave more height for the list. */
+.cart-line { padding: 10px 14px; }
+.cart-line-bottom { margin-top: 8px; }
+.checkout-block { padding: 14px; }
+.customer-selector { min-height: 44px; padding-bottom: 10px; margin-bottom: 8px; }
+.summary-line.total { margin-top: 8px; padding-block: 10px; }
+.summary-line.total strong { font-size: 24px; }
+.payment-grid { margin-top: 12px; }
+.payment-button { min-height: 64px; }
+@media (max-height: 820px) {
+  .payment-button { min-height: 52px; }
+  .payment-button small { display: none; }
+}
 .held-list { display: grid; gap: 8px; }
 .held-row { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--border); }
 .held-row span { display: block; color: var(--muted); font-size: 12px; }
