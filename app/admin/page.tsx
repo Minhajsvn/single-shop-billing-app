@@ -35,15 +35,15 @@ export default async function AdminShopsPage({ searchParams }: { searchParams: P
           <input
             type="search" name="q" defaultValue={query} aria-label="Search shops"
             placeholder="Shop name, owner email, TRN or shop id"
-            className="min-w-0 flex-1 rounded border border-slate-300 bg-white px-3 py-1.5 text-sm sm:w-80"
+            className="min-w-0 flex-1 rounded border border-line-strong bg-surface px-3 py-1.5 text-sm sm:w-80"
           />
           {needsLook ? <input type="hidden" name="look" value="1" /> : null}
-          <button type="submit" className="rounded bg-slate-900 px-3 py-1.5 text-sm text-white">Search</button>
+          <button type="submit" className="rounded bg-accent px-3 py-1.5 text-sm text-white">Search</button>
         </form>
       </div>
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-        <p className={needsLookCount ? "font-medium text-red-700" : "text-slate-500"}>
+        <p className={needsLookCount ? "font-medium text-danger" : "text-muted"}>
           {needsLookCount === 1 ? "1 shop needs a look" : `${needsLookCount} shops need a look`}
         </p>
         <Link href={pageHref(query, 1, !needsLook)} className="underline">
@@ -51,14 +51,14 @@ export default async function AdminShopsPage({ searchParams }: { searchParams: P
         </Link>
       </div>
 
-      <p className="text-sm text-slate-500">
+      <p className="text-sm text-muted">
         {total === 1 ? "1 shop" : `${total} shops`}{needsLook ? " needing a look" : ""}{query ? ` matching “${query}”` : ""}
         {query || needsLook ? <> · <Link href="/admin" className="underline">Clear</Link></> : null}
       </p>
 
-      <div className="overflow-x-auto rounded border border-slate-200 bg-white">
+      <div className="overflow-x-auto rounded border border-line bg-surface">
         <table className="w-full text-left text-sm">
-          <thead className="border-b border-slate-200 bg-slate-50 text-xs text-slate-500">
+          <thead className="border-b border-line bg-raised text-xs text-muted">
             <tr>
               <th className="px-3 py-2 font-medium">Shop</th>
               <th className="px-3 py-2 font-medium">Owner email</th>
@@ -69,7 +69,7 @@ export default async function AdminShopsPage({ searchParams }: { searchParams: P
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr key={row.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
+              <tr key={row.id} className="border-b border-line last:border-0 hover:bg-raised">
                 <td className="px-3 py-2"><Link href={`/admin/shops/${row.id}`} className="font-medium underline-offset-2 hover:underline">{row.name}</Link>
                   {row.openFlags ? <> <NeedsLookBadge /></> : null}
                 </td>
@@ -80,7 +80,7 @@ export default async function AdminShopsPage({ searchParams }: { searchParams: P
               </tr>
             ))}
             {rows.length === 0 ? (
-              <tr><td colSpan={5} className="px-3 py-6 text-center text-slate-500">No shops found.</td></tr>
+              <tr><td colSpan={5} className="px-3 py-6 text-center text-muted">No shops found.</td></tr>
             ) : null}
           </tbody>
         </table>
@@ -89,7 +89,7 @@ export default async function AdminShopsPage({ searchParams }: { searchParams: P
       {pages > 1 ? (
         <nav className="flex items-center justify-between text-sm" aria-label="Pages">
           {page > 1 ? <Link href={pageHref(query, page - 1, needsLook)} className="underline">Previous</Link> : <span />}
-          <span className="text-slate-500">Page {page} of {pages}</span>
+          <span className="text-muted">Page {page} of {pages}</span>
           {page < pages ? <Link href={pageHref(query, page + 1, needsLook)} className="underline">Next</Link> : <span />}
         </nav>
       ) : null}

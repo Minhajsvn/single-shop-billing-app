@@ -23,9 +23,9 @@ type Props = {
 type Panel = "trial" | "give" | "end" | null;
 type TrialChoice = "7" | "14" | "date";
 
-const button = "rounded border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-100 disabled:opacity-50";
-const primary = "rounded bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50";
-const input = "w-full rounded border border-slate-300 px-2 py-1.5 text-sm";
+const button = "rounded border border-line-strong bg-surface px-3 py-1.5 text-sm font-medium hover:bg-sunken disabled:opacity-50";
+const primary = "rounded bg-accent px-3 py-1.5 text-sm font-medium text-white hover:brightness-110 disabled:opacity-50";
+const input = "w-full rounded border border-line-strong px-2 py-1.5 text-sm";
 
 /** Today's date in Dubai as YYYY-MM-DD, for the date inputs' minimum. */
 function dubaiToday(now: Date): string {
@@ -115,7 +115,7 @@ export function ShopActions({ shopId, shopName, status, hasPaymentMethod, trialE
 
   const noteField = (
     <label className="block text-sm">
-      <span className="text-slate-600">Note (required, up to {NOTE_MAX} characters)</span>
+      <span className="text-muted">Note (required, up to {NOTE_MAX} characters)</span>
       <textarea className={`${input} mt-1`} rows={2} maxLength={NOTE_MAX} required value={note} onChange={(e) => setNote(e.target.value)} />
     </label>
   );
@@ -123,7 +123,7 @@ export function ShopActions({ shopId, shopName, status, hasPaymentMethod, trialE
     <div className="flex flex-wrap items-center gap-2">
       <button type="submit" className={primary} disabled={busy}>{busy ? "Saving…" : label}</button>
       <button type="button" className={button} onClick={() => open(null)} disabled={busy}>Cancel</button>
-      {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
+      {error ? <p role="alert" className="text-sm text-danger">{error}</p> : null}
     </div>
   );
 
@@ -140,13 +140,13 @@ export function ShopActions({ shopId, shopName, status, hasPaymentMethod, trialE
           <button type="button" className={button} aria-expanded={panel === "end"} onClick={() => open("end")}>End extra till</button>
         ) : null}
       </div>
-      {trialing && hasPaymentMethod ? <p className="text-sm text-slate-500">This trial has a card on file. Change the trial end in Stripe.</p> : null}
-      {!status ? <p className="text-sm text-slate-500">This shop has no subscription yet.</p> : null}
+      {trialing && hasPaymentMethod ? <p className="text-sm text-muted">This trial has a card on file. Change the trial end in Stripe.</p> : null}
+      {!status ? <p className="text-sm text-muted">This shop has no subscription yet.</p> : null}
 
       {panel === "trial" ? (
-        <form onSubmit={submitTrial} className="space-y-3 rounded border border-slate-200 p-3">
+        <form onSubmit={submitTrial} className="space-y-3 rounded border border-line p-3">
           <fieldset className="flex flex-wrap items-center gap-4 text-sm">
-            <legend className="mb-1 text-slate-600">New trial end</legend>
+            <legend className="mb-1 text-muted">New trial end</legend>
             {(["7", "14"] as const).map((days) => (
               <label key={days} className="flex items-center gap-1">
                 <input type="radio" name="trial-choice" checked={trialChoice === days} onChange={() => setTrialChoice(days)} /> +{days} days
@@ -154,20 +154,20 @@ export function ShopActions({ shopId, shopName, status, hasPaymentMethod, trialE
             ))}
             <label className="flex items-center gap-1">
               <input type="radio" name="trial-choice" checked={trialChoice === "date"} onChange={() => setTrialChoice("date")} /> On
-              <input type="date" className="rounded border border-slate-300 px-2 py-1" min={today} value={date} aria-label="Trial end date"
+              <input type="date" className="rounded border border-line-strong px-2 py-1" min={today} value={date} aria-label="Trial end date"
                 onChange={(e) => { setDate(e.target.value); setTrialChoice("date"); }} />
             </label>
           </fieldset>
-          <p className="text-xs text-slate-500">+7 / +14 count from the later of now and the current trial end. A date means the end of that day, Dubai time.</p>
+          <p className="text-xs text-muted">+7 / +14 count from the later of now and the current trial end. A date means the end of that day, Dubai time.</p>
           {noteField}
           {footer("Extend trial")}
         </form>
       ) : null}
 
       {panel === "give" ? (
-        <form onSubmit={submitGive} className="space-y-3 rounded border border-slate-200 p-3">
+        <form onSubmit={submitGive} className="space-y-3 rounded border border-line p-3">
           <label className="block text-sm">
-            <span className="text-slate-600">Until (end of that day, Dubai time)</span>
+            <span className="text-muted">Until (end of that day, Dubai time)</span>
             <input type="date" className={`${input} mt-1 sm:w-auto`} min={today} required value={date} onChange={(e) => setDate(e.target.value)} />
           </label>
           {noteField}
@@ -176,7 +176,7 @@ export function ShopActions({ shopId, shopName, status, hasPaymentMethod, trialE
       ) : null}
 
       {panel === "end" ? (
-        <form onSubmit={submitEnd} className="space-y-3 rounded border border-slate-200 p-3">
+        <form onSubmit={submitEnd} className="space-y-3 rounded border border-line p-3">
           <p className="text-sm">The extra till runs until {adminDateTime(extraTillUntil)}. Ending it takes effect now.</p>
           {noteField}
           {footer("End extra till")}

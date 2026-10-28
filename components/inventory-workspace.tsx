@@ -181,20 +181,20 @@ export function InventoryWorkspace() {
           </div>
         </div>
         {paged.items.length ? (
-          <div className="table-wrap"><table><thead><tr><th className="select-column"><input type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Select all products on this page" /></th><th>Product</th><th>Status</th><th className="numeric">Stock</th><th className="numeric">Price incl. VAT</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>{paged.items.map((product) => {
+          <div className="table-wrap stack-table inventory-table"><table><thead><tr><th className="select-column"><input type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Select all products on this page" /></th><th>Product</th><th>Status</th><th className="numeric">Stock</th><th className="numeric">Price incl. VAT</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>{paged.items.map((product) => {
             const low = product.stock <= product.lowStockThreshold;
             const problem = syncProblems.get(product.id);
             return (
               <tr key={product.id}>
                 <td className="select-column"><input type="checkbox" checked={selected.has(product.id)} onChange={() => toggle(product.id)} aria-label={`Select ${product.name}`} /></td>
-                <td><div className="product-name">{product.name}</div><div className="product-meta">{product.sku}{product.barcode ? ` · ${product.barcode}` : ""}{product.taxCategory !== "standard" ? ` · ${product.taxCategory === "zero" ? "Zero-rated" : "Exempt"}` : ""}</div></td>
-                <td>
+                <td data-label="Product"><div className="product-name">{product.name}</div><div className="product-meta">{product.sku}{product.barcode ? ` · ${product.barcode}` : ""}{product.taxCategory !== "standard" ? ` · ${product.taxCategory === "zero" ? "Zero-rated" : "Exempt"}` : ""}</div></td>
+                <td data-label="Status">
                   {product.active ? <span className={`badge ${low ? "red" : "green"}`}>{low ? "Low stock" : "In stock"}</span> : <span className="badge yellow">Archived</span>}
                   {problem ? <div className="sync-problem"><span className="badge red" title={problem}>Not saved to the server</span><small>{problem}</small></div> : null}
                 </td>
-                <td className="numeric">{product.stock}</td>
-                <td className="numeric">{formatAED(product.priceFils)}</td>
-                <td className="numeric"><div className="row-actions">
+                <td data-label="Stock" className="numeric">{product.stock}</td>
+                <td data-label="Price incl. VAT" className="numeric">{formatAED(product.priceFils)}</td>
+                <td className="numeric row-actions-cell"><div className="row-actions">
                   {manage ? <button className="button" onClick={() => setDialog({ kind: "edit", product })} disabled={!canWrite} title={readOnlyTitle} aria-label={`Edit ${product.name}`}><PencilSimple size={14} weight="bold" /> Edit</button> : null}
                   <button className="button" onClick={() => setDialog({ kind: "labels", productIds: [product.id] })} aria-label={`Print labels for ${product.name}`}><Barcode size={14} weight="bold" /> Labels</button>
                   {!manage ? null : product.active ? (
