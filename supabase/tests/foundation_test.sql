@@ -2222,4 +2222,226 @@ do $$ begin
   assert has_function_privilege('authenticated', 'public.choose_active_tills(uuid, uuid[])', 'execute'), 'signed-in users call it (owner check inside)';
 end $$;
 
+-- 27. Stage 1I granted plans. Shop L (owner ...a1): expired trial. Shop M (owner ...a2): expired trial, Stripe event target.
+-- Shop N (owner ...a3): a live Stripe subscription. Staff is ...15.
+reset role;
+insert into auth.users (id, instance_id, aud, role, email) values
+  ('00000000-0000-4000-8000-0000000000a1', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'owner-l@test.local'),
+  ('00000000-0000-4000-8000-0000000000a2', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'owner-m@test.local'),
+  ('00000000-0000-4000-8000-0000000000a3', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'owner-n@test.local');
+insert into public.businesses (id, owner_id, legal_name, trn, address, phone) values
+  ('b2700000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-0000000000a1', 'Shop L LLC', '100000000000021', 'Satwa, Dubai', '+971500000271'),
+  ('b2700000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-0000000000a2', 'Shop M LLC', '100000000000022', 'Satwa, Dubai', '+971500000272'),
+  ('b2700000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-0000000000a3', 'Shop N LLC', '100000000000023', 'Satwa, Dubai', '+971500000273');
+update public.subscriptions set status = 'trialing', plan_id = 'pro', has_payment_method = false, trial_ends_at = now() - interval '1 day'
+where business_id in ('b2700000-0000-4000-8000-000000000001', 'b2700000-0000-4000-8000-000000000002');
+update public.subscriptions set status = 'active', plan_id = 'starter', has_payment_method = true,
+  stripe_customer_id = 'cus_27d', stripe_subscription_id = 'sub_27d'
+where business_id = 'b2700000-0000-4000-8000-000000000003';
+
+-- 27a. Service role only.
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000000a1","role":"authenticated"}', true);
+do $$
+declare
+  biz constant uuid := 'b2700000-0000-4000-8000-000000000001';
+  staff constant uuid := '00000000-0000-4000-8000-000000000015';
+  failure text;
+begin
+  begin
+    perform public.admin_grant_plan(biz, 'business', null, staff, 'self-service');
+    assert false, 'an owner must not grant themselves a plan';
+  exception when others then failure := sqlstate;
+  end;
+  assert failure = '42501', 'grant refused, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin
+    perform public.admin_revoke_grant(biz, staff, 'self-service');
+    assert false, 'an owner must not revoke a grant';
+  exception when others then failure := sqlstate;
+  end;
+  assert failure = '42501', 'revoke refused, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin
+    perform count(*) from public.plan_grants;
+  exception when others then failure := sqlstate;
+  end;
+  assert failure = '42501', 'authenticated cannot read plan_grants, got ' || coalesce(failure, 'null');
+end $$;
+reset role;
+set local role anon;
+do $$
+declare failure text;
+begin
+  begin
+    perform count(*) from public.plan_grants;
+  exception when others then failure := sqlstate;
+  end;
+  assert failure = '42501', 'anon cannot read plan_grants, got ' || coalesce(failure, 'null');
+end $$;
+reset role;
+do $$ begin
+  assert not has_function_privilege('anon', 'public.admin_grant_plan(uuid, text, timestamptz, uuid, text)', 'execute'), 'anon cannot grant';
+  assert not has_function_privilege('authenticated', 'public.admin_grant_plan(uuid, text, timestamptz, uuid, text)', 'execute'), 'authenticated cannot grant';
+  assert not has_function_privilege('authenticated', 'public.admin_revoke_grant(uuid, uuid, text)', 'execute'), 'authenticated cannot revoke';
+  assert has_function_privilege('service_role', 'public.admin_grant_plan(uuid, text, timestamptz, uuid, text)', 'execute'), 'service_role grants';
+  assert has_function_privilege('service_role', 'public.admin_revoke_grant(uuid, uuid, text)', 'execute'), 'service_role revokes';
+end $$;
+
+-- 27b. A grant gives full access on the grant plan until it ends or is revoked.
+set local role service_role;
+do $$
+declare
+  biz constant uuid := 'b2700000-0000-4000-8000-000000000001';
+  staff constant uuid := '00000000-0000-4000-8000-000000000015';
+  until_at timestamptz := now() + interval '30 days';
+  ent jsonb;
+  business_plan public.plan_catalog;
+  failure text;
+begin
+  select * into business_plan from public.plan_catalog where id = 'business';
+  ent := public.entitlements_internal(biz, now());
+  assert ent->>'access' = 'read_only' and ent->'grantPlanId' = 'null'::jsonb and ent->'grantEndsAt' = 'null'::jsonb,
+    '27b starts read-only with no grant keys set';
+
+  perform public.admin_grant_plan(biz, 'business', until_at, staff, 'Partner shop');
+  ent := public.entitlements_internal(biz, now());
+  assert ent->>'access' = 'full', 'granted shop has full access';
+  assert ent->>'planId' = 'business' and ent->>'grantPlanId' = 'business', 'plan is the grant plan';
+  assert (ent->>'grantEndsAt')::timestamptz = until_at and (ent->>'accessEndsAt')::timestamptz = until_at, 'grant end shows';
+  assert ent->>'status' = 'trialing', 'status stays the subscription status';
+  assert (ent->'limits'->>'tills')::integer is not distinct from business_plan.max_tills, 'Business tills limit';
+  assert (ent->'limits'->>'branches')::integer is not distinct from business_plan.max_branches, 'Business branches limit';
+  assert (ent->'limits'->>'members')::integer is not distinct from business_plan.max_members, 'Business members limit';
+  assert (ent->'limits'->>'products')::integer is not distinct from business_plan.max_products, 'Business products limit';
+  assert ent->'features' = to_jsonb(array(select f from unnest(business_plan.features) f order by f)), 'Business features';
+
+  ent := public.entitlements_internal(biz, until_at + interval '1 minute');
+  assert ent->>'access' = 'read_only', 'read-only after the grant ends';
+  assert ent->'grantPlanId' = 'null'::jsonb and ent->'grantEndsAt' = 'null'::jsonb, 'no grant after its end';
+  assert ent->>'planId' = 'pro', 'back on the subscription plan';
+
+  perform public.admin_revoke_grant(biz, staff, 'Ended early');
+  ent := public.entitlements_internal(biz, now());
+  assert ent->>'access' = 'read_only' and ent->'grantPlanId' = 'null'::jsonb, 'revoke takes effect immediately';
+
+  begin
+    perform public.admin_revoke_grant(biz, staff, 'again');
+    assert false, 'revoking with no open grant must be refused';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'no_grant', 'no grant, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin
+    perform public.admin_grant_plan(biz, 'business', now() - interval '1 hour', staff, 'past');
+    assert false, 'a past end must be refused';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'until_not_in_future', 'past end, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin
+    perform public.admin_grant_plan(biz, 'nope', null, staff, 'x');
+    assert false, 'unknown plan must be refused';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'plan_not_found', 'unknown plan, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin
+    perform public.admin_grant_plan(gen_random_uuid(), 'business', null, staff, 'x');
+    assert false, 'unknown shop must be refused';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'shop_not_found', 'unknown shop, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin
+    perform public.admin_grant_plan(biz, 'business', null, staff, '  ');
+    assert false, 'blank note must be refused';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'note_required', 'blank note, got ' || coalesce(failure, 'null');
+end $$;
+
+-- 27c. A Stripe event cannot overwrite a grant.
+do $$
+declare
+  biz constant uuid := 'b2700000-0000-4000-8000-000000000002';
+  staff constant uuid := '00000000-0000-4000-8000-000000000015';
+  ent jsonb;
+  result text;
+begin
+  perform public.admin_grant_plan(biz, 'business', null, staff, 'Open-ended partner');
+  ent := public.entitlements_internal(biz, now());
+  assert ent->>'access' = 'full' and ent->'accessEndsAt' = 'null'::jsonb and ent->'grantEndsAt' = 'null'::jsonb, 'open-ended grant';
+
+  result := public.apply_billing_event(jsonb_build_object(
+    'id', 'evt_27c_deleted', 'created', now(), 'kind', 'subscription_deleted',
+    'businessId', biz, 'customerId', null, 'subscriptionId', null, 'status', 'canceled',
+    'trialEnd', null, 'currentPeriodEnd', null, 'cancelAt', null, 'interval', null));
+  assert result = 'applied', 'delete event applied, got ' || coalesce(result, 'null');
+  assert (select status from public.subscriptions where business_id = biz) = 'canceled', 'subscription is canceled';
+  ent := public.entitlements_internal(biz, now());
+  assert ent->>'planId' = 'business' and ent->>'access' = 'full' and ent->>'grantPlanId' = 'business', 'grant survives the Stripe event';
+end $$;
+
+-- 27d. No grant over a live Stripe subscription.
+do $$
+declare
+  biz constant uuid := 'b2700000-0000-4000-8000-000000000003';
+  staff constant uuid := '00000000-0000-4000-8000-000000000015';
+  failure text;
+begin
+  begin
+    perform public.admin_grant_plan(biz, 'business', null, staff, 'try');
+    assert false, 'a live Stripe subscription must be refused';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'stripe_subscription_live', 'live subscription, got ' || coalesce(failure, 'null');
+  assert not exists (select 1 from public.plan_grants where business_id = biz), 'refusal writes no grant';
+
+  update public.subscriptions set status = 'canceled' where business_id = biz;
+  perform public.admin_grant_plan(biz, 'business', null, staff, 'after cancel');
+  assert exists (select 1 from public.plan_grants where business_id = biz and revoked_at is null), 'grant allowed once canceled';
+end $$;
+
+-- 27e. A second grant revokes the first; one audit row per call.
+do $$
+declare
+  biz constant uuid := 'b2700000-0000-4000-8000-000000000001';
+  staff constant uuid := '00000000-0000-4000-8000-000000000015';
+  end1 timestamptz := now() + interval '10 days';
+  end2 timestamptz := now() + interval '20 days';
+  ev public.audit_events;
+begin
+  assert (select count(*) from public.audit_events where business_id = biz and action in ('admin.grant_plan', 'admin.revoke_grant')) = 2,
+    '27e starts with the audit rows of 27b (one grant, one revoke)';
+  delete from public.audit_events where business_id = biz and action in ('admin.grant_plan', 'admin.revoke_grant');
+
+  perform public.admin_grant_plan(biz, 'pro', end1, staff, 'first');
+  assert (select count(*) from public.audit_events where business_id = biz and action = 'admin.grant_plan') = 1, 'one audit row for the first grant';
+  select * into ev from public.audit_events where business_id = biz and action = 'admin.grant_plan';
+  assert ev.actor_id = staff and ev.entity_type = 'plan_grant', 'actor and entity type';
+  assert ev.summary->'before'->>'planId' is null and ev.summary->'after'->>'planId' = 'pro', 'before empty, after pro';
+  assert (ev.summary->'after'->>'endsAt')::timestamptz = end1 and ev.summary->>'note' = 'first', 'after end and note';
+  delete from public.audit_events where id = ev.id;
+
+  perform public.admin_grant_plan(biz, 'business', end2, staff, 'second');
+  assert (select count(*) from public.plan_grants where business_id = biz and revoked_at is null) = 1, 'one open grant';
+  assert (select count(*) from public.plan_grants where business_id = biz and revoked_at is not null and revoke_note = 'second' and revoked_by = staff) >= 1,
+    'first grant revoked with the new note';
+  assert (select count(*) from public.audit_events where business_id = biz and action = 'admin.grant_plan') = 1, 'one audit row for the second grant';
+  select * into ev from public.audit_events where business_id = biz and action = 'admin.grant_plan';
+  assert ev.summary->'before'->>'planId' = 'pro' and (ev.summary->'before'->>'endsAt')::timestamptz = end1, 'before is the replaced grant';
+  assert ev.summary->'after'->>'planId' = 'business' and (ev.summary->'after'->>'endsAt')::timestamptz = end2, 'after is the new grant';
+  delete from public.audit_events where id = ev.id;
+
+  perform public.admin_revoke_grant(biz, staff, 'done');
+  assert (select count(*) from public.audit_events where business_id = biz and action = 'admin.revoke_grant') = 1, 'one audit row for the revoke';
+  select * into ev from public.audit_events where business_id = biz and action = 'admin.revoke_grant';
+  assert ev.actor_id = staff and ev.summary->>'note' = 'done', 'revoke actor and note';
+  assert ev.summary->'before'->>'planId' = 'business' and (ev.summary->'before'->>'endsAt')::timestamptz = end2, 'revoke before';
+  assert ev.summary->'after'->>'planId' is null, 'revoke after is empty';
+  assert not exists (select 1 from public.plan_grants where business_id = biz and revoked_at is null), 'no open grant left';
+end $$;
+reset role;
+
 rollback;
