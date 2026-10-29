@@ -2637,6 +2637,24 @@ begin
   exception when others then failure := sqlerrm; end;
   assert failure = 'note_required', 'note_required, got ' || coalesce(failure, 'null');
   assert (select role from public.business_members where id = owner_row) = 'owner' and (select status from public.business_members where id = owner_row) = 'active', 'owner row untouched';
+  assert (select count(*) from public.audit_events where business_id = biz and action = 'admin.set_member_role') = 2, 'refusals wrote no role audit rows';
+  assert (select count(*) from public.audit_events where business_id = biz and action = 'admin.set_member_status') = 1, 'refusals wrote no status audit rows';
+  assert not exists (select 1 from public.audit_events where entity_id = owner_row), 'no audit row for the owner row';
+
+  -- c3 is disabled in shop P (27i). Shop Q takes c3; re-enabling in P would make two active shops.
+  declare
+    q constant uuid := 'b2710000-0000-4000-8000-000000000002';
+    c3 constant uuid := '00000000-0000-4000-8000-0000000000c3';
+    c3_row_p uuid := (select id from public.business_members where business_id = biz and user_id = c3);
+  begin
+    perform public.admin_add_member(q, c3, 'cashier', staff, 'moved shops');
+    failure := null;
+    begin perform public.admin_set_member_status(c3_row_p, 'active', staff, 'back again'); assert false, 'two active shops refused';
+    exception when others then failure := sqlerrm; end;
+    assert failure = 'member_of_other_shop', 'member_of_other_shop on re-enable, got ' || coalesce(failure, 'null');
+    assert (select status from public.business_members where id = c3_row_p) = 'disabled', 'shop P row stays disabled';
+    assert (select count(*) from public.audit_events where business_id = biz and action = 'admin.set_member_status') = 1, 'refused re-enable wrote no audit row';
+  end;
 end $$;
 
 -- 27k. Password reset log: audit only.

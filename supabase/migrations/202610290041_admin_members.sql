@@ -117,6 +117,11 @@ begin
   if member.user_id = (select owner_id from public.businesses where id = member.business_id) then
     raise exception using errcode = 'P0001', message = 'owner_protected';
   end if;
+  -- One active shop per person: re-enabling here is refused while they are active in another shop.
+  if p_status = 'active' and member.status <> 'active'
+     and exists (select 1 from public.business_members where user_id = member.user_id and business_id <> member.business_id and status = 'active') then
+    raise exception using errcode = 'P0001', message = 'member_of_other_shop';
+  end if;
 
   update public.business_members set status = p_status where id = p_member_id;
 
