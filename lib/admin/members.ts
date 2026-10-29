@@ -1,20 +1,11 @@
 // SERVER ONLY. Member management for platform staff: add (inviting unknown emails) and password-reset email.
 // The admin client is a parameter so tests can pass a fake. Staff never see or set a password or a link.
+import type { createAdminClient } from "@/lib/supabase/admin";
 
 type RpcError = { code?: string; message?: string } | null;
-type AdminClientLike = {
-  rpc(name: string, args: Record<string, unknown>): PromiseLike<{ data: unknown; error: RpcError }>;
-  from(table: string): {
-    select(columns: string): { eq(column: string, value: string): { maybeSingle(): PromiseLike<{ data: unknown; error: RpcError }> } };
-  };
-  auth: {
-    admin: {
-      getUserById(id: string): PromiseLike<{ data: { user: { email?: string | null } | null }; error: unknown }>;
-      inviteUserByEmail?(email: string, options?: { redirectTo?: string }): PromiseLike<{ data: { user: { id: string } | null }; error: unknown }>;
-    };
-    resetPasswordForEmail(email: string): PromiseLike<{ error: unknown }>;
-  };
-};
+// The real service-role client. Tests pass a fake with the same few methods (types are erased there); a hand-written
+// structural twin of the Supabase builders made TypeScript give up with TS2589 "excessively deep".
+type AdminClientLike = ReturnType<typeof createAdminClient>;
 
 export type MemberRole = "cashier" | "manager";
 export type AddMemberResult = { ok: true; memberId: string; invited: boolean } | { ok: false; code: string };
