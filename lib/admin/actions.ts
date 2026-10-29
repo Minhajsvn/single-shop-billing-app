@@ -1,8 +1,11 @@
 // Pure parsing and copy for the admin shop actions. Safe to import anywhere (the action UI uses it for previews);
 // the routes under app/api/v1/admin/shops/[id] are the authority.
 
+import type { PlanId } from "../billing/plans.ts";
+
 export const NOTE_MAX = 500;
 export const TRIAL_QUICK_DAYS = [7, 14] as const;
+export const GRANTABLE_PLANS: readonly PlanId[] = ["starter", "pro", "business", "enterprise"];
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const ISO_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})$/;
@@ -19,6 +22,18 @@ const MESSAGES: Record<string, string> = {
   plan_has_no_till_limit: "This plan has no till limit, so an extra till is not needed.",
   flag_not_found: "This flag no longer exists.",
   flag_already_seen: "This flag was already marked looked at.",
+  plan_not_found: "Choose a plan.",
+  no_grant: "This shop has no granted plan.",
+  stripe_subscription_live: "This shop pays through Stripe. Cancel that subscription first.",
+  role_not_allowed: "Choose cashier or manager.",
+  already_member: "This person is already a member of this shop.",
+  member_of_other_shop: "This account belongs to another shop.",
+  plan_limit_reached: "This shop's plan has no free member places.",
+  member_not_found: "This member no longer exists.",
+  owner_protected: "The shop owner cannot be changed here.",
+  email_invalid: "Enter a valid email address.",
+  invite_failed: "The invite email could not be sent. Try again later.",
+  reset_failed: "The reset email could not be sent. Try again later.",
 };
 const FALLBACK = "That did not work. Try again.";
 
@@ -102,5 +117,71 @@ export function parseEndExtraTill(body: unknown): { ok: true; note: string } | F
 
 /** `{ note }` for marking a billing flag as looked at. */
 export function parseFlagSeen(body: unknown): { ok: true; note: string } | Fail {
+  return parseEndExtraTill(body);
+}
+
+/** `{ planId, until?, note }`: until absent or "open" means until revoked; otherwise it must be in the future. */
+export function parseGrantPlan(body: unknown, now: Date): { ok: true; planId: PlanId; until: string | null; note: string } | Fail {
+  const input = record(body);
+  if (!input) return fail("plan_not_found");
+  const planId = GRANTABLE_PLANS.find((p) => p === input.planId);
+  if (!planId) return fail("plan_not_found");
+  let until: string | null = null;
+  if (input.until !== undefined && input.until !== "open") {
+    const ms = parseUntil(input.until);
+    if (ms === null || ms <= now.getTime()) return fail("until_not_in_future");
+    until = new Date(ms).toISOString();
+  }
+  const cleaned = note(input.note);
+  if (cleaned === null) return fail("note_required");
+  return { ok: true, planId, until, note: cleaned };
+}
+
+/** `{ note }` for revoking a granted plan. */
+export function parseRevokeGrant(body: unknown): { ok: true; note: string } | Fail {
+  return parseEndExtraTill(body);
+}
+
+type MemberRole = "cashier" | "manager";
+const memberRole = (raw: unknown): MemberRole | null => (raw === "cashier" || raw === "manager" ? raw : null);
+
+/** `{ email, role, note }` for adding a member; the email is trimmed and lower-cased. */
+export function parseAddMember(body: unknown): { ok: true; email: string; role: MemberRole; note: string } | Fail {
+  const input = record(body);
+  const email = typeof input?.email === "string" ? input.email.trim().toLowerCase() : "";
+  const at = email.indexOf("@");
+  if (at < 1 || at !== email.lastIndexOf("@") || /\s/.test(email) || email.indexOf(".", at) < at + 2 || email.endsWith(".")) return fail("email_invalid");
+  const role = memberRole(input?.role);
+  if (!role) return fail("role_not_allowed");
+  const cleaned = note(input?.note);
+  if (cleaned === null) return fail("note_required");
+  return { ok: true, email, role, note: cleaned };
+}
+
+/** `{ role }` or `{ status }` (exactly one) plus a note, for changing a member. */
+export function parseMemberChange(
+  body: unknown,
+): { ok: true; change: { role: MemberRole } | { status: "active" | "disabled" }; note: string } | Fail {
+  const input = record(body);
+  if (!input) return fail("role_not_allowed");
+  const hasRole = input.role !== undefined;
+  const hasStatus = input.status !== undefined;
+  if (hasRole === hasStatus) return fail("role_not_allowed");
+  let change: { role: MemberRole } | { status: "active" | "disabled" };
+  if (hasRole) {
+    const role = memberRole(input.role);
+    if (!role) return fail("role_not_allowed");
+    change = { role };
+  } else {
+    if (input.status !== "active" && input.status !== "disabled") return fail("role_not_allowed");
+    change = { status: input.status };
+  }
+  const cleaned = note(input.note);
+  if (cleaned === null) return fail("note_required");
+  return { ok: true, change, note: cleaned };
+}
+
+/** `{ note }` for sending a member a password reset. */
+export function parsePasswordReset(body: unknown): { ok: true; note: string } | Fail {
   return parseEndExtraTill(body);
 }

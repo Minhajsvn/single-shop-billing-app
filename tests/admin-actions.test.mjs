@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { NOTE_MAX, adminErrorMessage, parseEndExtraTill, parseExtendTrial, parseExtraTill, parseFlagSeen, refusalMessage } from "../lib/admin/actions.ts";
+import { GRANTABLE_PLANS, NOTE_MAX, adminErrorMessage, parseAddMember, parseEndExtraTill, parseExtendTrial, parseExtraTill, parseFlagSeen, parseGrantPlan, parseMemberChange, parsePasswordReset, parseRevokeGrant, refusalMessage } from "../lib/admin/actions.ts";
 
 const now = new Date("2026-10-25T10:00:00Z");
 const DAY = 24 * 60 * 60 * 1000;
@@ -90,4 +90,68 @@ test("marking a flag looked at needs a note; flag refusals have plain words", ()
   assert.deepEqual(parseFlagSeen(null), { ok: false, error: "Write a note of up to 500 characters." });
   assert.equal(adminErrorMessage("flag_not_found"), "This flag no longer exists.");
   assert.equal(adminErrorMessage("flag_already_seen"), "This flag was already marked looked at.");
+});
+
+test("grantable plans", () => {
+  assert.deepEqual([...GRANTABLE_PLANS], ["starter", "pro", "business", "enterprise"]);
+});
+
+test("parseGrantPlan: open-ended, dated, and refusals", () => {
+  assert.deepEqual(parseGrantPlan({ planId: "pro", note: "Goodwill" }, now), { ok: true, planId: "pro", until: null, note: "Goodwill" });
+  assert.deepEqual(parseGrantPlan({ planId: "pro", until: "open", note: "x" }, now), { ok: true, planId: "pro", until: null, note: "x" });
+  assert.deepEqual(parseGrantPlan({ planId: "business", until: "2026-12-01T00:00:00Z", note: "x" }, now), { ok: true, planId: "business", until: "2026-12-01T00:00:00.000Z", note: "x" });
+  assert.equal(parseGrantPlan({ planId: "pro", until: "2026-12-01", note: "x" }, now).ok, true);
+  assert.equal(parseGrantPlan({ planId: "pro", note: "" }, now).error, adminErrorMessage("note_required"));
+  assert.equal(parseGrantPlan({ planId: "pro", note: "a".repeat(NOTE_MAX + 1) }, now).error, adminErrorMessage("note_required"));
+  assert.equal(parseGrantPlan({ planId: "gold", note: "x" }, now).error, adminErrorMessage("plan_not_found"));
+  assert.equal(parseGrantPlan({ planId: "pro", until: "2026-10-01T00:00:00Z", note: "x" }, now).error, adminErrorMessage("until_not_in_future"));
+  assert.equal(parseGrantPlan({ planId: "pro", until: "garbage", note: "x" }, now).error, adminErrorMessage("until_not_in_future"));
+  assert.equal(parseGrantPlan(null, now).error, adminErrorMessage("plan_not_found"));
+});
+
+test("parseRevokeGrant and parsePasswordReset need a note", () => {
+  for (const parse of [parseRevokeGrant, parsePasswordReset]) {
+    assert.deepEqual(parse({ note: " why " }), { ok: true, note: "why" });
+    assert.equal(parse({}).error, adminErrorMessage("note_required"));
+    assert.equal(parse({ note: "a".repeat(NOTE_MAX + 1) }).error, adminErrorMessage("note_required"));
+  }
+});
+
+test("parseAddMember normalises the email and checks the role", () => {
+  assert.deepEqual(parseAddMember({ email: " Bob@Shop.AE ", role: "cashier", note: "x" }), { ok: true, email: "bob@shop.ae", role: "cashier", note: "x" });
+  assert.equal(parseAddMember({ email: "x@y.co", role: "manager", note: "x" }).ok, true);
+  assert.equal(parseAddMember({ email: "bob@", role: "cashier", note: "x" }).error, adminErrorMessage("email_invalid"));
+  assert.equal(parseAddMember({ email: "a@b@c.ae", role: "cashier", note: "x" }).error, adminErrorMessage("email_invalid"));
+  assert.equal(parseAddMember({ email: "bob@shop.ae", role: "owner", note: "x" }).error, adminErrorMessage("role_not_allowed"));
+  assert.equal(parseAddMember({ email: "bob@shop.ae", role: "cashier" }).error, adminErrorMessage("note_required"));
+  assert.equal(parseAddMember({ email: "bob@shop.ae", role: "cashier", note: "a".repeat(NOTE_MAX + 1) }).error, adminErrorMessage("note_required"));
+});
+
+test("parseMemberChange takes exactly one of role or status", () => {
+  assert.deepEqual(parseMemberChange({ role: "manager", note: "x" }), { ok: true, change: { role: "manager" }, note: "x" });
+  assert.deepEqual(parseMemberChange({ status: "disabled", note: "x" }), { ok: true, change: { status: "disabled" }, note: "x" });
+  assert.deepEqual(parseMemberChange({ status: "active", note: "x" }), { ok: true, change: { status: "active" }, note: "x" });
+  assert.equal(parseMemberChange({ role: "manager", status: "active", note: "x" }).ok, false);
+  assert.equal(parseMemberChange({ note: "x" }).ok, false);
+  assert.equal(parseMemberChange({ role: "owner", note: "x" }).error, adminErrorMessage("role_not_allowed"));
+  assert.equal(parseMemberChange({ status: "banned", note: "x" }).ok, false);
+  assert.equal(parseMemberChange({ role: "manager" }).error, adminErrorMessage("note_required"));
+});
+
+test("new refusal codes have plain copy", () => {
+  assert.deepEqual(refusalMessage({ code: "P0001", message: "member_of_other_shop" }), { known: true, message: "This account belongs to another shop." });
+  const copy = {
+    plan_not_found: "Choose a plan.",
+    no_grant: "This shop has no granted plan.",
+    stripe_subscription_live: "This shop pays through Stripe. Cancel that subscription first.",
+    role_not_allowed: "Choose cashier or manager.",
+    already_member: "This person is already a member of this shop.",
+    plan_limit_reached: "This shop's plan has no free member places.",
+    member_not_found: "This member no longer exists.",
+    owner_protected: "The shop owner cannot be changed here.",
+    email_invalid: "Enter a valid email address.",
+    invite_failed: "The invite email could not be sent. Try again later.",
+    reset_failed: "The reset email could not be sent. Try again later.",
+  };
+  for (const [code, text] of Object.entries(copy)) assert.equal(adminErrorMessage(code), text);
 });
