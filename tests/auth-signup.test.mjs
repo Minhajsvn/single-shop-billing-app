@@ -100,3 +100,11 @@ test("an unconfirmed sign-in is recognised", () => {
 test("email-change links default to the overview", () => {
   assert.deepEqual(confirmParams(new URL("http://localhost:3101/auth/confirm?token_hash=abc&type=email")), { tokenHash: "abc", type: "email", next: "/overview" });
 });
+
+test("an invite link is accepted and defaults to setting a password", () => {
+  assert.deepEqual(confirmParams(new URL("http://localhost:3101/auth/confirm?token_hash=abc&type=invite")), { tokenHash: "abc", type: "invite", next: "/reset-password" });
+  assert.deepEqual(
+    confirmParams(new URL("http://localhost:3101/auth/confirm?token_hash=abc&type=invite&next=//evil.com")),
+    { tokenHash: "abc", type: "invite", next: "/reset-password" },
+  );
+});
