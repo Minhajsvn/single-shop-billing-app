@@ -1,5 +1,6 @@
-// Unknown /api/v1 paths answer exactly like an admin route does for non-staff, so the admin API
-// cannot be found by comparing responses. Real routes are more specific and always win over this one.
+// Unknown /api/v1 paths, and bare /api/v1 itself (optional catch-all), answer exactly like an admin route
+// does for non-staff, so the admin API cannot be found by comparing responses. Real routes are more
+// specific and always win over this one.
 // Relative .ts import so the unit tests can load this file directly.
 import { adminNotFound } from "../../../../lib/admin/not-found.ts";
 

@@ -3,7 +3,7 @@ import test from "node:test";
 import { cronSecretMatches, isStaff, parseStaffEmails } from "../lib/admin/staff.ts";
 import { routeDecision } from "../lib/auth/access-rules.ts";
 import { ADMIN_ROUTE_METHODS, adminNotFound } from "../lib/admin/not-found.ts";
-import * as catchAll from "../app/api/v1/[...path]/route.ts";
+import * as catchAll from "../app/api/v1/[[...path]]/route.ts";
 
 const SECRET = "s".repeat(32);
 const confirmed = (email) => ({ email, email_confirmed_at: "2026-10-01T00:00:00Z" });

@@ -2,7 +2,7 @@
 
 /**
  * The single 404 that every /api/v1 path answers when it has nothing for the caller: unknown
- * paths (via app/api/v1/[...path]/route.ts), admin routes called by non-staff, and admin routes
+ * paths (via app/api/v1/[[...path]]/route.ts), admin routes called by non-staff, and admin routes
  * called with a method they do not support. Keeping them byte-identical means the admin API
  * cannot be told apart from a missing route.
  */

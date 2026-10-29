@@ -2,6 +2,7 @@
 
 import { EnvelopeSimple, LockKey, SignIn, Storefront } from "@/components/icons";
 import { ResendLinkButton } from "@/components/check-email";
+import { safeNextPath } from "@/lib/auth/access-rules";
 import { CONFIRM_FAILED, isEmailNotConfirmed, isNetworkError, NETWORK_ERROR } from "@/lib/auth/signup";
 import { startSampleStore } from "@/lib/demo-store";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
@@ -13,7 +14,9 @@ type LoginProps = { searchParams: Promise<{ [key: string]: string | string[] | u
 
 export default function LoginPage({ searchParams }: LoginProps) {
   const router = useRouter();
-  const { confirm } = use(searchParams);
+  const { confirm, next } = use(searchParams);
+  // Back to the page the proxy sent here from (e.g. /admin); anything unsafe falls back to the overview.
+  const destination = safeNextPath(next);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   // A failed or reused email link lands here with ?confirm=failed.
@@ -25,9 +28,9 @@ export default function LoginPage({ searchParams }: LoginProps) {
     if (!isSupabaseConfigured()) return;
     const supabase = createClient();
     void supabase.auth.getSession().then(({ data }) => {
-      if (data.session) router.replace("/overview");
+      if (data.session) router.replace(destination);
     });
-  }, [router]);
+  }, [router, destination]);
 
   function trySample() {
     startSampleStore();
@@ -59,7 +62,7 @@ export default function LoginPage({ searchParams }: LoginProps) {
       setBusy(false);
       return;
     }
-    router.replace("/overview");
+    router.replace(destination);
   }
 
   return (

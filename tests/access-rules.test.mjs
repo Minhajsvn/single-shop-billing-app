@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { SAMPLE_MODE_COOKIE, routeDecision } from "../lib/auth/access-rules.ts";
+import { SAMPLE_MODE_COOKIE, routeDecision, safeNextPath } from "../lib/auth/access-rules.ts";
 
 test("signed-out visitors are sent to login", () => {
   assert.equal(routeDecision({ signedIn: false, pathname: "/overview", sampleCookie: undefined }), "login");
@@ -54,4 +54,26 @@ test("a lookalike path is not public", () => {
 
 test("the cookie name is shared with the client store", () => {
   assert.equal(SAMPLE_MODE_COOKIE, "shop-ledger-mode");
+});
+
+test("sign-in returns to the page that asked for it", () => {
+  assert.equal(safeNextPath("/admin"), "/admin");
+  assert.equal(safeNextPath("/admin/shops/42c1c75a-8435-4895-b9cb-d23271e39280"), "/admin/shops/42c1c75a-8435-4895-b9cb-d23271e39280");
+  assert.equal(safeNextPath("/sales/sale-001"), "/sales/sale-001");
+});
+
+test("a missing or empty next goes to the overview", () => {
+  assert.equal(safeNextPath(undefined), "/overview");
+  assert.equal(safeNextPath(""), "/overview");
+  assert.equal(safeNextPath(["/admin", "/sale"]), "/overview");
+});
+
+test("next never leaves the site", () => {
+  for (const raw of ["https://evil.example", "//evil.example", "/\\evil.example", "\\evil.example", "javascript:alert(1)", "admin", "/%2F%2Fevil.example", " /admin"]) {
+    assert.equal(safeNextPath(raw), "/overview", raw);
+  }
+});
+
+test("next never loops back to a signed-out page", () => {
+  for (const raw of ["/login", "/signup", "/login?next=/admin"]) assert.equal(safeNextPath(raw), "/overview", raw);
 });
