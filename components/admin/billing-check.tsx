@@ -11,8 +11,8 @@ export type BillingFlagView = { id: string; label: string; ours: string; theirs:
 
 type Props = { shopId: string; shopName: string; flags: BillingFlagView[]; lastChecked: string };
 
-const button = "rounded border border-line-strong bg-surface px-3 py-1.5 text-sm font-medium hover:bg-sunken disabled:opacity-50";
-const primary = "rounded bg-accent px-3 py-1.5 text-sm font-medium text-white hover:brightness-110 disabled:opacity-50";
+const button = "button";
+const primary = "button primary";
 
 type RunResult = { checked?: number; mismatches?: number; failed?: number; error?: string };
 
@@ -87,42 +87,42 @@ export function BillingCheck({ shopId, shopName, flags, lastChecked }: Props) {
   }
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-muted">Last checked: {lastChecked}</p>
+    <div className="admin-stack">
+      <div className="admin-row between">
+        <p className="admin-muted">Last checked: {lastChecked}</p>
         <button type="button" className={button} onClick={runCheck} disabled={busy}>{busy && open === null ? "Checking…" : "Run billing check now"}</button>
       </div>
 
       {flags.length ? (
-        <ul className="space-y-3 text-sm">
+        <ul className="admin-list flags">
           {flags.map((flag) => (
-            <li key={flag.id} className="rounded border border-danger bg-danger-soft p-3">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="font-medium text-danger">{flag.label}</div>
+            <li key={flag.id} className="admin-flag">
+              <div className="admin-row between">
+                <div style={{ minWidth: 0 }}>
+                  <div className="admin-flag-title">{flag.label}</div>
                   <div>Ours: {flag.ours} · Stripe: {flag.theirs}</div>
-                  <div className="text-xs text-muted">First seen {flag.firstSeen} · last seen {flag.lastSeen}</div>
+                  <div className="admin-muted">First seen {flag.firstSeen} · last seen {flag.lastSeen}</div>
                 </div>
                 <button type="button" className={button} aria-expanded={open === flag.id} onClick={() => toggle(flag.id)} disabled={busy}>Mark looked at</button>
               </div>
               {open === flag.id ? (
-                <form onSubmit={(event) => markSeen(event, flag)} className="mt-3 space-y-2">
-                  <label className="block">
-                    <span className="text-muted">Note (required, up to {NOTE_MAX} characters)</span>
-                    <textarea className="mt-1 w-full rounded border border-line-strong bg-surface px-2 py-1.5 text-sm" rows={2} maxLength={NOTE_MAX} required
+                <form onSubmit={(event) => markSeen(event, flag)} className="admin-form">
+                  <div className="field">
+                    <label htmlFor={`flag-note-${flag.id}`}>Note (required, up to {NOTE_MAX} characters)</label>
+                    <textarea id={`flag-note-${flag.id}`} className="textarea" rows={2} maxLength={NOTE_MAX} required
                       value={note} onChange={(e) => setNote(e.target.value)} />
-                  </label>
-                  <div className="flex flex-wrap items-center gap-2">
+                  </div>
+                  <div className="admin-form-actions">
                     <button type="submit" className={primary} disabled={busy}>{busy ? "Saving…" : "Mark looked at"}</button>
                     <button type="button" className={button} onClick={() => toggle(flag.id)} disabled={busy}>Cancel</button>
-                    {error ? <p role="alert" className="text-sm text-danger">{error}</p> : null}
+                    {error ? <p role="alert" className="form-error">{error}</p> : null}
                   </div>
                 </form>
               ) : null}
             </li>
           ))}
         </ul>
-      ) : <p className="text-sm text-muted">No open flags.</p>}
+      ) : <p className="admin-muted">No open flags.</p>}
     </div>
   );
 }

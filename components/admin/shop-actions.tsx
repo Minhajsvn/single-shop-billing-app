@@ -23,9 +23,8 @@ type Props = {
 type Panel = "trial" | "give" | "end" | null;
 type TrialChoice = "7" | "14" | "date";
 
-const button = "rounded border border-line-strong bg-surface px-3 py-1.5 text-sm font-medium hover:bg-sunken disabled:opacity-50";
-const primary = "rounded bg-accent px-3 py-1.5 text-sm font-medium text-white hover:brightness-110 disabled:opacity-50";
-const input = "w-full rounded border border-line-strong px-2 py-1.5 text-sm";
+const button = "button";
+const primary = "button primary";
 
 /** Today's date in Dubai as YYYY-MM-DD, for the date inputs' minimum. */
 function dubaiToday(now: Date): string {
@@ -114,22 +113,22 @@ export function ShopActions({ shopId, shopName, status, hasPaymentMethod, trialE
   }
 
   const noteField = (
-    <label className="block text-sm">
-      <span className="text-muted">Note (required, up to {NOTE_MAX} characters)</span>
-      <textarea className={`${input} mt-1`} rows={2} maxLength={NOTE_MAX} required value={note} onChange={(e) => setNote(e.target.value)} />
-    </label>
+    <div className="field">
+      <label htmlFor="action-note">Note (required, up to {NOTE_MAX} characters)</label>
+      <textarea id="action-note" className="textarea" rows={2} maxLength={NOTE_MAX} required value={note} onChange={(e) => setNote(e.target.value)} />
+    </div>
   );
   const footer = (label: string) => (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="admin-form-actions">
       <button type="submit" className={primary} disabled={busy}>{busy ? "Saving…" : label}</button>
       <button type="button" className={button} onClick={() => open(null)} disabled={busy}>Cancel</button>
-      {error ? <p role="alert" className="text-sm text-danger">{error}</p> : null}
+      {error ? <p role="alert" className="form-error">{error}</p> : null}
     </div>
   );
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap gap-2">
+    <div className="admin-stack">
+      <div className="admin-row">
         {trialing && !hasPaymentMethod ? (
           <button type="button" className={button} aria-expanded={panel === "trial"} onClick={() => open("trial")}>Extend trial</button>
         ) : null}
@@ -140,44 +139,44 @@ export function ShopActions({ shopId, shopName, status, hasPaymentMethod, trialE
           <button type="button" className={button} aria-expanded={panel === "end"} onClick={() => open("end")}>End extra till</button>
         ) : null}
       </div>
-      {trialing && hasPaymentMethod ? <p className="text-sm text-muted">This trial has a card on file. Change the trial end in Stripe.</p> : null}
-      {!status ? <p className="text-sm text-muted">This shop has no subscription yet.</p> : null}
+      {trialing && hasPaymentMethod ? <p className="admin-muted">This trial has a card on file. Change the trial end in Stripe.</p> : null}
+      {!status ? <p className="admin-muted">This shop has no subscription yet.</p> : null}
 
       {panel === "trial" ? (
-        <form onSubmit={submitTrial} className="space-y-3 rounded border border-line p-3">
-          <fieldset className="flex flex-wrap items-center gap-4 text-sm">
-            <legend className="mb-1 text-muted">New trial end</legend>
+        <form onSubmit={submitTrial} className="admin-form">
+          <fieldset className="admin-choices">
+            <legend>New trial end</legend>
             {(["7", "14"] as const).map((days) => (
-              <label key={days} className="flex items-center gap-1">
+              <label key={days} className="admin-choice">
                 <input type="radio" name="trial-choice" checked={trialChoice === days} onChange={() => setTrialChoice(days)} /> +{days} days
               </label>
             ))}
-            <label className="flex items-center gap-1">
+            <label className="admin-choice">
               <input type="radio" name="trial-choice" checked={trialChoice === "date"} onChange={() => setTrialChoice("date")} /> On
-              <input type="date" className="rounded border border-line-strong px-2 py-1" min={today} value={date} aria-label="Trial end date"
+              <input type="date" className="input" min={today} value={date} aria-label="Trial end date"
                 onChange={(e) => { setDate(e.target.value); setTrialChoice("date"); }} />
             </label>
           </fieldset>
-          <p className="text-xs text-muted">+7 / +14 count from the later of now and the current trial end. A date means the end of that day, Dubai time.</p>
+          <p className="admin-muted">+7 / +14 count from the later of now and the current trial end. A date means the end of that day, Dubai time.</p>
           {noteField}
           {footer("Extend trial")}
         </form>
       ) : null}
 
       {panel === "give" ? (
-        <form onSubmit={submitGive} className="space-y-3 rounded border border-line p-3">
-          <label className="block text-sm">
-            <span className="text-muted">Until (end of that day, Dubai time)</span>
-            <input type="date" className={`${input} mt-1 sm:w-auto`} min={today} required value={date} onChange={(e) => setDate(e.target.value)} />
-          </label>
+        <form onSubmit={submitGive} className="admin-form">
+          <div className="field">
+            <label htmlFor="give-until">Until (end of that day, Dubai time)</label>
+            <input id="give-until" type="date" className="input" min={today} required value={date} onChange={(e) => setDate(e.target.value)} />
+          </div>
           {noteField}
           {footer("Give extra till")}
         </form>
       ) : null}
 
       {panel === "end" ? (
-        <form onSubmit={submitEnd} className="space-y-3 rounded border border-line p-3">
-          <p className="text-sm">The extra till runs until {adminDateTime(extraTillUntil)}. Ending it takes effect now.</p>
+        <form onSubmit={submitEnd} className="admin-form">
+          <p style={{ margin: 0, fontSize: 13 }}>The extra till runs until {adminDateTime(extraTillUntil)}. Ending it takes effect now.</p>
           {noteField}
           {footer("End extra till")}
         </form>
