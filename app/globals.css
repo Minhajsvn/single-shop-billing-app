@@ -291,7 +291,18 @@ a { color: inherit; text-decoration: none; }
 }
 .sidebar::-webkit-scrollbar { display: none; }
 
-.brand { display: flex; gap: 12px; align-items: center; padding: 0 8px 28px; }
+.sidebar-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 0 28px; }
+.brand { display: flex; gap: 12px; align-items: center; min-width: 0; padding: 0 8px; }
+/* Desktop-only button that folds the sidebar into the icon rail (tablets always use the rail). */
+.sidebar-toggle {
+  flex: none; width: 36px; height: 36px; display: grid; place-items: center;
+  border: 1px solid transparent; border-radius: var(--r-sm); background: transparent; color: var(--text-muted);
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.sidebar-toggle:hover { background: var(--surface-glass-strong); border-color: var(--border-glass); color: var(--text); }
+@media (max-width: 1023px) { .sidebar-toggle { display: none; } }
+.sidebar { transition: width var(--dur) var(--ease-out), padding var(--dur) var(--ease-out); }
+.main { transition: margin-left var(--dur) var(--ease-out); }
 .brand-mark {
   flex: none; width: 36px; height: 36px; display: grid; place-items: center;
   background: var(--grad-glow); color: var(--on-accent); border-radius: var(--r-md);
@@ -375,17 +386,34 @@ a { color: inherit; text-decoration: none; }
 .topbar-actions > .button { flex: none; min-height: 44px; }
 .content { padding: 32px 32px 64px; max-width: 1480px; margin: 0 auto; }
 
-/* Tablet: the sidebar becomes an icon rail. */
+/*
+ * Icon rail: always on tablets, and on desktop when the owner collapses the sidebar.
+ * Link labels are hidden visually only, so screen readers still name every link.
+ */
 @media (min-width: 768px) and (max-width: 1023px) {
   .sidebar { width: 76px; padding: 16px 10px; align-items: stretch; }
-  .brand { justify-content: center; padding: 0 0 22px; }
-  .brand > span:last-child, .nav-label, .nav-text, .user-menu-button > span, .user-menu > .sync-line { display: none; }
+  .sidebar-head { flex-direction: column; padding: 0 0 22px; }
+  .brand { justify-content: center; padding: 0; }
+  .brand > span:last-child, .nav-label, .user-menu-button > span, .user-menu > .sync-line { display: none; }
+  .nav-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
   .nav-link { justify-content: center; padding: 0; min-height: 48px; }
   .nav-link.active::before { left: -10px; }
   .user-menu-button { justify-content: center; padding: 6px 0; }
   .user-menu-popover { right: auto; width: 240px; }
   .main { margin-left: 100px; }
   .content { padding: 24px 20px 56px; }
+}
+@media (min-width: 1024px) {
+  .sidebar-collapsed .sidebar { width: 76px; padding: 16px 10px; align-items: stretch; }
+  .sidebar-collapsed .sidebar-head { flex-direction: column; gap: 10px; padding: 0 0 18px; }
+  .sidebar-collapsed .brand { justify-content: center; padding: 0; }
+  .sidebar-collapsed :is(.brand > span:last-child, .nav-label, .user-menu-button > span, .user-menu > .sync-line) { display: none; }
+  .sidebar-collapsed .nav-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+  .sidebar-collapsed .nav-link { justify-content: center; padding: 0; min-height: 48px; }
+  .sidebar-collapsed .nav-link.active::before { left: -10px; }
+  .sidebar-collapsed .user-menu-button { justify-content: center; padding: 6px 0; }
+  .sidebar-collapsed .user-menu-popover { right: auto; width: 240px; }
+  .sidebar-collapsed .main { margin-left: 100px; }
 }
 
 /* Auth: a full-bleed gradient hero with one glass card floating in the middle. */

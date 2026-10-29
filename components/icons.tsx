@@ -44,6 +44,8 @@ import {
   Settings01Icon,
   ShieldCheckIcon,
   ShoppingCart01Icon,
+  SidebarLeft01Icon,
+  SidebarRight01Icon,
   SparklesIcon,
   SquareLock02Icon,
   Store01Icon,
@@ -109,6 +111,8 @@ export const Printer = make(PrinterIcon);
 export const Receipt = make(Invoice01Icon);
 export const ShieldCheck = make(ShieldCheckIcon);
 export const ShoppingCart = make(ShoppingCart01Icon);
+export const SidebarCollapse = make(SidebarLeft01Icon);
+export const SidebarExpand = make(SidebarRight01Icon);
 export const SignIn = make(Login01Icon);
 export const SignOut = make(Logout01Icon);
 export const Sparkle = make(SparklesIcon);

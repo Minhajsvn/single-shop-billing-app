@@ -2,7 +2,7 @@
 
 import { CreditCard, IdentificationCard, MagnifyingGlass, Minus, Money, Plus, ShoppingCart, Tag, Trash, User, X } from "@/components/icons";
 import Link from "next/link";
-import { FormEvent, KeyboardEvent, MouseEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { RegisterStop } from "@/components/billing/register-stop";
 import { useRegisterDecision } from "@/components/billing/use-entitlement";
 import { HeldCarts, parkCart } from "@/components/pos/held-carts";
@@ -206,10 +206,11 @@ export function PosWorkspace() {
   const canSell = registerOpen && !stale.stale;
   const selectedCustomer = store.customers.find((customer) => customer.id === customerId);
 
-  function handleShortcut(event: KeyboardEvent<HTMLDivElement>) {
+  function handleShortcut(event: KeyboardEvent) {
     const target = event.target as HTMLElement;
-    const isTyping = target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT";
-    if (event.key === "/" && !isTyping) {
+    const isTyping = target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable;
+    const inDialog = Boolean(target.closest?.("[role='dialog'], .modal"));
+    if (event.key === "/" && !isTyping && !inDialog) {
       event.preventDefault();
       searchInput.current?.focus();
     }
@@ -227,6 +228,13 @@ export function PosWorkspace() {
     }
   }
 
+  // Listen on the whole document: with focus on the page body (after a click on empty space),
+  // key presses never reach the POS container, so / and F2/F3 used to do nothing.
+  useEffect(() => {
+    document.addEventListener("keydown", handleShortcut);
+    return () => document.removeEventListener("keydown", handleShortcut);
+  });
+
   // No register open and this till may not start a shift (read-only, paused, or over the till limit): the stop card, not a locked till.
   if (!registerOpen && !completed && registerDecision !== "allow") {
     return (
@@ -238,7 +246,7 @@ export function PosWorkspace() {
   }
 
   return (
-    <div className="pos-page" onKeyDown={handleShortcut}>
+    <div className="pos-page">
       {/* One slim row on the till: the space goes to products and cart lines. */}
       <div className="pos-heading"><h1 className="pos-title">New sale</h1><span className={`badge ${registerOpen ? "green" : "red"}`}>{registerOpen ? "Register open" : "Register closed"}</span><span className="keyboard-hint"><kbd>/</kbd> Search <kbd>F2</kbd> Cash <kbd>F3</kbd> Card</span></div>
 
