@@ -2444,4 +2444,227 @@ begin
 end $$;
 reset role;
 
+-- 27f-27k. Stage 1I member admin functions. Shop P (owner ...c1, Starter: 2 members), shop Q (owner ...c2).
+-- Accounts ...c3 and ...c4 are unconfirmed (no email_confirmed_at). Staff is ...15.
+insert into auth.users (id, instance_id, aud, role, email) values
+  ('00000000-0000-4000-8000-0000000000c1', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'owner-p@test.local'),
+  ('00000000-0000-4000-8000-0000000000c2', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'owner-q@test.local'),
+  ('00000000-0000-4000-8000-0000000000c3', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'clerk-three@test.local'),
+  ('00000000-0000-4000-8000-0000000000c4', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'clerk-four@test.local');
+insert into public.businesses (id, owner_id, legal_name, trn, address, phone) values
+  ('b2710000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-0000000000c1', 'Shop P LLC', '100000000000031', 'Satwa, Dubai', '+971500000281'),
+  ('b2710000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-0000000000c2', 'Shop Q LLC', '100000000000032', 'Satwa, Dubai', '+971500000282');
+update public.subscriptions set status = 'active', plan_id = 'starter', has_payment_method = true
+where business_id in ('b2710000-0000-4000-8000-000000000001', 'b2710000-0000-4000-8000-000000000002');
+
+-- 27f. Service role only, all five.
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000000c1","role":"authenticated"}', true);
+do $$
+declare
+  biz constant uuid := 'b2710000-0000-4000-8000-000000000001';
+  staff constant uuid := '00000000-0000-4000-8000-000000000015';
+  member constant uuid := '00000000-0000-4000-8000-0000000000ee';
+  failure text;
+begin
+  begin perform public.admin_member_lookup(biz, 'x@test.local'); assert false, 'lookup must be refused';
+  exception when others then failure := sqlstate; end;
+  assert failure = '42501', 'lookup refused, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin perform public.admin_add_member(biz, staff, 'cashier', staff, 'n'); assert false, 'add must be refused';
+  exception when others then failure := sqlstate; end;
+  assert failure = '42501', 'add refused, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin perform public.admin_set_member_role(member, 'manager', staff, 'n'); assert false, 'role must be refused';
+  exception when others then failure := sqlstate; end;
+  assert failure = '42501', 'role refused, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin perform public.admin_set_member_status(member, 'disabled', staff, 'n'); assert false, 'status must be refused';
+  exception when others then failure := sqlstate; end;
+  assert failure = '42501', 'status refused, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin perform public.admin_log_password_reset(member, staff, 'n'); assert false, 'reset log must be refused';
+  exception when others then failure := sqlstate; end;
+  assert failure = '42501', 'reset log refused, got ' || coalesce(failure, 'null');
+end $$;
+reset role;
+do $$ begin
+  assert (select email_confirmed_at from auth.users where id = '00000000-0000-4000-8000-0000000000c3') is null, 'fixture account is unconfirmed';
+  assert not has_function_privilege('anon', 'public.admin_member_lookup(uuid, text)', 'execute'), 'anon lookup';
+  assert not has_function_privilege('authenticated', 'public.admin_add_member(uuid, uuid, public.member_role, uuid, text)', 'execute'), 'authenticated add';
+  assert not has_function_privilege('authenticated', 'public.admin_set_member_role(uuid, public.member_role, uuid, text)', 'execute'), 'authenticated role';
+  assert not has_function_privilege('authenticated', 'public.admin_set_member_status(uuid, public.member_status, uuid, text)', 'execute'), 'authenticated status';
+  assert not has_function_privilege('authenticated', 'public.admin_log_password_reset(uuid, uuid, text)', 'execute'), 'authenticated reset log';
+  assert has_function_privilege('service_role', 'public.admin_member_lookup(uuid, text)', 'execute'), 'service_role lookup';
+  assert has_function_privilege('service_role', 'public.admin_add_member(uuid, uuid, public.member_role, uuid, text)', 'execute'), 'service_role add';
+  assert has_function_privilege('service_role', 'public.admin_set_member_role(uuid, public.member_role, uuid, text)', 'execute'), 'service_role role';
+  assert has_function_privilege('service_role', 'public.admin_set_member_status(uuid, public.member_status, uuid, text)', 'execute'), 'service_role status';
+  assert has_function_privilege('service_role', 'public.admin_log_password_reset(uuid, uuid, text)', 'execute'), 'service_role reset log';
+end $$;
+
+-- 27g. Lookup.
+set local role service_role;
+do $$
+declare
+  biz constant uuid := 'b2710000-0000-4000-8000-000000000001';
+  failure text;
+begin
+  assert public.admin_member_lookup(biz, '  Clerk-Three@Test.LOCAL ') ->> 'userId' = '00000000-0000-4000-8000-0000000000c3',
+    'unconfirmed account found by trimmed, lower-cased email';
+  assert public.admin_member_lookup(biz, 'nobody@test.local') -> 'userId' = 'null'::jsonb, 'unknown email gives null';
+  begin perform public.admin_member_lookup(biz, 'owner-p@test.local'); assert false, 'existing member refused';
+  exception when others then failure := sqlerrm; end;
+  assert failure = 'already_member', 'already_member, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin perform public.admin_member_lookup(biz, 'owner-q@test.local'); assert false, 'owner of another shop refused';
+  exception when others then failure := sqlerrm; end;
+  assert failure = 'member_of_other_shop', 'member_of_other_shop, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin perform public.admin_member_lookup('b2710000-0000-4000-8000-0000000000ff', 'x@test.local'); assert false, 'unknown shop refused';
+  exception when others then failure := sqlerrm; end;
+  assert failure = 'shop_not_found', 'shop_not_found, got ' || coalesce(failure, 'null');
+  assert not exists (select 1 from public.audit_events where business_id = biz and action like 'admin.%member%'), 'lookup writes no audit row';
+end $$;
+
+-- 27h. Add a member.
+do $$
+declare
+  biz constant uuid := 'b2710000-0000-4000-8000-000000000001';
+  staff constant uuid := '00000000-0000-4000-8000-000000000015';
+  c3 constant uuid := '00000000-0000-4000-8000-0000000000c3';
+  new_id uuid;
+  ev public.audit_events;
+  failure text;
+begin
+  new_id := public.admin_add_member(biz, c3, 'cashier', staff, 'hired a till clerk');
+  assert exists (select 1 from public.business_members where id = new_id and business_id = biz and user_id = c3 and role = 'cashier' and status = 'active'), 'active cashier member';
+  assert (select count(*) from public.audit_events where business_id = biz and action = 'admin.add_member') = 1, 'one add audit row';
+  select * into ev from public.audit_events where business_id = biz and action = 'admin.add_member';
+  assert ev.actor_id = staff and ev.entity_id = new_id and ev.summary->>'note' = 'hired a till clerk', 'audit actor, entity, note';
+  assert ev.summary->'after'->>'role' = 'cashier', 'audit after role';
+
+  begin perform public.admin_add_member(biz, '00000000-0000-4000-8000-0000000000c4', 'owner', staff, 'n'); assert false, 'owner role refused';
+  exception when others then failure := sqlerrm; end;
+  assert failure = 'role_not_allowed', 'role_not_allowed, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin perform public.admin_add_member(biz, c3, 'cashier', staff, 'again'); assert false, 'already a member';
+  exception when others then failure := sqlerrm; end;
+  assert failure = 'already_member', 'already_member, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin perform public.admin_add_member(biz, '00000000-0000-4000-8000-0000000000c2', 'cashier', staff, 'poach'); assert false, 'other shop member';
+  exception when others then failure := sqlerrm; end;
+  assert failure = 'member_of_other_shop', 'member_of_other_shop, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin perform public.admin_add_member(biz, '00000000-0000-4000-8000-0000000000c4', 'cashier', staff, '  '); assert false, 'note required';
+  exception when others then failure := sqlerrm; end;
+  assert failure = 'note_required', 'note_required, got ' || coalesce(failure, 'null');
+  assert (select count(*) from public.audit_events where business_id = biz and action = 'admin.add_member') = 1, 'refusals wrote no audit rows';
+end $$;
+
+-- 27i. Member limit on Starter (2 members: owner + the cashier already added).
+do $$
+declare
+  biz constant uuid := 'b2710000-0000-4000-8000-000000000001';
+  staff constant uuid := '00000000-0000-4000-8000-000000000015';
+  c3 constant uuid := '00000000-0000-4000-8000-0000000000c3';
+  c4 constant uuid := '00000000-0000-4000-8000-0000000000c4';
+  c3_row uuid := (select id from public.business_members where business_id = biz and user_id = c3);
+  failure text;
+begin
+  begin perform public.admin_add_member(biz, c4, 'cashier', staff, 'third'); assert false, 'third member refused';
+  exception when others then failure := sqlerrm; end;
+  assert failure = 'plan_limit_reached', 'plan_limit_reached on add, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin perform public.admin_member_lookup(biz, 'clerk-four@test.local'); assert false, 'lookup pre-check';
+  exception when others then failure := sqlerrm; end;
+  assert failure = 'plan_limit_reached', 'plan_limit_reached on lookup, got ' || coalesce(failure, 'null');
+  assert not exists (select 1 from public.business_members where business_id = biz and user_id = c4), 'no row for the refused add';
+
+  perform public.admin_set_member_status(c3_row, 'disabled', staff, 'left the shop');
+  assert (select status from public.business_members where id = c3_row) = 'disabled', 'cashier disabled';
+  assert (select count(*) from public.audit_events where business_id = biz and action = 'admin.set_member_status') = 1, 'one status audit row';
+  perform public.admin_add_member(biz, c4, 'cashier', staff, 'replacement');
+
+  failure := null;
+  begin perform public.admin_set_member_status(c3_row, 'active', staff, 'came back'); assert false, 're-enable while full refused';
+  exception when others then failure := sqlerrm; end;
+  assert failure = 'plan_limit_reached', 'plan_limit_reached on re-enable, got ' || coalesce(failure, 'null');
+  assert (select status from public.business_members where id = c3_row) = 'disabled', 'row stays disabled';
+  assert (select count(*) from public.audit_events where business_id = biz and action = 'admin.set_member_status') = 1, 'failed re-enable wrote no audit row';
+end $$;
+
+-- 27j. Role changes and the protected owner row.
+do $$
+declare
+  biz constant uuid := 'b2710000-0000-4000-8000-000000000001';
+  staff constant uuid := '00000000-0000-4000-8000-000000000015';
+  c4_row uuid := (select id from public.business_members where business_id = biz and user_id = '00000000-0000-4000-8000-0000000000c4');
+  owner_row uuid := (select id from public.business_members where business_id = biz and user_id = '00000000-0000-4000-8000-0000000000c1');
+  ev public.audit_events;
+  failure text;
+begin
+  perform public.admin_set_member_role(c4_row, 'manager', staff, 'promoted');
+  assert (select role from public.business_members where id = c4_row) = 'manager', 'now manager';
+  assert (select count(*) from public.audit_events where business_id = biz and action = 'admin.set_member_role') = 1, 'one audit row after promote';
+  select * into ev from public.audit_events where business_id = biz and action = 'admin.set_member_role';
+  assert ev.entity_id = c4_row and ev.actor_id = staff and ev.summary->'before'->>'role' = 'cashier'
+    and ev.summary->'after'->>'role' = 'manager' and ev.summary->>'note' = 'promoted', 'role audit before/after/note';
+  perform public.admin_set_member_role(c4_row, 'cashier', staff, 'demoted');
+  assert (select role from public.business_members where id = c4_row) = 'cashier', 'back to cashier';
+  assert (select count(*) from public.audit_events where business_id = biz and action = 'admin.set_member_role') = 2, 'two audit rows in total';
+
+  begin perform public.admin_set_member_role(c4_row, 'owner', staff, 'n'); assert false, 'owner role refused';
+  exception when others then failure := sqlerrm; end;
+  assert failure = 'role_not_allowed', 'role_not_allowed, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin perform public.admin_set_member_role(owner_row, 'manager', staff, 'n'); assert false, 'owner row role refused';
+  exception when others then failure := sqlerrm; end;
+  assert failure = 'owner_protected', 'owner_protected role, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin perform public.admin_set_member_status(owner_row, 'disabled', staff, 'n'); assert false, 'owner row status refused';
+  exception when others then failure := sqlerrm; end;
+  assert failure = 'owner_protected', 'owner_protected status, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin perform public.admin_set_member_role('00000000-0000-4000-8000-0000000000ee', 'manager', staff, 'n'); assert false, 'unknown member';
+  exception when others then failure := sqlerrm; end;
+  assert failure = 'member_not_found', 'member_not_found role, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin perform public.admin_set_member_status('00000000-0000-4000-8000-0000000000ee', 'disabled', staff, 'n'); assert false, 'unknown member';
+  exception when others then failure := sqlerrm; end;
+  assert failure = 'member_not_found', 'member_not_found status, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin perform public.admin_set_member_role(c4_row, 'manager', staff, ''); assert false, 'note required';
+  exception when others then failure := sqlerrm; end;
+  assert failure = 'note_required', 'note_required, got ' || coalesce(failure, 'null');
+  assert (select role from public.business_members where id = owner_row) = 'owner' and (select status from public.business_members where id = owner_row) = 'active', 'owner row untouched';
+end $$;
+
+-- 27k. Password reset log: audit only.
+do $$
+declare
+  biz constant uuid := 'b2710000-0000-4000-8000-000000000001';
+  staff constant uuid := '00000000-0000-4000-8000-000000000015';
+  c4_row uuid := (select id from public.business_members where business_id = biz and user_id = '00000000-0000-4000-8000-0000000000c4');
+  before_row public.business_members;
+  after_row public.business_members;
+  ev public.audit_events;
+  failure text;
+begin
+  select * into before_row from public.business_members where id = c4_row;
+  perform public.admin_log_password_reset(c4_row, staff, 'asked by phone');
+  assert (select count(*) from public.audit_events where business_id = biz and action = 'admin.send_password_reset') = 1, 'one reset audit row';
+  select * into ev from public.audit_events where business_id = biz and action = 'admin.send_password_reset';
+  assert ev.actor_id = staff and ev.entity_id = c4_row and ev.summary->>'note' = 'asked by phone', 'reset audit actor, entity, note';
+  select * into after_row from public.business_members where id = c4_row;
+  assert after_row = before_row, 'member row unchanged';
+  begin perform public.admin_log_password_reset('00000000-0000-4000-8000-0000000000ee', staff, 'n'); assert false, 'unknown member';
+  exception when others then failure := sqlerrm; end;
+  assert failure = 'member_not_found', 'member_not_found, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin perform public.admin_log_password_reset(c4_row, staff, ''); assert false, 'note required';
+  exception when others then failure := sqlerrm; end;
+  assert failure = 'note_required', 'note_required, got ' || coalesce(failure, 'null');
+end $$;
+reset role;
+
 rollback;
