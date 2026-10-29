@@ -75,3 +75,18 @@ export function adminDateTime(iso: string | null): string {
   if (!date || !Number.isFinite(date.getTime())) return "—";
   return DATE_TIME.format(date);
 }
+
+const GRANT_SOON_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** A grant with an end date within the next 7 days; open-ended grants never are. */
+export function grantEndingSoon(endsAt: string | null, now: Date): boolean {
+  if (endsAt === null) return false;
+  const end = new Date(endsAt).getTime();
+  return Number.isFinite(end) && end - now.getTime() <= GRANT_SOON_MS;
+}
+
+/** Owner first, then oldest first. Returns a new array. */
+export function sortMembers<T extends { isOwner: boolean; createdAt: string }>(members: T[]): T[] {
+  return [...members].sort((a, b) =>
+    Number(b.isOwner) - Number(a.isOwner) || new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+}
