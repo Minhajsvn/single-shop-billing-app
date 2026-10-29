@@ -12,7 +12,7 @@ export const READ_ONLY_REASON = "Read-only — sales and edits are paused.";
 /** The sample shop and an unconfigured build have no subscription: everything built is usable, nothing is gated. */
 const SAMPLE_ENTITLEMENTS: Entitlements = {
   planId: null, status: null, access: "full", trialEndsAt: null, graceEndsAt: null,
-  accessEndsAt: null, cancelAt: null, hasPaymentMethod: false, billingInterval: null, currentPeriodEnd: null, features: [],
+  accessEndsAt: null, cancelAt: null, hasPaymentMethod: false, billingInterval: null, currentPeriodEnd: null, grantPlanId: null, grantEndsAt: null, features: [],
   limits: { branches: null, tills: null, members: null, products: null },
 };
 

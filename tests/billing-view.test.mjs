@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { bannerFor, billingSummary, canWrite, dubaiDaysLeft, lifecycleState, registerOpenDecision } from "../lib/billing/lifecycle-view.ts";
+import { bannerFor, billingSummary, canWrite, dubaiDaysLeft, isGranted, lifecycleState, registerOpenDecision } from "../lib/billing/lifecycle-view.ts";
 
 const now = new Date("2026-10-19T10:00:00Z"); // 14:00 in Dubai
 const base = {
@@ -115,4 +115,24 @@ test("billingSummary names the shop's own plan once it is paid", () => {
   );
   assert.equal(billingSummary({ ...base, planId: "business", billingInterval: "year" }, at), "Business · annual");
   assert.equal(billingSummary({ ...base, planId: null }, at), "Starter · monthly");
+});
+
+test("a granted plan reads in plain words and shows no banner", () => {
+  const grant = { ...base, planId: "pro", grantPlanId: "pro", grantEndsAt: "2026-11-30T19:59:59.999Z" };
+  assert.equal(billingSummary(grant, now), "Pro plan · provided by Shop Ledger until 30 Nov 2026");
+  assert.equal(billingSummary({ ...grant, grantEndsAt: null }, now), "Pro plan · provided by Shop Ledger");
+  const pd = { ...grant, status: "past_due", graceEndsAt: "2026-10-24T09:00:00Z" };
+  assert.equal(bannerFor({ e: pd, stale: false, role: "owner", now }), null);
+  assert.equal(isGranted(grant, now), true);
+  assert.equal(isGranted({ ...grant, grantEndsAt: "2026-10-01T00:00:00Z" }, now), false);
+  assert.equal(isGranted(base, now), false);
+});
+
+test("lifecycleState is full while a grant is in force, whatever the subscription says", () => {
+  const future = "2026-11-30T19:59:59.999Z";
+  assert.equal(lifecycleState({ ...base, status: "past_due", grantPlanId: "pro", grantEndsAt: future }, now), "full");
+  assert.equal(lifecycleState({ ...base, status: "past_due", grantPlanId: "pro", grantEndsAt: null }, now), "full");
+  assert.equal(lifecycleState(trial("2026-10-25T00:00:00Z", { grantPlanId: "pro", grantEndsAt: null }), now), "full");
+  const lapsed = { ...base, status: "canceled", access: "full", accessEndsAt: "2026-10-01T00:00:00Z", grantPlanId: "pro", grantEndsAt: "2026-10-10T00:00:00Z" };
+  assert.equal(lifecycleState(lapsed, now), "read_only");
 });
