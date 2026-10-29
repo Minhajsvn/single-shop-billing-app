@@ -1,6 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
-import { SAMPLE_MODE_COOKIE, routeDecision } from "@/lib/auth/access-rules";
+import { SAMPLE_MODE_COOKIE, routeDecision, safeNextPath } from "@/lib/auth/access-rules";
 
 function isConfigured() {
   return Boolean(
@@ -48,7 +48,8 @@ export async function proxy(request: NextRequest) {
 
   if (decision === "overview") {
     const overviewUrl = request.nextUrl.clone();
-    overviewUrl.pathname = "/overview";
+    // A signed-in visit to /login?next=/admin goes on to /admin rather than the overview.
+    overviewUrl.pathname = request.nextUrl.pathname === "/login" ? safeNextPath(request.nextUrl.searchParams.get("next") ?? undefined) : "/overview";
     overviewUrl.search = "";
     return NextResponse.redirect(overviewUrl);
   }
