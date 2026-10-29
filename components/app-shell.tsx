@@ -1,9 +1,9 @@
 "use client";
 
-import { Archive, DotsThreeOutline, Gear, House, Receipt, ShoppingCart } from "@/components/icons";
+import { Archive, DotsThreeOutline, Gear, House, Receipt, ShoppingCart, SidebarCollapse, SidebarExpand } from "@/components/icons";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { LifecycleBanner } from "@/components/billing/lifecycle-banner";
 import { useEntitlement } from "@/components/billing/use-entitlement";
 import { ChecklistStrip } from "@/components/onboarding/checklist-strip";
@@ -27,6 +27,38 @@ const phoneTabs = [
   { href: "/inventory", label: "Inventory", icon: Archive },
 ];
 
+/*
+ * Desktop sidebar collapsed to an icon rail. Remembered per browser; storage can be blocked
+ * (private windows), so the in-memory value keeps the toggle working for the session anyway.
+ */
+const SIDEBAR_KEY = "shop-ledger-sidebar";
+const sidebarListeners = new Set<() => void>();
+let sidebarCollapsedMemory: boolean | null = null;
+
+function readSidebarCollapsed() {
+  if (sidebarCollapsedMemory !== null) return sidebarCollapsedMemory;
+  try {
+    return window.localStorage.getItem(SIDEBAR_KEY) === "collapsed";
+  } catch {
+    return false;
+  }
+}
+
+function writeSidebarCollapsed(collapsed: boolean) {
+  sidebarCollapsedMemory = collapsed;
+  try {
+    window.localStorage.setItem(SIDEBAR_KEY, collapsed ? "collapsed" : "open");
+  } catch {
+    // Storage blocked: the memory value above still applies until the page reloads.
+  }
+  sidebarListeners.forEach((listener) => listener());
+}
+
+function subscribeSidebar(listener: () => void) {
+  sidebarListeners.add(listener);
+  return () => { sidebarListeners.delete(listener); };
+}
+
 /** One notice slot under the top bar: a billing banner wins; otherwise the owner's get-ready-to-sell strip. */
 function NoticeSlot() {
   const { e, stale, role, now } = useEntitlement();
@@ -46,6 +78,8 @@ export function AppShell({ children, loading = false }: { children: ReactNode; l
   const workspaceLinks = navLinks.filter((link) => link !== settingsLink);
   const moreLinks = moreLinksFor(role);
   const syncStatus = useSyncStatusText();
+  // Server render and first paint use the expanded sidebar; the stored choice applies right after hydration.
+  const sidebarCollapsed = useSyncExternalStore(subscribeSidebar, readSidebarCollapsed, () => false);
 
   // A page this role cannot use, opened by address, goes to Overview (the server checks every write anyway).
   useEffect(() => {
@@ -81,22 +115,31 @@ export function AppShell({ children, loading = false }: { children: ReactNode; l
   const moreActive = moreLinks.some(({ href }) => active(pathOf(href)));
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <Link className="brand" href="/overview">
-          <span className="brand-mark">SL</span>
-          <span>
-            <span className="brand-name">Shop Ledger</span>
-            <span className="brand-meta">UAE retail till</span>
-          </span>
-        </Link>
+    <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
+      <aside className="sidebar" id="app-sidebar">
+        <div className="sidebar-head">
+          <Link className="brand" href="/overview" aria-label="Shop Ledger overview">
+            <span className="brand-mark">SL</span>
+            <span>
+              <span className="brand-name">Shop Ledger</span>
+              <span className="brand-meta">UAE retail till</span>
+            </span>
+          </Link>
+          <button
+            type="button" className="sidebar-toggle" onClick={() => writeSidebarCollapsed(!sidebarCollapsed)}
+            aria-controls="app-sidebar" aria-expanded={!sidebarCollapsed}
+            aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"} title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            {sidebarCollapsed ? <SidebarExpand size={18} weight="bold" /> : <SidebarCollapse size={18} weight="bold" />}
+          </button>
+        </div>
 
         <div className="nav-label">Workspace</div>
         <nav className="nav" aria-label="Primary navigation">
           {workspaceLinks.map(({ href, label }) => {
             const Icon = navIcon(href);
             return (
-              <Link className={`nav-link ${active(href) ? "active" : ""}`} href={href} key={href} aria-current={active(href) ? "page" : undefined}>
+              <Link className={`nav-link ${active(href) ? "active" : ""}`} href={href} key={href} title={label} aria-current={active(href) ? "page" : undefined}>
                 <Icon size={17} weight={active(href) ? "fill" : "bold"} />
                 <span className="nav-text">{label}</span>
               </Link>
@@ -107,7 +150,7 @@ export function AppShell({ children, loading = false }: { children: ReactNode; l
         {settingsLink ? <>
           <div className="nav-label">System</div>
           <nav className="nav">
-            <Link className={`nav-link ${active("/settings") ? "active" : ""}`} href={settingsLink.href} aria-current={active("/settings") ? "page" : undefined}>
+            <Link className={`nav-link ${active("/settings") ? "active" : ""}`} href={settingsLink.href} title={settingsLink.label} aria-current={active("/settings") ? "page" : undefined}>
               <Gear size={17} weight={active("/settings") ? "fill" : "bold"} />
               <span className="nav-text">{settingsLink.label}</span>
             </Link>
