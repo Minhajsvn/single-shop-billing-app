@@ -10,5 +10,5 @@ export function statusTone(text: string): StatusTone {
 
 /** A soft-dot pill showing a shop's status text. */
 export function StatusPill({ text }: { text: string }) {
-  return <span className={`badge ${statusTone(text)}`}>{text}</span>;
+  return <span className={`badge ${statusTone(text)}`} title={text}><span className="admin-pill-text">{text}</span></span>;
 }

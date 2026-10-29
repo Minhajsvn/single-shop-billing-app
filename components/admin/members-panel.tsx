@@ -154,39 +154,35 @@ export function MembersPanel({ shopId, members, membersAllowed }: Props) {
         <button type="button" className="button primary" onClick={() => openDialog({ kind: "add" })}>Add user</button>
       </div>
 
-      <div className="table-wrap stack-table admin-table admin-members">
-        <table>
-          <thead><tr><th>Member</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead>
-          <tbody>
-            {members.map((m) => (
-              <tr key={m.id}>
-                <td data-label="Member">
-                  <div className="product-name">{m.email || "—"}</div>
-                  <div className="admin-muted">Joined {adminDateTime(m.createdAt)} · Last sign-in {m.lastSignInAt ? adminDateTime(m.lastSignInAt) : "never"}</div>
-                </td>
-                <td data-label="Role"><span className={`badge ${m.isOwner || m.role === "manager" ? "blue" : ""}`}>{ROLE_LABEL[m.role]}</span></td>
-                <td data-label="Status"><span className={`badge ${m.status === "active" ? "green" : "red"}`}>{m.status === "active" ? "Active" : "Disabled"}</span></td>
-                <td data-label="Actions">
-                  {m.isOwner ? <span className="admin-muted">Owner</span> : (
-                    <div className="admin-member-actions">
-                      <button type="button" className="button"
-                        onClick={() => openDialog({ kind: "member", member: m, action: { type: "role", role: m.role === "manager" ? "cashier" : "manager" } })}>
-                        {m.role === "manager" ? "Make cashier" : "Make manager"}
-                      </button>
-                      <button type="button" className="button"
-                        onClick={() => openDialog({ kind: "member", member: m, action: { type: "status", status: m.status === "active" ? "disabled" : "active" } })}>
-                        {m.status === "active" ? "Disable" : "Enable"}
-                      </button>
-                      <button type="button" className="button" onClick={() => openDialog({ kind: "member", member: m, action: { type: "reset" } })}>Send reset email</button>
-                    </div>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {members.length === 0 ? <p className="admin-empty">No members.</p> : null}
-      </div>
+      {members.length ? (
+        <ul className="admin-members">
+          {members.map((m) => (
+            <li key={m.id} className="admin-member">
+              <div className="admin-member-main">
+                <div className="product-name">{m.email || "—"}</div>
+                <div className="admin-muted">Joined {adminDateTime(m.createdAt)} · Last sign-in {m.lastSignInAt ? adminDateTime(m.lastSignInAt) : "never"}</div>
+              </div>
+              <div className="admin-pills">
+                <span className={`badge ${m.isOwner || m.role === "manager" ? "blue" : ""}`}>{ROLE_LABEL[m.role]}</span>
+                <span className={`badge ${m.status === "active" ? "green" : "red"}`}>{m.status === "active" ? "Active" : "Disabled"}</span>
+              </div>
+              {m.isOwner ? null : (
+                <div className="admin-member-actions">
+                  <button type="button" className="button"
+                    onClick={() => openDialog({ kind: "member", member: m, action: { type: "role", role: m.role === "manager" ? "cashier" : "manager" } })}>
+                    {m.role === "manager" ? "Make cashier" : "Make manager"}
+                  </button>
+                  <button type="button" className="button"
+                    onClick={() => openDialog({ kind: "member", member: m, action: { type: "status", status: m.status === "active" ? "disabled" : "active" } })}>
+                    {m.status === "active" ? "Disable" : "Enable"}
+                  </button>
+                  <button type="button" className="button" onClick={() => openDialog({ kind: "member", member: m, action: { type: "reset" } })}>Send reset email</button>
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      ) : <p className="admin-empty">No members.</p>}
     </section>
 
       {dialog?.kind === "add" ? (
