@@ -1,6 +1,8 @@
 // SERVER ONLY: shared by the billing route handlers.
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { activeMembership } from "@/lib/access/membership";
+import { parseEntitlements } from "@/lib/billing/entitlements";
+import { isGranted } from "@/lib/billing/lifecycle-view";
 import { ownerGuard, type BillingMembership } from "@/lib/billing/owner-guard";
 
 export type OwnerBilling = {
@@ -9,6 +11,8 @@ export type OwnerBilling = {
   subscriptionId: string | null;
   status: string | null;
   trialEndsAt: string | null;
+  /** True while platform staff provide the plan; checkout is refused then. */
+  granted: boolean;
 };
 
 /** The signed-in owner's subscription row, or the Response to send back instead. */
@@ -27,11 +31,15 @@ export async function loadOwnerBilling(): Promise<OwnerBilling | Response> {
     .select("stripe_customer_id, stripe_subscription_id, status, trial_ends_at")
     .eq("business_id", businessId).maybeSingle();
   if (error) return Response.json({ error: error.message }, { status: 502 });
+  const { data: ent, error: entError } = await supabase.rpc("business_entitlements", { target_business_id: businessId });
+  if (entError) return Response.json({ error: entError.message }, { status: 502 });
+  const parsed = parseEntitlements(ent);
   return {
     businessId,
     customerId: sub?.stripe_customer_id ?? null,
     subscriptionId: sub?.stripe_subscription_id ?? null,
     status: sub?.status ?? null,
     trialEndsAt: sub?.trial_ends_at ?? null,
+    granted: isGranted(parsed, new Date()),
   };
 }

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ConfirmHost } from "@/components/ui/confirm-host";
 import { Toaster } from "@/components/ui/toaster";
@@ -18,14 +19,15 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   if (!staff.ok) notFound();
 
   return (
-    <div className="min-h-screen bg-raised text-fg">
-      <header className="border-b border-line bg-surface">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3">
-          <span className="text-sm font-semibold">Shop Ledger · Admin</span>
-          <span className="truncate text-xs text-muted">{staff.email}</span>
+    <div className="admin-shell">
+      <header className="topbar">
+        <div className="admin-brand">
+          <strong>Shop Ledger · Admin</strong>
+          <small title={staff.email}>{staff.email}</small>
         </div>
+        <Link href="/overview" className="admin-open-link">Open shop app</Link>
       </header>
-      <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
+      <main className="admin-main">{children}</main>
       <ConfirmHost />
       <Toaster />
     </div>

@@ -78,3 +78,13 @@ test("R6: a signed body with an unparseable expiry or businessId is rejected", a
 test("refuses short secrets", () => {
   assert.throws(() => signEntitlements(parseEntitlements(raw), "biz-1", "short", now), RangeError);
 });
+
+test("old cached entitlements without grant fields parse with both null", () => {
+  const e = parseEntitlements(raw);
+  assert.equal(e.grantPlanId, null);
+  assert.equal(e.grantEndsAt, null);
+  assert.equal(READ_ONLY_ENTITLEMENTS.grantPlanId, null);
+  const g = parseEntitlements({ ...raw, grantPlanId: "pro", grantEndsAt: "2026-11-30T19:59:59.999Z" });
+  assert.equal(g.grantPlanId, "pro");
+  assert.throws(() => parseEntitlements({ ...raw, grantPlanId: "gold" }));
+});

@@ -10,7 +10,7 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export type SignupInput = { name: string; email: string; password: string };
 export type AuthErrorLike = { message?: string; status?: number; code?: string; name?: string } | null;
-export type ConfirmType = "signup" | "recovery" | "email";
+export type ConfirmType = "signup" | "recovery" | "email" | "invite";
 
 export const INVALID_EMAIL = "Enter a valid email address.";
 
@@ -70,12 +70,12 @@ export function safeNext(next: string | null | undefined, fallback: string): str
   return resolved.pathname + resolved.search + resolved.hash;
 }
 
-const DEFAULT_NEXT: Record<ConfirmType, string> = { signup: "/setup", recovery: "/reset-password", email: "/overview" };
+const DEFAULT_NEXT: Record<ConfirmType, string> = { signup: "/setup", recovery: "/reset-password", email: "/overview", invite: "/reset-password" };
 
 export function confirmParams(url: URL): { tokenHash: string; type: ConfirmType; next: string } | null {
   const tokenHash = url.searchParams.get("token_hash");
   const type = url.searchParams.get("type");
   if (!tokenHash) return null;
-  if (type !== "signup" && type !== "recovery" && type !== "email") return null;
+  if (type !== "signup" && type !== "recovery" && type !== "email" && type !== "invite") return null;
   return { tokenHash, type, next: safeNext(url.searchParams.get("next"), DEFAULT_NEXT[type]) };
 }

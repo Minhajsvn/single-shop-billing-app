@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  OWNER_ID_CAP, adminDateTime, emailNeedle, isShopId, matchingOwnerIds, overrideActive, pageWindow, searchFilter, searchTerm, shopStatusText, tillsLine,
+  OWNER_ID_CAP, adminDateTime, emailNeedle, grantEndingSoon, sortMembers, isShopId, matchingOwnerIds, overrideActive, pageWindow, searchFilter, searchTerm, shopStatusText, tillsLine,
 } from "../lib/admin/shop-view.ts";
 
 const now = new Date("2026-10-19T10:00:00Z"); // 14:00 in Dubai
@@ -92,4 +92,18 @@ test("adminDateTime shows Dubai time and a dash for none", () => {
   assert.equal(adminDateTime("2026-10-19T10:00:00Z"), "19 Oct 2026, 14:00");
   assert.equal(adminDateTime(null), "—");
   assert.equal(adminDateTime("garbage"), "—");
+});
+
+test("grantEndingSoon flags grants ending within 7 days", () => {
+  const at = (ms) => new Date(now.getTime() + ms).toISOString();
+  const h = 3600 * 1000;
+  assert.equal(grantEndingSoon(at(6 * 24 * h + 23 * h), now), true);
+  assert.equal(grantEndingSoon(at(7 * 24 * h + h), now), false);
+  assert.equal(grantEndingSoon(null, now), false);
+});
+
+test("sortMembers puts the owner first, then oldest first", () => {
+  const m = (id, createdAt, isOwner = false) => ({ id, createdAt, isOwner });
+  const sorted = sortMembers([m("c", "2026-03-01"), m("o", "2026-05-01", true), m("a", "2026-01-01")]);
+  assert.deepEqual(sorted.map((x) => x.id), ["o", "a", "c"]);
 });

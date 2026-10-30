@@ -1,6 +1,4 @@
-/** The red badge for a shop with an open billing-check flag. */
+/** The red pill for a shop with an open billing-check flag. */
 export function NeedsLookBadge() {
-  return (
-    <span className="inline-block whitespace-nowrap rounded bg-danger-soft px-1.5 py-0.5 text-xs font-semibold text-danger">Needs a look</span>
-  );
+  return <span className="badge red">Needs a look</span>;
 }

@@ -2,6 +2,8 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // Dev only: the default HMR cache also serves router.refresh() stale server data, so admin actions looked like they did nothing.
+  experimental: { serverComponentsHmrCache: false },
   async headers() {
     return [
       {

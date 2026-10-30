@@ -252,9 +252,9 @@ subject = "Reset your Shop Ledger password"
 content_path = "./supabase/templates/recovery.html"
 
 # Uncomment to customize email template
-# [auth.email.template.invite]
-# subject = "You have been invited"
-# content_path = "./supabase/templates/invite.html"
+[auth.email.template.invite]
+subject = "You're invited to Shop Ledger"
+content_path = "./supabase/templates/invite.html"
 
 # Uncomment to customize notification email template
 # [auth.email.notification.password_changed]

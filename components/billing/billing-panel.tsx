@@ -4,7 +4,7 @@ import { CreditCard } from "@/components/icons";
 import { useEffect, useState } from "react";
 import { fixesInPortal } from "@/components/billing/lifecycle-banner";
 import { useEntitlement } from "@/components/billing/use-entitlement";
-import { billingSummary } from "@/lib/billing/lifecycle-view";
+import { billingSummary, isGranted } from "@/lib/billing/lifecycle-view";
 import { PLANS } from "@/lib/billing/plans";
 import { refreshEntitlements, refreshSnapshot, useShopContext } from "@/lib/demo-store";
 import { toast } from "@/lib/ui/toast-store";
@@ -87,6 +87,7 @@ export function BillingPanel({ overTillLimit, onShowTills }: { overTillLimit: bo
   const prices = priceLines(interval);
   const unavailable = !hosted || kind === "none";
   const manage = fixesInPortal(e);
+  const granted = isGranted(e, now);
 
   return (
     <section className="panel">
@@ -98,6 +99,7 @@ export function BillingPanel({ overTillLimit, onShowTills }: { overTillLimit: bo
         {unavailable ? <p>{NOT_SET_UP}</p> : (
           <>
             <p style={{ margin: 0, fontWeight: 600 }}>{billingSummary(e, now)}</p>
+            {granted ? null : (<>
             <div role="group" aria-label="Billing period" style={{ display: "flex", gap: 8 }}>
               <button type="button" className={`button ${interval === "month" ? "primary" : ""}`} aria-pressed={interval === "month"} onClick={() => setInterval("month")}>Monthly</button>
               <button type="button" className={`button ${interval === "year" ? "primary" : ""}`} aria-pressed={interval === "year"} onClick={() => setInterval("year")}>Annual</button>
@@ -110,10 +112,11 @@ export function BillingPanel({ overTillLimit, onShowTills }: { overTillLimit: bo
                 {`AED ${money(prices.net)} + ${money(prices.vat)} VAT (5%) = AED ${money(prices.total)} ${interval === "year" ? "a year" : "a month"}`}
               </div>
             </div>
+            </>)}
             {overTillLimit ? (
               <p style={{ margin: 0 }}>Your plan allows fewer tills than are active. <button type="button" className="button" onClick={onShowTills}>Choose which till stays</button></p>
             ) : null}
-            {role === "owner" ? (
+            {role === "owner" && !granted ? (
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 {manage ? (
                   <button type="button" className="button primary" onClick={() => void go("portal")} disabled={busy !== null}><CreditCard size={14} weight="bold" />{busy === "portal" ? "Opening…" : "Manage billing"}</button>

@@ -2222,4 +2222,591 @@ do $$ begin
   assert has_function_privilege('authenticated', 'public.choose_active_tills(uuid, uuid[])', 'execute'), 'signed-in users call it (owner check inside)';
 end $$;
 
+-- 27. Stage 1I granted plans. Shop L (owner ...a1): expired trial. Shop M (owner ...a2): expired trial, Stripe event target.
+-- Shop N (owner ...a3): a live Stripe subscription. Staff is ...15.
+reset role;
+insert into auth.users (id, instance_id, aud, role, email) values
+  ('00000000-0000-4000-8000-0000000000a1', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'owner-l@test.local'),
+  ('00000000-0000-4000-8000-0000000000a2', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'owner-m@test.local'),
+  ('00000000-0000-4000-8000-0000000000a3', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'owner-n@test.local');
+insert into public.businesses (id, owner_id, legal_name, trn, address, phone) values
+  ('b2700000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-0000000000a1', 'Shop L LLC', '100000000000021', 'Satwa, Dubai', '+971500000271'),
+  ('b2700000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-0000000000a2', 'Shop M LLC', '100000000000022', 'Satwa, Dubai', '+971500000272'),
+  ('b2700000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-0000000000a3', 'Shop N LLC', '100000000000023', 'Satwa, Dubai', '+971500000273');
+update public.subscriptions set status = 'trialing', plan_id = 'pro', has_payment_method = false, trial_ends_at = now() - interval '1 day'
+where business_id in ('b2700000-0000-4000-8000-000000000001', 'b2700000-0000-4000-8000-000000000002');
+update public.subscriptions set status = 'active', plan_id = 'starter', has_payment_method = true,
+  stripe_customer_id = 'cus_27d', stripe_subscription_id = 'sub_27d'
+where business_id = 'b2700000-0000-4000-8000-000000000003';
+
+-- 27a. Service role only.
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000000a1","role":"authenticated"}', true);
+do $$
+declare
+  biz constant uuid := 'b2700000-0000-4000-8000-000000000001';
+  staff constant uuid := '00000000-0000-4000-8000-000000000015';
+  failure text;
+begin
+  begin
+    perform public.admin_grant_plan(biz, 'business', null, staff, 'self-service');
+    assert false, 'an owner must not grant themselves a plan';
+  exception when others then failure := sqlstate;
+  end;
+  assert failure = '42501', 'grant refused, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin
+    perform public.admin_revoke_grant(biz, staff, 'self-service');
+    assert false, 'an owner must not revoke a grant';
+  exception when others then failure := sqlstate;
+  end;
+  assert failure = '42501', 'revoke refused, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin
+    perform count(*) from public.plan_grants;
+  exception when others then failure := sqlstate;
+  end;
+  assert failure = '42501', 'authenticated cannot read plan_grants, got ' || coalesce(failure, 'null');
+end $$;
+reset role;
+set local role anon;
+do $$
+declare failure text;
+begin
+  begin
+    perform count(*) from public.plan_grants;
+  exception when others then failure := sqlstate;
+  end;
+  assert failure = '42501', 'anon cannot read plan_grants, got ' || coalesce(failure, 'null');
+end $$;
+reset role;
+do $$ begin
+  assert not has_function_privilege('anon', 'public.admin_grant_plan(uuid, text, timestamptz, uuid, text)', 'execute'), 'anon cannot grant';
+  assert not has_function_privilege('authenticated', 'public.admin_grant_plan(uuid, text, timestamptz, uuid, text)', 'execute'), 'authenticated cannot grant';
+  assert not has_function_privilege('authenticated', 'public.admin_revoke_grant(uuid, uuid, text)', 'execute'), 'authenticated cannot revoke';
+  assert has_function_privilege('service_role', 'public.admin_grant_plan(uuid, text, timestamptz, uuid, text)', 'execute'), 'service_role grants';
+  assert has_function_privilege('service_role', 'public.admin_revoke_grant(uuid, uuid, text)', 'execute'), 'service_role revokes';
+end $$;
+
+-- 27b. A grant gives full access on the grant plan until it ends or is revoked.
+set local role service_role;
+do $$
+declare
+  biz constant uuid := 'b2700000-0000-4000-8000-000000000001';
+  staff constant uuid := '00000000-0000-4000-8000-000000000015';
+  until_at timestamptz := now() + interval '30 days';
+  ent jsonb;
+  business_plan public.plan_catalog;
+  failure text;
+begin
+  select * into business_plan from public.plan_catalog where id = 'business';
+  ent := public.entitlements_internal(biz, now());
+  assert ent->>'access' = 'read_only' and ent->'grantPlanId' = 'null'::jsonb and ent->'grantEndsAt' = 'null'::jsonb,
+    '27b starts read-only with no grant keys set';
+
+  perform public.admin_grant_plan(biz, 'business', until_at, staff, 'Partner shop');
+  ent := public.entitlements_internal(biz, now());
+  assert ent->>'access' = 'full', 'granted shop has full access';
+  assert ent->>'planId' = 'business' and ent->>'grantPlanId' = 'business', 'plan is the grant plan';
+  assert (ent->>'grantEndsAt')::timestamptz = until_at and (ent->>'accessEndsAt')::timestamptz = until_at, 'grant end shows';
+  assert ent->>'status' = 'trialing', 'status stays the subscription status';
+  assert (ent->'limits'->>'tills')::integer is not distinct from business_plan.max_tills, 'Business tills limit';
+  assert (ent->'limits'->>'branches')::integer is not distinct from business_plan.max_branches, 'Business branches limit';
+  assert (ent->'limits'->>'members')::integer is not distinct from business_plan.max_members, 'Business members limit';
+  assert (ent->'limits'->>'products')::integer is not distinct from business_plan.max_products, 'Business products limit';
+  assert ent->'features' = to_jsonb(array(select f from unnest(business_plan.features) f order by f)), 'Business features';
+
+  ent := public.entitlements_internal(biz, until_at + interval '1 minute');
+  assert ent->>'access' = 'read_only', 'read-only after the grant ends';
+  assert ent->'grantPlanId' = 'null'::jsonb and ent->'grantEndsAt' = 'null'::jsonb, 'no grant after its end';
+  assert ent->>'planId' = 'pro', 'back on the subscription plan';
+
+  perform public.admin_revoke_grant(biz, staff, 'Ended early');
+  ent := public.entitlements_internal(biz, now());
+  assert ent->>'access' = 'read_only' and ent->'grantPlanId' = 'null'::jsonb, 'revoke takes effect immediately';
+
+  begin
+    perform public.admin_revoke_grant(biz, staff, 'again');
+    assert false, 'revoking with no open grant must be refused';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'no_grant', 'no grant, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin
+    perform public.admin_grant_plan(biz, 'business', now() - interval '1 hour', staff, 'past');
+    assert false, 'a past end must be refused';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'until_not_in_future', 'past end, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin
+    perform public.admin_grant_plan(biz, 'nope', null, staff, 'x');
+    assert false, 'unknown plan must be refused';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'plan_not_found', 'unknown plan, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin
+    perform public.admin_grant_plan(gen_random_uuid(), 'business', null, staff, 'x');
+    assert false, 'unknown shop must be refused';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'shop_not_found', 'unknown shop, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin
+    perform public.admin_grant_plan(biz, 'business', null, staff, '  ');
+    assert false, 'blank note must be refused';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'note_required', 'blank note, got ' || coalesce(failure, 'null');
+end $$;
+
+-- 27c. A Stripe event cannot overwrite a grant.
+do $$
+declare
+  biz constant uuid := 'b2700000-0000-4000-8000-000000000002';
+  staff constant uuid := '00000000-0000-4000-8000-000000000015';
+  ent jsonb;
+  result text;
+begin
+  perform public.admin_grant_plan(biz, 'business', null, staff, 'Open-ended partner');
+  ent := public.entitlements_internal(biz, now());
+  assert ent->>'access' = 'full' and ent->'accessEndsAt' = 'null'::jsonb and ent->'grantEndsAt' = 'null'::jsonb, 'open-ended grant';
+
+  result := public.apply_billing_event(jsonb_build_object(
+    'id', 'evt_27c_deleted', 'created', now(), 'kind', 'subscription_deleted',
+    'businessId', biz, 'customerId', null, 'subscriptionId', null, 'status', 'canceled',
+    'trialEnd', null, 'currentPeriodEnd', null, 'cancelAt', null, 'interval', null));
+  assert result = 'applied', 'delete event applied, got ' || coalesce(result, 'null');
+  assert (select status from public.subscriptions where business_id = biz) = 'canceled', 'subscription is canceled';
+  ent := public.entitlements_internal(biz, now());
+  assert ent->>'planId' = 'business' and ent->>'access' = 'full' and ent->>'grantPlanId' = 'business', 'grant survives the Stripe event';
+end $$;
+
+-- 27d. No grant over a live Stripe subscription.
+do $$
+declare
+  biz constant uuid := 'b2700000-0000-4000-8000-000000000003';
+  staff constant uuid := '00000000-0000-4000-8000-000000000015';
+  failure text;
+begin
+  begin
+    perform public.admin_grant_plan(biz, 'business', null, staff, 'try');
+    assert false, 'a live Stripe subscription must be refused';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'stripe_subscription_live', 'live subscription, got ' || coalesce(failure, 'null');
+  assert not exists (select 1 from public.plan_grants where business_id = biz), 'refusal writes no grant';
+
+  update public.subscriptions set status = 'canceled' where business_id = biz;
+  perform public.admin_grant_plan(biz, 'business', null, staff, 'after cancel');
+  assert exists (select 1 from public.plan_grants where business_id = biz and revoked_at is null), 'grant allowed once canceled';
+end $$;
+
+-- 27e. A second grant revokes the first; one audit row per call.
+do $$
+declare
+  biz constant uuid := 'b2700000-0000-4000-8000-000000000001';
+  staff constant uuid := '00000000-0000-4000-8000-000000000015';
+  end1 timestamptz := now() + interval '10 days';
+  end2 timestamptz := now() + interval '20 days';
+  ev public.audit_events;
+begin
+  assert (select count(*) from public.audit_events where business_id = biz and action in ('admin.grant_plan', 'admin.revoke_grant')) = 2,
+    '27e starts with the audit rows of 27b (one grant, one revoke)';
+  delete from public.audit_events where business_id = biz and action in ('admin.grant_plan', 'admin.revoke_grant');
+
+  perform public.admin_grant_plan(biz, 'pro', end1, staff, 'first');
+  assert (select count(*) from public.audit_events where business_id = biz and action = 'admin.grant_plan') = 1, 'one audit row for the first grant';
+  select * into ev from public.audit_events where business_id = biz and action = 'admin.grant_plan';
+  assert ev.actor_id = staff and ev.entity_type = 'plan_grant', 'actor and entity type';
+  assert ev.summary->'before'->>'planId' is null and ev.summary->'after'->>'planId' = 'pro', 'before empty, after pro';
+  assert (ev.summary->'after'->>'endsAt')::timestamptz = end1 and ev.summary->>'note' = 'first', 'after end and note';
+  delete from public.audit_events where id = ev.id;
+
+  perform public.admin_grant_plan(biz, 'business', end2, staff, 'second');
+  assert (select count(*) from public.plan_grants where business_id = biz and revoked_at is null) = 1, 'one open grant';
+  assert (select count(*) from public.plan_grants where business_id = biz and revoked_at is not null and revoke_note = 'second' and revoked_by = staff) >= 1,
+    'first grant revoked with the new note';
+  assert (select count(*) from public.audit_events where business_id = biz and action = 'admin.grant_plan') = 1, 'one audit row for the second grant';
+  select * into ev from public.audit_events where business_id = biz and action = 'admin.grant_plan';
+  assert ev.summary->'before'->>'planId' = 'pro' and (ev.summary->'before'->>'endsAt')::timestamptz = end1, 'before is the replaced grant';
+  assert ev.summary->'after'->>'planId' = 'business' and (ev.summary->'after'->>'endsAt')::timestamptz = end2, 'after is the new grant';
+  delete from public.audit_events where id = ev.id;
+
+  perform public.admin_revoke_grant(biz, staff, 'done');
+  assert (select count(*) from public.audit_events where business_id = biz and action = 'admin.revoke_grant') = 1, 'one audit row for the revoke';
+  select * into ev from public.audit_events where business_id = biz and action = 'admin.revoke_grant';
+  assert ev.actor_id = staff and ev.summary->>'note' = 'done', 'revoke actor and note';
+  assert ev.summary->'before'->>'planId' = 'business' and (ev.summary->'before'->>'endsAt')::timestamptz = end2, 'revoke before';
+  assert ev.summary->'after'->>'planId' is null, 'revoke after is empty';
+  assert not exists (select 1 from public.plan_grants where business_id = biz and revoked_at is null), 'no open grant left';
+end $$;
+reset role;
+
+-- 27f-27k. Stage 1I member admin functions. Shop P (owner ...c1, Starter: 2 members), shop Q (owner ...c2).
+-- Accounts ...c3 and ...c4 are unconfirmed (no email_confirmed_at). Staff is ...15.
+insert into auth.users (id, instance_id, aud, role, email) values
+  ('00000000-0000-4000-8000-0000000000c1', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'owner-p@test.local'),
+  ('00000000-0000-4000-8000-0000000000c2', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'owner-q@test.local'),
+  ('00000000-0000-4000-8000-0000000000c3', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'clerk-three@test.local'),
+  ('00000000-0000-4000-8000-0000000000c4', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'clerk-four@test.local');
+insert into public.businesses (id, owner_id, legal_name, trn, address, phone) values
+  ('b2710000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-0000000000c1', 'Shop P LLC', '100000000000031', 'Satwa, Dubai', '+971500000281'),
+  ('b2710000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-0000000000c2', 'Shop Q LLC', '100000000000032', 'Satwa, Dubai', '+971500000282');
+update public.subscriptions set status = 'active', plan_id = 'starter', has_payment_method = true
+where business_id in ('b2710000-0000-4000-8000-000000000001', 'b2710000-0000-4000-8000-000000000002');
+
+-- 27f. Service role only, all five.
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000000c1","role":"authenticated"}', true);
+do $$
+declare
+  biz constant uuid := 'b2710000-0000-4000-8000-000000000001';
+  staff constant uuid := '00000000-0000-4000-8000-000000000015';
+  member constant uuid := '00000000-0000-4000-8000-0000000000ee';
+  failure text;
+begin
+  begin perform public.admin_member_lookup(biz, 'x@test.local'); assert false, 'lookup must be refused';
+  exception when others then failure := sqlstate; end;
+  assert failure = '42501', 'lookup refused, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin perform public.admin_add_member(biz, staff, 'cashier', staff, 'n'); assert false, 'add must be refused';
+  exception when others then failure := sqlstate; end;
+  assert failure = '42501', 'add refused, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin perform public.admin_set_member_role(member, 'manager', staff, 'n'); assert false, 'role must be refused';
+  exception when others then failure := sqlstate; end;
+  assert failure = '42501', 'role refused, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin perform public.admin_set_member_status(member, 'disabled', staff, 'n'); assert false, 'status must be refused';
+  exception when others then failure := sqlstate; end;
+  assert failure = '42501', 'status refused, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin perform public.admin_log_password_reset(member, staff, 'n'); assert false, 'reset log must be refused';
+  exception when others then failure := sqlstate; end;
+  assert failure = '42501', 'reset log refused, got ' || coalesce(failure, 'null');
+end $$;
+reset role;
+do $$ begin
+  assert (select email_confirmed_at from auth.users where id = '00000000-0000-4000-8000-0000000000c3') is null, 'fixture account is unconfirmed';
+  assert not has_function_privilege('anon', 'public.admin_member_lookup(uuid, text)', 'execute'), 'anon lookup';
+  assert not has_function_privilege('authenticated', 'public.admin_add_member(uuid, uuid, public.member_role, uuid, text)', 'execute'), 'authenticated add';
+  assert not has_function_privilege('authenticated', 'public.admin_set_member_role(uuid, public.member_role, uuid, text)', 'execute'), 'authenticated role';
+  assert not has_function_privilege('authenticated', 'public.admin_set_member_status(uuid, public.member_status, uuid, text)', 'execute'), 'authenticated status';
+  assert not has_function_privilege('authenticated', 'public.admin_log_password_reset(uuid, uuid, text)', 'execute'), 'authenticated reset log';
+  assert has_function_privilege('service_role', 'public.admin_member_lookup(uuid, text)', 'execute'), 'service_role lookup';
+  assert has_function_privilege('service_role', 'public.admin_add_member(uuid, uuid, public.member_role, uuid, text)', 'execute'), 'service_role add';
+  assert has_function_privilege('service_role', 'public.admin_set_member_role(uuid, public.member_role, uuid, text)', 'execute'), 'service_role role';
+  assert has_function_privilege('service_role', 'public.admin_set_member_status(uuid, public.member_status, uuid, text)', 'execute'), 'service_role status';
+  assert has_function_privilege('service_role', 'public.admin_log_password_reset(uuid, uuid, text)', 'execute'), 'service_role reset log';
+end $$;
+
+-- 27g. Lookup.
+set local role service_role;
+do $$
+declare
+  biz constant uuid := 'b2710000-0000-4000-8000-000000000001';
+  failure text;
+begin
+  assert public.admin_member_lookup(biz, '  Clerk-Three@Test.LOCAL ') ->> 'userId' = '00000000-0000-4000-8000-0000000000c3',
+    'unconfirmed account found by trimmed, lower-cased email';
+  assert public.admin_member_lookup(biz, 'nobody@test.local') -> 'userId' = 'null'::jsonb, 'unknown email gives null';
+  begin perform public.admin_member_lookup(biz, 'owner-p@test.local'); assert false, 'existing member refused';
+  exception when others then failure := sqlerrm; end;
+  assert failure = 'already_member', 'already_member, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin perform public.admin_member_lookup(biz, 'owner-q@test.local'); assert false, 'owner of another shop refused';
+  exception when others then failure := sqlerrm; end;
+  assert failure = 'member_of_other_shop', 'member_of_other_shop, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin perform public.admin_member_lookup('b2710000-0000-4000-8000-0000000000ff', 'x@test.local'); assert false, 'unknown shop refused';
+  exception when others then failure := sqlerrm; end;
+  assert failure = 'shop_not_found', 'shop_not_found, got ' || coalesce(failure, 'null');
+  assert not exists (select 1 from public.audit_events where business_id = biz and action like 'admin.%member%'), 'lookup writes no audit row';
+end $$;
+
+-- 27h. Add a member.
+do $$
+declare
+  biz constant uuid := 'b2710000-0000-4000-8000-000000000001';
+  staff constant uuid := '00000000-0000-4000-8000-000000000015';
+  c3 constant uuid := '00000000-0000-4000-8000-0000000000c3';
+  new_id uuid;
+  ev public.audit_events;
+  failure text;
+begin
+  new_id := public.admin_add_member(biz, c3, 'cashier', staff, 'hired a till clerk');
+  assert exists (select 1 from public.business_members where id = new_id and business_id = biz and user_id = c3 and role = 'cashier' and status = 'active'), 'active cashier member';
+  assert (select count(*) from public.audit_events where business_id = biz and action = 'admin.add_member') = 1, 'one add audit row';
+  select * into ev from public.audit_events where business_id = biz and action = 'admin.add_member';
+  assert ev.actor_id = staff and ev.entity_id = new_id and ev.summary->>'note' = 'hired a till clerk', 'audit actor, entity, note';
+  assert ev.summary->'after'->>'role' = 'cashier', 'audit after role';
+
+  begin perform public.admin_add_member(biz, '00000000-0000-4000-8000-0000000000c4', 'owner', staff, 'n'); assert false, 'owner role refused';
+  exception when others then failure := sqlerrm; end;
+  assert failure = 'role_not_allowed', 'role_not_allowed, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin perform public.admin_add_member(biz, c3, 'cashier', staff, 'again'); assert false, 'already a member';
+  exception when others then failure := sqlerrm; end;
+  assert failure = 'already_member', 'already_member, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin perform public.admin_add_member(biz, '00000000-0000-4000-8000-0000000000c2', 'cashier', staff, 'poach'); assert false, 'other shop member';
+  exception when others then failure := sqlerrm; end;
+  assert failure = 'member_of_other_shop', 'member_of_other_shop, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin perform public.admin_add_member(biz, '00000000-0000-4000-8000-0000000000c4', 'cashier', staff, '  '); assert false, 'note required';
+  exception when others then failure := sqlerrm; end;
+  assert failure = 'note_required', 'note_required, got ' || coalesce(failure, 'null');
+  assert (select count(*) from public.audit_events where business_id = biz and action = 'admin.add_member') = 1, 'refusals wrote no audit rows';
+end $$;
+
+-- 27i. Member limit on Starter (2 members: owner + the cashier already added).
+do $$
+declare
+  biz constant uuid := 'b2710000-0000-4000-8000-000000000001';
+  staff constant uuid := '00000000-0000-4000-8000-000000000015';
+  c3 constant uuid := '00000000-0000-4000-8000-0000000000c3';
+  c4 constant uuid := '00000000-0000-4000-8000-0000000000c4';
+  c3_row uuid := (select id from public.business_members where business_id = biz and user_id = c3);
+  failure text;
+begin
+  begin perform public.admin_add_member(biz, c4, 'cashier', staff, 'third'); assert false, 'third member refused';
+  exception when others then failure := sqlerrm; end;
+  assert failure = 'plan_limit_reached', 'plan_limit_reached on add, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin perform public.admin_member_lookup(biz, 'clerk-four@test.local'); assert false, 'lookup pre-check';
+  exception when others then failure := sqlerrm; end;
+  assert failure = 'plan_limit_reached', 'plan_limit_reached on lookup, got ' || coalesce(failure, 'null');
+  assert not exists (select 1 from public.business_members where business_id = biz and user_id = c4), 'no row for the refused add';
+
+  perform public.admin_set_member_status(c3_row, 'disabled', staff, 'left the shop');
+  assert (select status from public.business_members where id = c3_row) = 'disabled', 'cashier disabled';
+  assert (select count(*) from public.audit_events where business_id = biz and action = 'admin.set_member_status') = 1, 'one status audit row';
+  perform public.admin_add_member(biz, c4, 'cashier', staff, 'replacement');
+
+  failure := null;
+  begin perform public.admin_set_member_status(c3_row, 'active', staff, 'came back'); assert false, 're-enable while full refused';
+  exception when others then failure := sqlerrm; end;
+  assert failure = 'plan_limit_reached', 'plan_limit_reached on re-enable, got ' || coalesce(failure, 'null');
+  assert (select status from public.business_members where id = c3_row) = 'disabled', 'row stays disabled';
+  assert (select count(*) from public.audit_events where business_id = biz and action = 'admin.set_member_status') = 1, 'failed re-enable wrote no audit row';
+end $$;
+
+-- 27j. Role changes and the protected owner row.
+do $$
+declare
+  biz constant uuid := 'b2710000-0000-4000-8000-000000000001';
+  staff constant uuid := '00000000-0000-4000-8000-000000000015';
+  c4_row uuid := (select id from public.business_members where business_id = biz and user_id = '00000000-0000-4000-8000-0000000000c4');
+  owner_row uuid := (select id from public.business_members where business_id = biz and user_id = '00000000-0000-4000-8000-0000000000c1');
+  ev public.audit_events;
+  failure text;
+begin
+  perform public.admin_set_member_role(c4_row, 'manager', staff, 'promoted');
+  assert (select role from public.business_members where id = c4_row) = 'manager', 'now manager';
+  assert (select count(*) from public.audit_events where business_id = biz and action = 'admin.set_member_role') = 1, 'one audit row after promote';
+  select * into ev from public.audit_events where business_id = biz and action = 'admin.set_member_role';
+  assert ev.entity_id = c4_row and ev.actor_id = staff and ev.summary->'before'->>'role' = 'cashier'
+    and ev.summary->'after'->>'role' = 'manager' and ev.summary->>'note' = 'promoted', 'role audit before/after/note';
+  perform public.admin_set_member_role(c4_row, 'cashier', staff, 'demoted');
+  assert (select role from public.business_members where id = c4_row) = 'cashier', 'back to cashier';
+  assert (select count(*) from public.audit_events where business_id = biz and action = 'admin.set_member_role') = 2, 'two audit rows in total';
+
+  begin perform public.admin_set_member_role(c4_row, 'owner', staff, 'n'); assert false, 'owner role refused';
+  exception when others then failure := sqlerrm; end;
+  assert failure = 'role_not_allowed', 'role_not_allowed, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin perform public.admin_set_member_role(owner_row, 'manager', staff, 'n'); assert false, 'owner row role refused';
+  exception when others then failure := sqlerrm; end;
+  assert failure = 'owner_protected', 'owner_protected role, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin perform public.admin_set_member_status(owner_row, 'disabled', staff, 'n'); assert false, 'owner row status refused';
+  exception when others then failure := sqlerrm; end;
+  assert failure = 'owner_protected', 'owner_protected status, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin perform public.admin_set_member_role('00000000-0000-4000-8000-0000000000ee', 'manager', staff, 'n'); assert false, 'unknown member';
+  exception when others then failure := sqlerrm; end;
+  assert failure = 'member_not_found', 'member_not_found role, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin perform public.admin_set_member_status('00000000-0000-4000-8000-0000000000ee', 'disabled', staff, 'n'); assert false, 'unknown member';
+  exception when others then failure := sqlerrm; end;
+  assert failure = 'member_not_found', 'member_not_found status, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin perform public.admin_set_member_role(c4_row, 'manager', staff, ''); assert false, 'note required';
+  exception when others then failure := sqlerrm; end;
+  assert failure = 'note_required', 'note_required, got ' || coalesce(failure, 'null');
+  assert (select role from public.business_members where id = owner_row) = 'owner' and (select status from public.business_members where id = owner_row) = 'active', 'owner row untouched';
+  assert (select count(*) from public.audit_events where business_id = biz and action = 'admin.set_member_role') = 2, 'refusals wrote no role audit rows';
+  assert (select count(*) from public.audit_events where business_id = biz and action = 'admin.set_member_status') = 1, 'refusals wrote no status audit rows';
+  assert not exists (select 1 from public.audit_events where entity_id = owner_row), 'no audit row for the owner row';
+
+  -- c3 is disabled in shop P (27i). Shop Q takes c3; re-enabling in P would make two active shops.
+  declare
+    q constant uuid := 'b2710000-0000-4000-8000-000000000002';
+    c3 constant uuid := '00000000-0000-4000-8000-0000000000c3';
+    c3_row_p uuid := (select id from public.business_members where business_id = biz and user_id = c3);
+  begin
+    perform public.admin_add_member(q, c3, 'cashier', staff, 'moved shops');
+    failure := null;
+    begin perform public.admin_set_member_status(c3_row_p, 'active', staff, 'back again'); assert false, 'two active shops refused';
+    exception when others then failure := sqlerrm; end;
+    assert failure = 'member_of_other_shop', 'member_of_other_shop on re-enable, got ' || coalesce(failure, 'null');
+    assert (select status from public.business_members where id = c3_row_p) = 'disabled', 'shop P row stays disabled';
+    assert (select count(*) from public.audit_events where business_id = biz and action = 'admin.set_member_status') = 1, 'refused re-enable wrote no audit row';
+  end;
+end $$;
+
+-- 27k. Password reset log: audit only.
+do $$
+declare
+  biz constant uuid := 'b2710000-0000-4000-8000-000000000001';
+  staff constant uuid := '00000000-0000-4000-8000-000000000015';
+  c4_row uuid := (select id from public.business_members where business_id = biz and user_id = '00000000-0000-4000-8000-0000000000c4');
+  before_row public.business_members;
+  after_row public.business_members;
+  ev public.audit_events;
+  failure text;
+begin
+  select * into before_row from public.business_members where id = c4_row;
+  perform public.admin_log_password_reset(c4_row, staff, 'asked by phone');
+  assert (select count(*) from public.audit_events where business_id = biz and action = 'admin.send_password_reset') = 1, 'one reset audit row';
+  select * into ev from public.audit_events where business_id = biz and action = 'admin.send_password_reset';
+  assert ev.actor_id = staff and ev.entity_id = c4_row and ev.summary->>'note' = 'asked by phone', 'reset audit actor, entity, note';
+  select * into after_row from public.business_members where id = c4_row;
+  assert after_row = before_row, 'member row unchanged';
+  begin perform public.admin_log_password_reset('00000000-0000-4000-8000-0000000000ee', staff, 'n'); assert false, 'unknown member';
+  exception when others then failure := sqlerrm; end;
+  assert failure = 'member_not_found', 'member_not_found, got ' || coalesce(failure, 'null');
+  failure := null;
+  begin perform public.admin_log_password_reset(c4_row, staff, ''); assert false, 'note required';
+  exception when others then failure := sqlerrm; end;
+  assert failure = 'note_required', 'note_required, got ' || coalesce(failure, 'null');
+end $$;
+reset role;
+
+-- 27l. The till sync gate honours a grant. Shop R (owner ...a4): expired trial. A grant lets the till open shifts;
+-- after the grant stops, a new shift is read_only but one opened while it was in force lands within 72 hours.
+-- now() is fixed inside the transaction, so the grant's start and revoke are moved back by hand.
+insert into auth.users (id, instance_id, aud, role, email) values
+  ('00000000-0000-4000-8000-0000000000a4', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'owner-r@test.local');
+insert into public.businesses (id, owner_id, legal_name, trn, address, phone) values
+  ('b2720000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-0000000000a4', 'Shop R LLC', '100000000000027', 'Satwa, Dubai', '+971500000274');
+update public.subscriptions set status = 'trialing', plan_id = 'pro', has_payment_method = false, trial_ends_at = now() - interval '1 day'
+where business_id = 'b2720000-0000-4000-8000-000000000001';
+insert into public.devices (id, business_id, name) values ('d2720000-0000-4000-8000-00000000000a', 'b2720000-0000-4000-8000-000000000001', 'Till R');
+
+-- 27l (a). No grant: a new shift is read_only.
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000000a4","role":"authenticated"}', true);
+do $$
+declare failure text;
+begin
+  begin
+    perform public.apply_register_sync(gen_random_uuid(), 'b2720000-0000-4000-8000-000000000001', 'e2720000-0000-4000-8000-0000000000a1', jsonb_build_object(
+      'deviceId', 'd2720000-0000-4000-8000-00000000000a', 'action', 'open',
+      'register', jsonb_build_object('openingCashFils', 0, 'openedAt', now() - interval '1 hour')));
+    assert false, 'an expired trial without a grant must be refused';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'read_only', '27l(a) no grant is read_only, got ' || coalesce(failure, 'null');
+end $$;
+reset role;
+
+set local role service_role;
+select public.admin_grant_plan('b2720000-0000-4000-8000-000000000001', 'business', null, '00000000-0000-4000-8000-000000000015', 'Pilot shop');
+reset role;
+
+-- 27l (b). A grant in force: the shift opens and a sale lands on it.
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000000a4","role":"authenticated"}', true);
+do $$
+declare
+  biz constant uuid := 'b2720000-0000-4000-8000-000000000001';
+  till constant text := 'd2720000-0000-4000-8000-00000000000a';
+begin
+  perform public.apply_register_sync(gen_random_uuid(), biz, 'e2720000-0000-4000-8000-0000000000b1', jsonb_build_object(
+    'deviceId', till, 'action', 'open',
+    'register', jsonb_build_object('openingCashFils', 0, 'openedAt', now() - interval '1 hour')));
+  assert exists (select 1 from public.register_sessions where id = 'e2720000-0000-4000-8000-0000000000b1' and status = 'open'),
+    '27l(b) granted shop opens a shift';
+  perform public.apply_register_sync(gen_random_uuid(), biz, gen_random_uuid(), jsonb_build_object(
+    'deviceId', till, 'action', 'close',
+    'register', jsonb_build_object('countedCashFils', 0, 'closedAt', now())));
+
+  -- A sale whose shift open never reached the server opens the session itself.
+  perform public.apply_sale_sync(gen_random_uuid(), biz, 'a2720000-0000-4000-8000-0000000000b1', jsonb_build_object(
+    'deviceId', till, 'register', jsonb_build_object('openingCashFils', 0, 'openedAt', now() - interval '30 minutes'),
+    'sale', jsonb_build_object(
+      'id', 'a2720000-0000-4000-8000-0000000000b1', 'invoiceNumber', 'T27L-1', 'status', 'completed',
+      'createdAt', now(), 'supplyDate', current_date, 'paymentMethod', 'card',
+      'netFils', 100, 'vatFils', 5, 'grossFils', 105,
+      'lines', jsonb_build_array(jsonb_build_object(
+        'id', 'a2720000-0000-4000-8000-0000000b1a01', 'name', 'Item', 'quantity', 1,
+        'unitGrossFils', 105, 'netFils', 100, 'vatFils', 5, 'grossFils', 105)))));
+  assert (select register_session_id is not null from public.sales where id = 'a2720000-0000-4000-8000-0000000000b1'),
+    '27l(b) granted shop sale syncs';
+  perform public.apply_register_sync(gen_random_uuid(), biz, gen_random_uuid(), jsonb_build_object(
+    'deviceId', till, 'action', 'close',
+    'register', jsonb_build_object('countedCashFils', 0, 'closedAt', now())));
+end $$;
+reset role;
+
+-- Revoke, then move the grant back: in force from 10 hours ago until 2 hours ago.
+set local role service_role;
+select public.admin_revoke_grant('b2720000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000015', 'Pilot over');
+reset role;
+update public.plan_grants set starts_at = now() - interval '10 hours', revoked_at = now() - interval '2 hours'
+where business_id = 'b2720000-0000-4000-8000-000000000001';
+
+-- 27l (c) and (d). After the revoke a new shift is read_only; one opened while the grant was in force lands.
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000000a4","role":"authenticated"}', true);
+do $$
+declare
+  biz constant uuid := 'b2720000-0000-4000-8000-000000000001';
+  till constant text := 'd2720000-0000-4000-8000-00000000000a';
+  failure text;
+begin
+  begin
+    perform public.apply_register_sync(gen_random_uuid(), biz, 'e2720000-0000-4000-8000-0000000000c1', jsonb_build_object(
+      'deviceId', till, 'action', 'open',
+      'register', jsonb_build_object('openingCashFils', 0, 'openedAt', now() - interval '1 hour')));
+    assert false, 'a shift opened after the revoke must be refused';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'read_only', '27l(c) shift after the revoke is read_only, got ' || coalesce(failure, 'null');
+
+  perform public.apply_register_sync(gen_random_uuid(), biz, 'e2720000-0000-4000-8000-0000000000d1', jsonb_build_object(
+    'deviceId', till, 'action', 'open',
+    'register', jsonb_build_object('openingCashFils', 0, 'openedAt', now() - interval '5 hours')));
+  assert exists (select 1 from public.register_sessions where id = 'e2720000-0000-4000-8000-0000000000d1' and status = 'open'),
+    '27l(d) shift opened while the grant was in force is accepted';
+  perform public.apply_register_sync(gen_random_uuid(), biz, gen_random_uuid(), jsonb_build_object(
+    'deviceId', till, 'action', 'close',
+    'register', jsonb_build_object('countedCashFils', 0, 'closedAt', now())));
+end $$;
+reset role;
+
+-- 27l (e). The 72 hours run from the grant's stop: a grant-era shift arriving later than that is read_only.
+-- The trial end moves back too, so its own 72 hours cannot admit the shift.
+update public.subscriptions set trial_ends_at = now() - interval '200 hours' where business_id = 'b2720000-0000-4000-8000-000000000001';
+update public.plan_grants set starts_at = now() - interval '100 hours', revoked_at = now() - interval '73 hours'
+where business_id = 'b2720000-0000-4000-8000-000000000001';
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000000a4","role":"authenticated"}', true);
+do $$
+declare failure text;
+begin
+  begin
+    perform public.apply_register_sync(gen_random_uuid(), 'b2720000-0000-4000-8000-000000000001', 'e2720000-0000-4000-8000-0000000000e1', jsonb_build_object(
+      'deviceId', 'd2720000-0000-4000-8000-00000000000a', 'action', 'open',
+      'register', jsonb_build_object('openingCashFils', 0, 'openedAt', now() - interval '80 hours')));
+    assert false, 'a grant-era shift arriving more than 72 hours after the revoke must be refused';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'read_only', '27l(e) late grant-era shift is read_only, got ' || coalesce(failure, 'null');
+end $$;
+reset role;
+
 rollback;

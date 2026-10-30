@@ -23,8 +23,17 @@ export function dubaiDaysLeft(endIso: string, now: Date): number {
   return Math.max(0, Math.round((dateNumber(dubaiSupplyDate(end)) - dateNumber(dubaiSupplyDate(now))) / DAY_MS));
 }
 
+/** A grant is in force when a grant plan is set and it is open-ended or ends after `now`. */
+export function isGranted(e: Entitlements, now: Date): boolean {
+  if (!e.grantPlanId) return false;
+  if (!e.grantEndsAt) return true;
+  const end = new Date(e.grantEndsAt).getTime();
+  return Number.isFinite(end) && end > now.getTime();
+}
+
 /** Read-only is decided on the device clock, so a cache that still says "full" cannot outlive the access end. */
 export function lifecycleState(e: Entitlements, now: Date): LifecycleState {
+  if (isGranted(e, now)) return "full";
   if (e.access === "read_only") return "read_only";
   if (e.accessEndsAt !== null) {
     const end = new Date(e.accessEndsAt).getTime();
@@ -42,6 +51,7 @@ function days(n: number): string {
 export function bannerFor(input: { e: Entitlements; stale: boolean; role: Role; now: Date }): Banner | null {
   const { e, stale, role, now } = input;
   const owner = role === "owner";
+  if (isGranted(e, now)) return null;
   const state = lifecycleState(e, now);
 
   if (state === "read_only") {
@@ -90,6 +100,11 @@ function dubaiDate(iso: string | null, withYear: boolean): string {
 
 /** One plain line about the plan for the Billing tab. */
 export function billingSummary(e: Entitlements, now: Date): string {
+  if (isGranted(e, now)) {
+    const name = (e.grantPlanId && PLANS[e.grantPlanId]?.name) || "Starter";
+    const until = dubaiDate(e.grantEndsAt, true);
+    return `${name} plan · provided by Shop Ledger${until ? ` until ${until}` : ""}`;
+  }
   const state = lifecycleState(e, now);
   if (state === "read_only") return `Read-only since ${dubaiDate(e.accessEndsAt ?? e.graceEndsAt, false)}`.trim();
   if (state === "grace") return `Payment failed · grace ends ${dubaiDate(e.graceEndsAt ?? e.accessEndsAt, false)}`.trim();

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { NeedsLookBadge } from "@/components/admin/needs-look-badge";
+import { StatusPill } from "@/components/admin/status-pill";
 import { requireStaff } from "@/lib/admin/require-staff";
 import { listShops } from "@/lib/admin/shops";
 import { adminDateTime } from "@/lib/admin/shop-view";
@@ -25,74 +26,90 @@ export default async function AdminShopsPage({ searchParams }: { searchParams: P
   const params = await searchParams;
   const query = one(params.q).trim().slice(0, 200);
   const needsLook = one(params.look) === "1";
-  const { rows, total, page, pages, needsLookCount } = await listShops({ query, page: Number.parseInt(one(params.page), 10), needsLook });
+  const { rows, total, page, pages, needsLookCount, counts } = await listShops({ query, page: Number.parseInt(one(params.page), 10), needsLook });
+
+  const metrics: { label: string; value: number; note: string }[] = [
+    { label: "Shops", value: counts.shops, note: "All shops" },
+    { label: "Needs a look", value: counts.needsLook, note: counts.needsLook === 1 ? "Shop with an open billing flag" : "Shops with an open billing flag" },
+    { label: "On trial", value: counts.trial, note: "Trying Pro" },
+    { label: "Granted", value: counts.granted, note: "Plan given by Shop Ledger" },
+    { label: "Paying", value: counts.paying, note: "Through Stripe" },
+  ];
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <h1 className="text-xl font-semibold">Shops</h1>
-        <form action="/admin" method="get" className="flex w-full gap-2 sm:w-auto">
-          <input
-            type="search" name="q" defaultValue={query} aria-label="Search shops"
-            placeholder="Shop name, owner email, TRN or shop id"
-            className="min-w-0 flex-1 rounded border border-line-strong bg-surface px-3 py-1.5 text-sm sm:w-80"
-          />
-          {needsLook ? <input type="hidden" name="look" value="1" /> : null}
-          <button type="submit" className="rounded bg-accent px-3 py-1.5 text-sm text-white">Search</button>
-        </form>
+    <div className="admin-page">
+      <div className="page-heading">
+        <div>
+          <span className="eyebrow">Admin</span>
+          <h1 className="page-title">Shops</h1>
+        </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-        <p className={needsLookCount ? "font-medium text-danger" : "text-muted"}>
+      <div className="metric-grid admin-metrics">
+        {metrics.map((metric) => (
+          <div key={metric.label} className="metric">
+            <div className="metric-label">{metric.label}</div>
+            <div className="metric-value">{metric.value}</div>
+            <div className="metric-note">{metric.note}</div>
+          </div>
+        ))}
+      </div>
+
+      <section className="panel">
+        <div className="panel-body">
+          <form action="/admin" method="get" className="toolbar" role="search">
+            <div className="search">
+              <input
+                type="search" name="q" defaultValue={query} aria-label="Search shops" className="input"
+                placeholder="Shop name, owner email, TRN or shop id"
+              />
+            </div>
+            {needsLook ? <input type="hidden" name="look" value="1" /> : null}
+            <button type="submit" className="button primary">Search</button>
+            <Link href={pageHref(query, 1, !needsLook)} className="button" aria-pressed={needsLook}>
+              {needsLook ? "Show all shops" : "Needs a look only"}
+            </Link>
+          </form>
+        </div>
+
+        <p className="admin-summary">
           {needsLookCount === 1 ? "1 shop needs a look" : `${needsLookCount} shops need a look`}
+          {" · "}{total === 1 ? "1 shop" : `${total} shops`}{needsLook ? " needing a look" : ""}{query ? ` matching “${query}”` : ""}
+          {query || needsLook ? <> · <Link href="/admin">Clear</Link></> : null}
         </p>
-        <Link href={pageHref(query, 1, !needsLook)} className="underline">
-          {needsLook ? "Show all shops" : "Needs a look only"}
-        </Link>
-      </div>
 
-      <p className="text-sm text-muted">
-        {total === 1 ? "1 shop" : `${total} shops`}{needsLook ? " needing a look" : ""}{query ? ` matching “${query}”` : ""}
-        {query || needsLook ? <> · <Link href="/admin" className="underline">Clear</Link></> : null}
-      </p>
+        {rows.length ? (
+          <div className="table-wrap stack-table admin-table">
+            <table>
+              <thead>
+                <tr><th>Shop</th><th>Owner email</th><th>Plan</th><th>Status</th><th>Created</th></tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={row.id}>
+                    <td data-label="Shop">
+                      <Link href={`/admin/shops/${row.id}`} className="invoice-link product-name">{row.name}</Link>
+                      {row.openFlags ? <> <NeedsLookBadge /></> : null}
+                    </td>
+                    <td data-label="Owner email">{row.ownerEmail || "—"}</td>
+                    <td data-label="Plan">{row.planId ? PLANS[row.planId as PlanId]?.name ?? row.planId : "—"}</td>
+                    <td data-label="Status"><StatusPill text={row.statusText} /></td>
+                    <td data-label="Created" className="nowrap">{adminDateTime(row.createdAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : <p className="admin-empty">No shops found.</p>}
 
-      <div className="overflow-x-auto rounded border border-line bg-surface">
-        <table className="w-full text-left text-sm">
-          <thead className="border-b border-line bg-raised text-xs text-muted">
-            <tr>
-              <th className="px-3 py-2 font-medium">Shop</th>
-              <th className="px-3 py-2 font-medium">Owner email</th>
-              <th className="px-3 py-2 font-medium">Plan</th>
-              <th className="px-3 py-2 font-medium">Status</th>
-              <th className="px-3 py-2 font-medium">Created</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr key={row.id} className="border-b border-line last:border-0 hover:bg-raised">
-                <td className="px-3 py-2"><Link href={`/admin/shops/${row.id}`} className="font-medium underline-offset-2 hover:underline">{row.name}</Link>
-                  {row.openFlags ? <> <NeedsLookBadge /></> : null}
-                </td>
-                <td className="px-3 py-2">{row.ownerEmail || "—"}</td>
-                <td className="px-3 py-2">{row.planId ? PLANS[row.planId as PlanId]?.name ?? row.planId : "—"}</td>
-                <td className="px-3 py-2">{row.statusText}</td>
-                <td className="whitespace-nowrap px-3 py-2">{adminDateTime(row.createdAt)}</td>
-              </tr>
-            ))}
-            {rows.length === 0 ? (
-              <tr><td colSpan={5} className="px-3 py-6 text-center text-muted">No shops found.</td></tr>
-            ) : null}
-          </tbody>
-        </table>
-      </div>
-
-      {pages > 1 ? (
-        <nav className="flex items-center justify-between text-sm" aria-label="Pages">
-          {page > 1 ? <Link href={pageHref(query, page - 1, needsLook)} className="underline">Previous</Link> : <span />}
-          <span className="text-muted">Page {page} of {pages}</span>
-          {page < pages ? <Link href={pageHref(query, page + 1, needsLook)} className="underline">Next</Link> : <span />}
-        </nav>
-      ) : null}
+        {pages > 1 ? (
+          <nav className="pager" aria-label="Pages">
+            {page > 1 ? <Link href={pageHref(query, page - 1, needsLook)} className="button">Previous</Link> : <span />}
+            <span className="pager-position">Page {page} of {pages}</span>
+            {page < pages ? <Link href={pageHref(query, page + 1, needsLook)} className="button">Next</Link> : <span />}
+          </nav>
+        ) : null}
+      </section>
     </div>
   );
 }

@@ -9,6 +9,7 @@ export async function POST(request: Request) {
   try {
     const owner = await loadOwnerBilling();
     if (owner instanceof Response) return owner;
+    if (owner.granted) return Response.json({ error: "This shop's plan is provided by Shop Ledger." }, { status: 409 });
     if (provider.kind === "none") return Response.json({ error: BILLING_NOT_SET_UP }, { status: 503 });
 
     const body: unknown = await request.json().catch(() => null);
