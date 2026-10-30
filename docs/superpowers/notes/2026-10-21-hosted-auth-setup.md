@@ -21,7 +21,7 @@ deployed. The ones from this release, and from Stage 1F (billing) in case they a
 - Stage 1H (admin console): `202610250035_admin_console.sql`, `202610250036_billing_flags.sql`,
   `202610250037_trial_end_from_stripe.sql`, `202610250038_owner_audit_hides_admin.sql`,
   `202610250039_choose_active_tills.sql`
-- Stage 1I (admin grants and members): `202610290040_plan_grants.sql`, `202610290041_admin_members.sql`
+- Stage 1I (admin grants and members): `202610290040_plan_grants.sql`, `202610290041_admin_members.sql`, `202610290042_register_gate_grants.sql`
 
 Take a backup of the hosted database before applying them.
 

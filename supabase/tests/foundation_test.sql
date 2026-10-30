@@ -2685,4 +2685,128 @@ begin
 end $$;
 reset role;
 
+-- 27l. The till sync gate honours a grant. Shop R (owner ...a4): expired trial. A grant lets the till open shifts;
+-- after the grant stops, a new shift is read_only but one opened while it was in force lands within 72 hours.
+-- now() is fixed inside the transaction, so the grant's start and revoke are moved back by hand.
+insert into auth.users (id, instance_id, aud, role, email) values
+  ('00000000-0000-4000-8000-0000000000a4', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'owner-r@test.local');
+insert into public.businesses (id, owner_id, legal_name, trn, address, phone) values
+  ('b2720000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-0000000000a4', 'Shop R LLC', '100000000000027', 'Satwa, Dubai', '+971500000274');
+update public.subscriptions set status = 'trialing', plan_id = 'pro', has_payment_method = false, trial_ends_at = now() - interval '1 day'
+where business_id = 'b2720000-0000-4000-8000-000000000001';
+insert into public.devices (id, business_id, name) values ('d2720000-0000-4000-8000-00000000000a', 'b2720000-0000-4000-8000-000000000001', 'Till R');
+
+-- 27l (a). No grant: a new shift is read_only.
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000000a4","role":"authenticated"}', true);
+do $$
+declare failure text;
+begin
+  begin
+    perform public.apply_register_sync(gen_random_uuid(), 'b2720000-0000-4000-8000-000000000001', 'e2720000-0000-4000-8000-0000000000a1', jsonb_build_object(
+      'deviceId', 'd2720000-0000-4000-8000-00000000000a', 'action', 'open',
+      'register', jsonb_build_object('openingCashFils', 0, 'openedAt', now() - interval '1 hour')));
+    assert false, 'an expired trial without a grant must be refused';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'read_only', '27l(a) no grant is read_only, got ' || coalesce(failure, 'null');
+end $$;
+reset role;
+
+set local role service_role;
+select public.admin_grant_plan('b2720000-0000-4000-8000-000000000001', 'business', null, '00000000-0000-4000-8000-000000000015', 'Pilot shop');
+reset role;
+
+-- 27l (b). A grant in force: the shift opens and a sale lands on it.
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000000a4","role":"authenticated"}', true);
+do $$
+declare
+  biz constant uuid := 'b2720000-0000-4000-8000-000000000001';
+  till constant text := 'd2720000-0000-4000-8000-00000000000a';
+begin
+  perform public.apply_register_sync(gen_random_uuid(), biz, 'e2720000-0000-4000-8000-0000000000b1', jsonb_build_object(
+    'deviceId', till, 'action', 'open',
+    'register', jsonb_build_object('openingCashFils', 0, 'openedAt', now() - interval '1 hour')));
+  assert exists (select 1 from public.register_sessions where id = 'e2720000-0000-4000-8000-0000000000b1' and status = 'open'),
+    '27l(b) granted shop opens a shift';
+  perform public.apply_register_sync(gen_random_uuid(), biz, gen_random_uuid(), jsonb_build_object(
+    'deviceId', till, 'action', 'close',
+    'register', jsonb_build_object('countedCashFils', 0, 'closedAt', now())));
+
+  -- A sale whose shift open never reached the server opens the session itself.
+  perform public.apply_sale_sync(gen_random_uuid(), biz, 'a2720000-0000-4000-8000-0000000000b1', jsonb_build_object(
+    'deviceId', till, 'register', jsonb_build_object('openingCashFils', 0, 'openedAt', now() - interval '30 minutes'),
+    'sale', jsonb_build_object(
+      'id', 'a2720000-0000-4000-8000-0000000000b1', 'invoiceNumber', 'T27L-1', 'status', 'completed',
+      'createdAt', now(), 'supplyDate', current_date, 'paymentMethod', 'card',
+      'netFils', 100, 'vatFils', 5, 'grossFils', 105,
+      'lines', jsonb_build_array(jsonb_build_object(
+        'id', 'a2720000-0000-4000-8000-0000000b1a01', 'name', 'Item', 'quantity', 1,
+        'unitGrossFils', 105, 'netFils', 100, 'vatFils', 5, 'grossFils', 105)))));
+  assert (select register_session_id is not null from public.sales where id = 'a2720000-0000-4000-8000-0000000000b1'),
+    '27l(b) granted shop sale syncs';
+  perform public.apply_register_sync(gen_random_uuid(), biz, gen_random_uuid(), jsonb_build_object(
+    'deviceId', till, 'action', 'close',
+    'register', jsonb_build_object('countedCashFils', 0, 'closedAt', now())));
+end $$;
+reset role;
+
+-- Revoke, then move the grant back: in force from 10 hours ago until 2 hours ago.
+set local role service_role;
+select public.admin_revoke_grant('b2720000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000015', 'Pilot over');
+reset role;
+update public.plan_grants set starts_at = now() - interval '10 hours', revoked_at = now() - interval '2 hours'
+where business_id = 'b2720000-0000-4000-8000-000000000001';
+
+-- 27l (c) and (d). After the revoke a new shift is read_only; one opened while the grant was in force lands.
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000000a4","role":"authenticated"}', true);
+do $$
+declare
+  biz constant uuid := 'b2720000-0000-4000-8000-000000000001';
+  till constant text := 'd2720000-0000-4000-8000-00000000000a';
+  failure text;
+begin
+  begin
+    perform public.apply_register_sync(gen_random_uuid(), biz, 'e2720000-0000-4000-8000-0000000000c1', jsonb_build_object(
+      'deviceId', till, 'action', 'open',
+      'register', jsonb_build_object('openingCashFils', 0, 'openedAt', now() - interval '1 hour')));
+    assert false, 'a shift opened after the revoke must be refused';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'read_only', '27l(c) shift after the revoke is read_only, got ' || coalesce(failure, 'null');
+
+  perform public.apply_register_sync(gen_random_uuid(), biz, 'e2720000-0000-4000-8000-0000000000d1', jsonb_build_object(
+    'deviceId', till, 'action', 'open',
+    'register', jsonb_build_object('openingCashFils', 0, 'openedAt', now() - interval '5 hours')));
+  assert exists (select 1 from public.register_sessions where id = 'e2720000-0000-4000-8000-0000000000d1' and status = 'open'),
+    '27l(d) shift opened while the grant was in force is accepted';
+  perform public.apply_register_sync(gen_random_uuid(), biz, gen_random_uuid(), jsonb_build_object(
+    'deviceId', till, 'action', 'close',
+    'register', jsonb_build_object('countedCashFils', 0, 'closedAt', now())));
+end $$;
+reset role;
+
+-- 27l (e). The 72 hours run from the grant's stop: a grant-era shift arriving later than that is read_only.
+-- The trial end moves back too, so its own 72 hours cannot admit the shift.
+update public.subscriptions set trial_ends_at = now() - interval '200 hours' where business_id = 'b2720000-0000-4000-8000-000000000001';
+update public.plan_grants set starts_at = now() - interval '100 hours', revoked_at = now() - interval '73 hours'
+where business_id = 'b2720000-0000-4000-8000-000000000001';
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000000a4","role":"authenticated"}', true);
+do $$
+declare failure text;
+begin
+  begin
+    perform public.apply_register_sync(gen_random_uuid(), 'b2720000-0000-4000-8000-000000000001', 'e2720000-0000-4000-8000-0000000000e1', jsonb_build_object(
+      'deviceId', 'd2720000-0000-4000-8000-00000000000a', 'action', 'open',
+      'register', jsonb_build_object('openingCashFils', 0, 'openedAt', now() - interval '80 hours')));
+    assert false, 'a grant-era shift arriving more than 72 hours after the revoke must be refused';
+  exception when others then failure := sqlerrm;
+  end;
+  assert failure = 'read_only', '27l(e) late grant-era shift is read_only, got ' || coalesce(failure, 'null');
+end $$;
+reset role;
+
 rollback;
