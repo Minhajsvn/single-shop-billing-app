@@ -21,6 +21,7 @@ deployed. The ones from this release, and from Stage 1F (billing) in case they a
 - Stage 1H (admin console): `202610250035_admin_console.sql`, `202610250036_billing_flags.sql`,
   `202610250037_trial_end_from_stripe.sql`, `202610250038_owner_audit_hides_admin.sql`,
   `202610250039_choose_active_tills.sql`
+- Stage 1I (admin grants and members): `202610290040_plan_grants.sql`, `202610290041_admin_members.sql`
 
 Take a backup of the hosted database before applying them.
 
@@ -58,7 +59,7 @@ Supabase's built-in mail only sends a few emails an hour and only to team member
 4. Click **Save**.
 5. Go to **Authentication → Rate Limits** and raise **Rate limit for sending emails** to a number that fits your expected sign-ups per hour (for example 30).
 
-## 4. Paste the two email templates
+## 4. Paste the three email templates
 
 The app's links verify a one-time token on the server, so they work even when the email is opened on another device (for example a phone). The default Supabase templates do not do this, so replace them.
 
@@ -70,6 +71,10 @@ The app's links verify a one-time token on the server, so they work even when th
 3. Choose **Reset Password**.
    - **Subject:** `Reset your Shop Ledger password`
    - **Body:** delete everything, then paste the whole of `supabase/templates/recovery.html`.
+   - Click **Save**.
+4. Choose **Invite user**.
+   - **Subject:** `You're invited to Shop Ledger`
+   - **Body:** delete everything, then paste the whole of `supabase/templates/invite.html`.
    - Click **Save**.
 
 Leave `{{ .SiteURL }}` and `{{ .TokenHash }}` exactly as written; Supabase fills them in.
@@ -85,31 +90,22 @@ If a link says "This link has expired or was already used", check that the Site 
 
 ## 6. Add a cashier to a shop
 
-There is no invite screen yet. The owner creates the cashier's account; the cashier does **not** sign up.
+Add cashiers from the admin console. Only platform staff can open it (see step 7), so the owner asks staff to add the person.
+The cashier does **not** sign up.
 
 > **Warning:** do not let a cashier sign up at `/signup` and fill in "Set up your shop". That makes them the owner of a
 > trial shop of their own. Someone who belongs to two shops always works in the one where they have the highest role,
 > so after being added to your shop as a cashier they would still sell into their own trial shop. If a cashier already
-> did this, create a new account for them with a different email address and add that one instead.
+> did this, add a different email address for them instead.
 
-1. In the Supabase dashboard, go to **Authentication → Users → Add user → Create new user**.
-2. Enter the cashier's email address and a starting password (8 characters or more), tick **Auto Confirm User**, and click **Create user**.
-   Give the password to the cashier in person. They can change it later with **Forgot password?** on the sign-in page.
-3. Open **SQL Editor → New query**.
-4. Paste this line, replace the two email addresses, and click **Run**:
+1. Open `https://YOUR-APP-ADDRESS/admin`, find the shop and open it.
+2. Go to **Members** and click **Add user**. Enter the cashier's email address and choose the role (cashier or manager).
+3. The cashier gets an invite email with a link to set a password. Do not give them a password yourself.
+4. The cashier signs in at `https://YOUR-APP-ADDRESS/login` with that email and the password they chose, and goes straight to the till.
 
-```sql
-insert into public.business_members (business_id, user_id, role, status) select b.id, u.id, 'cashier', 'active' from public.businesses b, auth.users u where u.email = '<cashier email>' and b.owner_id = (select id from auth.users where email = '<owner email>');
-```
-
-5. It should say `1 row` was inserted. `0 rows` means one of the email addresses is wrong, or the cashier's account was not created in step 2.
-6. The cashier signs in at `https://YOUR-APP-ADDRESS/login` with that email and password and goes straight to the till.
-
-Notes on this line (checked against `supabase/migrations/202610110010_members_branches.sql` and `202608300001_sprint_one_foundation.sql`):
-- `business_members` has the columns `business_id`, `user_id`, `role` (`cashier`, `manager` or `owner`) and `status` (`active` or `disabled`); `businesses.owner_id` is the owner's user id.
-- Each person can be added to a shop once; running it twice for the same cashier gives a "duplicate key" error, which is harmless.
-- The shop's plan limits how many members it can have. If the shop is at its limit, the insert is refused with a plan-limit error.
-- To remove a cashier later, set their status to `disabled` instead of deleting the row.
+Notes:
+- Adding a user is refused when the shop is at its plan's member limit. Free a seat or change the plan first.
+- To remove a cashier later, use **Disable** on the Members table instead of deleting the person. **Enable** puts them back.
 
 ## 7. Platform staff (admin console)
 
