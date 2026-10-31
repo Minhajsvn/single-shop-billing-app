@@ -2888,7 +2888,36 @@ begin
     'trialEnd', null, 'currentPeriodEnd', null, 'cancelAt', null, 'interval', 'month'));
   assert result = 'superseded', '28d superseded, got ' || coalesce(result, 'null');
   assert (select billing_subscription_id from public.subscriptions where business_id = biz) = 'sub_A', '28d row keeps sub_A';
-  assert exists (select 1 from public.billing_events where id = 'evt_28d'), '28d event id recorded';
+  assert not exists (select 1 from public.billing_events where id = 'evt_28d'), '28d superseded event is not recorded';
+  result := public.apply_billing_event(jsonb_build_object(
+    'id', 'evt_28d', 'created', now(), 'kind', 'checkout_completed', 'businessId', biz,
+    'customerId', 'cust_28c', 'subscriptionId', 'sub_B', 'status', 'active',
+    'trialEnd', null, 'currentPeriodEnd', null, 'cancelAt', null, 'interval', 'month'));
+  assert result = 'superseded', '28d redelivery is superseded again, got ' || coalesce(result, 'null');
+end $$;
+
+-- 28b2. trial_card_removed is ignored unless the shop is trialing.
+do $$
+declare
+  canceled_biz constant uuid := 'b2800000-0000-4000-8000-000000000003';
+  active_biz constant uuid := 'b2800000-0000-4000-8000-000000000002';
+  b uuid;
+  result text;
+  before_row public.subscriptions;
+  after_row public.subscriptions;
+begin
+  update public.subscriptions set status = 'canceled', canceled_at = now() where business_id = canceled_biz;
+  foreach b in array array[canceled_biz, active_biz] loop
+    select * into before_row from public.subscriptions where business_id = b;
+    result := public.apply_billing_event(jsonb_build_object(
+      'id', 'evt_28b2_' || before_row.status::text, 'created', now(), 'kind', 'trial_card_removed', 'businessId', b,
+      'customerId', null, 'subscriptionId', null, 'status', null,
+      'trialEnd', null, 'currentPeriodEnd', null, 'cancelAt', null, 'interval', null));
+    assert result = 'stale', '28b2 ' || before_row.status::text || ' row is stale, got ' || coalesce(result, 'null');
+    select * into after_row from public.subscriptions where business_id = b;
+    assert before_row = after_row, '28b2 ' || before_row.status::text || ' row unchanged';
+  end loop;
+  update public.subscriptions set status = 'active', canceled_at = null where business_id = 'b2800000-0000-4000-8000-000000000003';
 end $$;
 
 -- 28e. record_billing_cancel.

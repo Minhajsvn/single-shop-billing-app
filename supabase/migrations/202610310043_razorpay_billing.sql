@@ -49,6 +49,16 @@ begin
     return 'unknown_business';
   end if;
 
+  -- A second paid checkout for a shop that already has a live subscription is 'superseded'. It is decided before the
+  -- event is recorded, so a redelivery (after the app's provider cancel failed) is superseded again, not a duplicate.
+  -- An older event (stale check) is still recorded and ignored below.
+  if v_kind = 'checkout_completed' and sub.billing_subscription_id is not null and v_subscription is not null
+     and v_subscription <> sub.billing_subscription_id
+     and (sub.status in ('active', 'past_due') or (sub.status = 'trialing' and sub.has_payment_method))
+     and not coalesce(sub.last_event_at > v_created, false) then
+    return 'superseded';
+  end if;
+
   insert into public.billing_events (id, type) values (v_id, v_kind) on conflict (id) do nothing;
   get diagnostics inserted = row_count;
   if inserted = 0 then
@@ -61,20 +71,22 @@ begin
 
   -- Canceled is final: a same-second payment_failed, or a late invoice or subscription update for the deleted
   -- subscription, must not bring it back. Only a new checkout reactivates.
-  if sub.status = 'canceled' and v_kind in ('payment_failed', 'invoice_paid', 'subscription_changed') then
+  if sub.status = 'canceled' and v_kind in ('payment_failed', 'invoice_paid', 'subscription_changed', 'trial_card_removed') then
     return 'stale';
   end if;
 
-  -- A stray subscription: the shop already has a different one. A second paid checkout is 'superseded' (the app
-  -- cancels it at the provider); every other event for it is 'stale'. A checkout for a new id while the stored row
-  -- is canceled, or is a trial without a card, falls through and relinks the ids.
+  -- Removing a trial card only means something for a trial. On an active or past_due shop it would downgrade it.
+  if v_kind = 'trial_card_removed' and sub.status <> 'trialing' then
+    return 'stale';
+  end if;
+
+  -- A stray subscription: the shop already has a different one. Every event for it but a checkout is 'stale' (a live
+  -- shop's checkout was already 'superseded' above). A checkout for a new id while the stored row is canceled, or is
+  -- a trial without a card, falls through and relinks the ids.
   if sub.billing_subscription_id is not null and v_subscription is not null
      and v_subscription <> sub.billing_subscription_id then
     if v_kind <> 'checkout_completed' then
       return 'stale';
-    end if;
-    if sub.status in ('active', 'past_due') or (sub.status = 'trialing' and sub.has_payment_method) then
-      return 'superseded';
     end if;
   end if;
 
