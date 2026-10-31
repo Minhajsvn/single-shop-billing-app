@@ -8,6 +8,7 @@ import {
 } from "../lib/billing/provider.ts";
 import { razorpayRequest } from "../lib/billing/razorpay-api.ts";
 import { cancelDecision } from "../lib/billing/cancel-decision.ts";
+import { runCancel } from "../lib/billing/run-cancel.ts";
 import { handleRazorpayWebhook } from "../lib/billing/webhook-handler.ts";
 import { pretendAvailable } from "../lib/billing/pretend-events.ts";
 
@@ -235,4 +236,49 @@ test("webhook: applied events do not cancel; bad signature is 400; no secret is 
   assert.equal(cancelled, 0);
   assert.equal((await handleRazorpayWebhook(signedRequest("activated"), { ...deps, secret: "other" })).status, 400);
   assert.equal((await handleRazorpayWebhook(signedRequest("activated"), { ...deps, secret: undefined })).status, 503);
+});
+
+// --- cancel ordering ----------------------------------------------------------------------------
+
+function cancelHarness({ providerFails = false, recordFails = false } = {}) {
+  const log = [];
+  const deps = {
+    provider: { cancel: async (input) => { log.push(["provider", input.atPeriodEnd]); if (providerFails) throw new Error("down"); } },
+    recordCancel: async (args) => { log.push(["record", args.cancelAt]); return { error: recordFails ? new Error("rpc") : null }; },
+    clearCancelAt: async () => { log.push(["clear"]); return { error: null }; },
+  };
+  return { log, deps };
+}
+const CANCEL_INPUT = { businessId: BUSINESS, subscriptionId: "sub_1", userId: "u1" };
+const PERIOD = { action: "cancel_at_period_end", cancelAt: "2026-11-25T10:00:00.000Z" };
+
+test("runCancel: records before the provider call", async () => {
+  const { log, deps } = cancelHarness();
+  const outcome = await runCancel(PERIOD, CANCEL_INPUT, deps);
+  assert.deepEqual(outcome, { ok: true, cancelAt: PERIOD.cancelAt });
+  assert.deepEqual(log, [["record", PERIOD.cancelAt], ["provider", true]]);
+});
+
+test("runCancel: a provider failure on the period-end path clears cancel_at and returns 502", async () => {
+  const { log, deps } = cancelHarness({ providerFails: true });
+  const outcome = await runCancel(PERIOD, CANCEL_INPUT, deps);
+  assert.equal(outcome.ok, false);
+  assert.equal(outcome.status, 502);
+  assert.deepEqual(log, [["record", PERIOD.cancelAt], ["provider", true], ["clear"]]);
+});
+
+test("runCancel: a record failure never calls the provider", async () => {
+  const { log, deps } = cancelHarness({ recordFails: true });
+  assert.equal((await runCancel(PERIOD, CANCEL_INPUT, deps)).ok, false);
+  assert.deepEqual(log, [["record", PERIOD.cancelAt]]);
+});
+
+test("runCancel: the trial path never records a cancel_at, cancels at once, and 502s on failure", async () => {
+  const ok = cancelHarness();
+  assert.deepEqual(await runCancel({ action: "remove_trial_card" }, CANCEL_INPUT, ok.deps), { ok: true, cancelAt: null });
+  assert.deepEqual(ok.log, [["record", null], ["provider", false]]);
+  const bad = cancelHarness({ providerFails: true });
+  const outcome = await runCancel({ action: "remove_trial_card" }, CANCEL_INPUT, bad.deps);
+  assert.equal(outcome.status, 502);
+  assert.deepEqual(bad.log, [["record", null], ["provider", false]]);
 });

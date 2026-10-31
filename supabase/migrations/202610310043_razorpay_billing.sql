@@ -51,11 +51,10 @@ begin
 
   -- A second paid checkout for a shop that already has a live subscription is 'superseded'. It is decided before the
   -- event is recorded, so a redelivery (after the app's provider cancel failed) is superseded again, not a duplicate.
-  -- An older event (stale check) is still recorded and ignored below.
+  -- Regardless of last_event_at: an out-of-order checkout for the second subscription must still be cancelled.
   if v_kind = 'checkout_completed' and sub.billing_subscription_id is not null and v_subscription is not null
      and v_subscription <> sub.billing_subscription_id
-     and (sub.status in ('active', 'past_due') or (sub.status = 'trialing' and sub.has_payment_method))
-     and not coalesce(sub.last_event_at > v_created, false) then
+     and (sub.status in ('active', 'past_due') or (sub.status = 'trialing' and sub.has_payment_method)) then
     return 'superseded';
   end if;
 

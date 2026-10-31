@@ -2896,6 +2896,27 @@ begin
   assert result = 'superseded', '28d redelivery is superseded again, got ' || coalesce(result, 'null');
 end $$;
 
+-- 28d2. An out-of-order second checkout (older than the row's last_event_at) is still superseded, not recorded.
+do $$
+declare
+  biz constant uuid := 'b2800000-0000-4000-8000-000000000002';
+  result text;
+  before_row public.subscriptions;
+  after_row public.subscriptions;
+begin
+  update public.subscriptions set last_event_at = now() + interval '1 hour' where business_id = biz;
+  select * into before_row from public.subscriptions where business_id = biz;
+  result := public.apply_billing_event(jsonb_build_object(
+    'id', 'evt_28d2', 'created', now(), 'kind', 'checkout_completed', 'businessId', biz,
+    'customerId', 'cust_28c', 'subscriptionId', 'sub_B', 'status', 'active',
+    'trialEnd', null, 'currentPeriodEnd', null, 'cancelAt', null, 'interval', 'month'));
+  assert result = 'superseded', '28d2 out-of-order checkout is superseded, got ' || coalesce(result, 'null');
+  select * into after_row from public.subscriptions where business_id = biz;
+  assert before_row = after_row, '28d2 row unchanged';
+  assert not exists (select 1 from public.billing_events where id = 'evt_28d2'), '28d2 event is not recorded';
+  update public.subscriptions set last_event_at = null where business_id = biz;
+end $$;
+
 -- 28b2. trial_card_removed is ignored unless the shop is trialing.
 do $$
 declare
