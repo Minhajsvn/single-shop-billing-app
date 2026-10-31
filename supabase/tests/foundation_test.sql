@@ -2815,11 +2815,13 @@ reset role;
 insert into auth.users (id, instance_id, aud, role, email) values
   ('00000000-0000-4000-8000-0000000000f1', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'owner-s@test.local'),
   ('00000000-0000-4000-8000-0000000000f2', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'owner-t@test.local'),
-  ('00000000-0000-4000-8000-0000000000f3', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'owner-u@test.local');
+  ('00000000-0000-4000-8000-0000000000f3', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'owner-u@test.local'),
+  ('00000000-0000-4000-8000-0000000000f4', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'owner-v@test.local');
 insert into public.businesses (id, owner_id, legal_name, trn, address, phone) values
   ('b2800000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-0000000000f1', 'Shop S LLC', '100000000000041', 'Satwa, Dubai', '+971500000291'),
   ('b2800000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-0000000000f2', 'Shop T LLC', '100000000000042', 'Satwa, Dubai', '+971500000292'),
-  ('b2800000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-0000000000f3', 'Shop U LLC', '100000000000043', 'Satwa, Dubai', '+971500000293');
+  ('b2800000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-0000000000f3', 'Shop U LLC', '100000000000043', 'Satwa, Dubai', '+971500000293'),
+  ('b2800000-0000-4000-8000-000000000004', '00000000-0000-4000-8000-0000000000f4', 'Shop V LLC', '100000000000044', 'Satwa, Dubai', '+971500000294');
 update public.subscriptions set status = 'trialing', plan_id = 'pro', has_payment_method = true,
   billing_customer_id = 'cust_28b', billing_subscription_id = 'sub_28b', cancel_at = now() + interval '5 days',
   trial_ends_at = date_trunc('second', now() + interval '5 days')
@@ -2939,6 +2941,50 @@ begin
     assert before_row = after_row, '28b2 ' || before_row.status::text || ' row unchanged';
   end loop;
   update public.subscriptions set status = 'active', canceled_at = null where business_id = 'b2800000-0000-4000-8000-000000000003';
+end $$;
+
+-- 28f. Out-of-order first payment: invoice_paid / payment_failed for a shop with no stored subscription id is
+-- 'unknown_business' (unrecorded, redelivered) until checkout_completed links the ids. Shop V (owner ...f4), no stored id.
+do $$
+declare
+  biz constant uuid := 'b2800000-0000-4000-8000-000000000004';
+  result text;
+  before_row public.subscriptions;
+  after_row public.subscriptions;
+  s public.subscriptions;
+begin
+  select * into before_row from public.subscriptions where business_id = biz;
+  assert before_row.billing_subscription_id is null, '28f fresh shop has no stored id';
+  result := public.apply_billing_event(jsonb_build_object(
+    'id', 'evt_28f_paid', 'created', now(), 'kind', 'invoice_paid', 'businessId', biz,
+    'customerId', 'cust_28f', 'subscriptionId', 'sub_X', 'status', 'active',
+    'trialEnd', null, 'currentPeriodEnd', null, 'cancelAt', null, 'interval', 'month'));
+  assert result = 'unknown_business', '28f(a) invoice_paid before link is unknown_business, got ' || coalesce(result, 'null');
+  result := public.apply_billing_event(jsonb_build_object(
+    'id', 'evt_28f_fail', 'created', now(), 'kind', 'payment_failed', 'businessId', biz,
+    'customerId', 'cust_28f', 'subscriptionId', 'sub_X', 'status', 'past_due',
+    'trialEnd', null, 'currentPeriodEnd', null, 'cancelAt', null, 'interval', 'month'));
+  assert result = 'unknown_business', '28f(a) payment_failed before link is unknown_business, got ' || coalesce(result, 'null');
+  select * into after_row from public.subscriptions where business_id = biz;
+  assert before_row = after_row, '28f(a) row unchanged';
+  assert not exists (select 1 from public.billing_events where id in ('evt_28f_paid', 'evt_28f_fail')), '28f(a) events not recorded';
+
+  -- (b) the older checkout_completed links the ids.
+  result := public.apply_billing_event(jsonb_build_object(
+    'id', 'evt_28f_act', 'created', now() - interval '1 minute', 'kind', 'checkout_completed', 'businessId', biz,
+    'customerId', 'cust_28f', 'subscriptionId', 'sub_X', 'status', 'active',
+    'trialEnd', null, 'currentPeriodEnd', null, 'cancelAt', null, 'interval', 'month'));
+  assert result = 'applied', '28f(b) checkout_completed applied, got ' || coalesce(result, 'null');
+  select * into s from public.subscriptions where business_id = biz;
+  assert s.billing_subscription_id = 'sub_X' and s.billing_customer_id = 'cust_28f', '28f(b) ids linked';
+  assert s.has_payment_method and s.status = 'active', '28f(b) card on file and active';
+
+  -- (c) redelivery of (a) now applies.
+  result := public.apply_billing_event(jsonb_build_object(
+    'id', 'evt_28f_paid', 'created', now(), 'kind', 'invoice_paid', 'businessId', biz,
+    'customerId', 'cust_28f', 'subscriptionId', 'sub_X', 'status', 'active',
+    'trialEnd', null, 'currentPeriodEnd', null, 'cancelAt', null, 'interval', 'month'));
+  assert result = 'applied', '28f(c) redelivered invoice_paid applied, got ' || coalesce(result, 'null');
 end $$;
 
 -- 28e. record_billing_cancel.

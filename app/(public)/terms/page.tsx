@@ -1,3 +1,4 @@
+import { MIN_START_LEAD_MS } from "@/lib/billing/provider";
 import { PRICE_TEXT } from "@/lib/billing/price-text";
 import { SITE_INFO } from "@/lib/site-info";
 import type { Metadata } from "next";
@@ -15,7 +16,7 @@ export default function TermsPage() {
       <p>Shop Ledger is a till and billing app for shops in the UAE. It records sales, stock, customers and the cash register, and it keeps working on your device when the internet is down.</p>
 
       <h2>Free trial</h2>
-      <p>A new shop gets a {PRICE_TEXT.trialDays}-day {PRICE_TEXT.trialPlanName} trial. No card is needed to start. If you add a card during the trial, it is charged only when the trial ends.</p>
+      <p>A new shop gets a {PRICE_TEXT.trialDays}-day {PRICE_TEXT.trialPlanName} trial. No card is needed to start. If you add a card during the trial, it is first charged when the trial ends, or straight away if the trial ends within {MIN_START_LEAD_MS / 3_600_000} hours.</p>
 
       <h2>Plans and renewal</h2>
       <p>The {PRICE_TEXT.planName} plan costs {PRICE_TEXT.monthly} or {PRICE_TEXT.annual}. The plan renews automatically at the end of each paid period, and the card you gave is charged through Razorpay, our payment provider.</p>

@@ -58,6 +58,12 @@ begin
     return 'superseded';
   end if;
 
+  -- Out-of-order first payment: a charge or failure for a subscription we have not linked yet must wait for
+  -- activated/authenticated to link the ids. Not recorded and last_event_at untouched, so Razorpay's redelivery applies.
+  if sub.billing_subscription_id is null and v_subscription is not null and v_kind in ('invoice_paid', 'payment_failed') then
+    return 'unknown_business';
+  end if;
+
   insert into public.billing_events (id, type) values (v_id, v_kind) on conflict (id) do nothing;
   get diagnostics inserted = row_count;
   if inserted = 0 then

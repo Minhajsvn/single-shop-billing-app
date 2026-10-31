@@ -122,9 +122,9 @@ export function BillingPanel({ overTillLimit, onShowTills }: { overTillLimit: bo
       const { response, body } = await post("update-card");
       const url = typeof body?.url === "string" ? body.url : null;
       if (response.ok && url) {
-        // Razorpay's card page opens beside this one; the pretend page replaces it.
-        if (kind === "pretend") window.location.assign(url);
-        else window.open(url, "_blank", "noopener");
+        // Same tab: a new tab opened after an await can be silently blocked (Safari).
+        window.location.assign(url);
+        return;
       } else fail(response.status, body as { error?: string } | null, "Billing could not be opened. Try again.");
     } catch {
       setError("Billing could not be opened. Check the connection and try again.");
