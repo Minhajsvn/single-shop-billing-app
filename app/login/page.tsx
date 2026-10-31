@@ -6,6 +6,7 @@ import { safeNextPath } from "@/lib/auth/access-rules";
 import { CONFIRM_FAILED, isEmailNotConfirmed, isNetworkError, NETWORK_ERROR } from "@/lib/auth/signup";
 import { startSampleStore } from "@/lib/demo-store";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import { SiteFooter } from "@/components/public/site-footer";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, use, useEffect, useState } from "react";
@@ -66,6 +67,7 @@ export default function LoginPage({ searchParams }: LoginProps) {
   }
 
   return (
+    <>
     <main className="auth-shell">
       <section className="auth-card panel" aria-labelledby="login-title">
         <div className="auth-brand"><span className="brand-mark">SL</span><span><strong>Shop Ledger</strong><small>UAE retail till</small></span></div>
@@ -93,5 +95,7 @@ export default function LoginPage({ searchParams }: LoginProps) {
         <p className="auth-footnote">Data access is protected by Supabase Auth and row-level security.</p>
       </section>
     </main>
+    <SiteFooter />
+    </>
   );
 }

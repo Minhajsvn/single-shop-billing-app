@@ -74,6 +74,21 @@ test("next never leaves the site", () => {
   }
 });
 
+test("signed out: the home and legal pages are public", () => {
+  for (const pathname of ["/", "/terms", "/privacy", "/refunds", "/contact"]) {
+    assert.equal(routeDecision({ signedIn: false, pathname, sampleCookie: undefined }), "allow", pathname);
+  }
+});
+
+test("signed in: / goes to the overview, the legal pages stay reachable", () => {
+  assert.equal(routeDecision({ signedIn: true, pathname: "/", sampleCookie: undefined }), "overview");
+  assert.equal(routeDecision({ signedIn: true, pathname: "/terms", sampleCookie: undefined }), "allow");
+});
+
+test("signed out: /overview still goes to login", () => {
+  assert.equal(routeDecision({ signedIn: false, pathname: "/overview", sampleCookie: undefined }), "login");
+});
+
 test("next never loops back to a signed-out page", () => {
   for (const raw of ["/login", "/signup", "/login?next=/admin"]) assert.equal(safeNextPath(raw), "/overview", raw);
 });

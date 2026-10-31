@@ -4,6 +4,7 @@ import { UserPlus, WarningCircle } from "@/components/icons";
 import { CheckEmail } from "@/components/check-email";
 import { NETWORK_ERROR, signupErrorMessage, validateSignup } from "@/lib/auth/signup";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import { SiteFooter } from "@/components/public/site-footer";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
@@ -67,6 +68,7 @@ export default function SignupPage() {
   }
 
   return (
+    <>
     <main className="auth-shell">
       <section className="auth-card panel" aria-labelledby={sentTo ? "check-email-title" : "signup-title"}>
         <div className="auth-brand"><span className="brand-mark">SL</span><span><strong>Shop Ledger</strong><small>UAE retail till</small></span></div>
@@ -95,5 +97,7 @@ export default function SignupPage() {
         )}
       </section>
     </main>
+    <SiteFooter />
+    </>
   );
 }
