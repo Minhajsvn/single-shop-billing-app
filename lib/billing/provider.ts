@@ -1,6 +1,7 @@
 import Stripe from "stripe";
 import type { ProviderSubscription } from "./billing-check.ts";
-import { subscriptionSnapshot, type BillingInterval } from "./stripe-events.ts";
+import { subscriptionSnapshot } from "./stripe-events.ts";
+import type { BillingInterval } from "./events.ts";
 
 export type { ProviderSubscription } from "./billing-check.ts";
 

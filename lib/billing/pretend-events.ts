@@ -1,6 +1,6 @@
 // Development-only pretend billing: builds the same BillingEvents a Stripe webhook would deliver,
 // so every state goes through the real apply_billing_event lifecycle. Pure; the route does the I/O.
-import type { BillingEvent, BillingInterval } from "./stripe-events.ts";
+import type { BillingEvent, BillingInterval } from "./events.ts";
 
 export type PretendAction =
   | "pay"

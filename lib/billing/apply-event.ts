@@ -1,10 +1,10 @@
 // SERVER ONLY: applies events with the service-role client.
 import { createAdminClient } from "../supabase/admin.ts";
-import type { BillingEvent } from "./stripe-events.ts";
+import type { BillingEvent } from "./events.ts";
 
-export type ApplyResult = "applied" | "duplicate" | "stale" | "unknown_business";
+export type ApplyResult = "applied" | "duplicate" | "stale" | "unknown_business" | "superseded";
 
-const RESULTS: readonly ApplyResult[] = ["applied", "duplicate", "stale", "unknown_business"];
+const RESULTS: readonly ApplyResult[] = ["applied", "duplicate", "stale", "unknown_business", "superseded"];
 
 /** `permanent` errors are caused by the event itself (retrying cannot help); others are transient. */
 export class BillingEventError extends Error {

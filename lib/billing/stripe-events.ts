@@ -1,29 +1,6 @@
 import Stripe from "stripe";
 import type { ProviderSubscription } from "./billing-check.ts";
-
-export type BillingEventKind =
-  | "checkout_completed"
-  | "subscription_changed"
-  | "subscription_deleted"
-  | "invoice_paid"
-  | "payment_failed";
-
-export type BillingInterval = "month" | "year";
-
-/** The JSON `public.apply_billing_event(p_event)` accepts. Dates are ISO strings. */
-export type BillingEvent = {
-  id: string;
-  created: string;
-  kind: BillingEventKind;
-  businessId: string | null;
-  customerId: string | null;
-  subscriptionId: string | null;
-  status: string | null;
-  trialEnd: string | null;
-  currentPeriodEnd: string | null;
-  cancelAt: string | null;
-  interval: BillingInterval | null;
-};
+import type { BillingEvent, BillingInterval } from "./events.ts";
 
 export type StripeEventLike = { id: string; type: string; created: number; data: { object: unknown } };
 
