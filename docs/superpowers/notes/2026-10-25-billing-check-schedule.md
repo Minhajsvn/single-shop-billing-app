@@ -1,6 +1,6 @@
 # Daily billing check: owner setup steps
 
-The admin console has a daily billing check. It compares every shop's billing record with Stripe and
+The admin console has a daily billing check. It compares every shop's billing record with Razorpay and
 flags anything that disagrees on the admin shop list ("Needs a look"). It never changes a subscription.
 
 The app only provides the endpoint. Running it once a day is set up on the host, by you.
@@ -42,10 +42,10 @@ POST https://<your-app-domain>/api/v1/admin/billing-check
 x-admin-cron-secret: <ADMIN_CRON_SECRET>
 ```
 
-No body is needed (it checks every shop with a Stripe subscription). Answers:
+No body is needed (it checks every shop with a Razorpay subscription). Answers:
 
-- `200 {"checked": N, "mismatches": M, "failed": F}`: done. `failed` counts shops Stripe could not answer for.
-- `200 {"error": "Billing is not set up yet."}`: Stripe is not configured on this host; nothing was done.
+- `200 {"checked": N, "mismatches": M, "failed": F}`: done. `failed` counts shops Razorpay could not answer for.
+- `200 {"error": "Billing is not set up yet."}`: Razorpay is not configured on this host; nothing was done.
 - `404 {"error": "Not found"}`: the secret header is missing or wrong (or `ADMIN_CRON_SECRET` is shorter than 32
   characters, or missing). This is the same answer as a page that does not exist, so nobody without the secret can
   tell the endpoint is there. A misconfigured scheduler just sees a non-2xx answer: if every run fails with 404,
@@ -110,13 +110,13 @@ To stop it: `select cron.unschedule('daily-billing-check');`
 
 ## 3. Check it works
 
-- Sign in with a staff email and open `/admin/shops/<a shop with a Stripe subscription>`.
+- Sign in with a staff email and open `/admin/shops/<a shop with a Razorpay subscription>`.
   "Billing check → Last checked" shows the time of the last run.
 - Or press "Run billing check now" on that page.
 
 ## What a flag means
 
-A flag says our record and Stripe disagree on one thing: status, current period end, cancel date, trial
-end, or whether the Stripe subscription still exists. Times within one hour count as agreeing. Fix the
-cause in Stripe (or wait for a late webhook), then press "Mark looked at" with a note. If the next check
+A flag says our record and Razorpay disagree on one thing: status, current period end, trial end, or whether
+the Razorpay subscription still exists. Times within one hour count as agreeing. Fix the
+cause in Razorpay (or wait for a late webhook), then press "Mark looked at" with a note. If the next check
 still disagrees, a new flag opens.
