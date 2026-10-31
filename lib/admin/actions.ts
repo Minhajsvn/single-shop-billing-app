@@ -13,7 +13,7 @@ const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 const MESSAGES: Record<string, string> = {
   not_trialing: "Only trials can be extended.",
-  trial_has_card: "Change the trial end in Razorpay.",
+  trial_has_card: "Card saved with Razorpay; the trial can't be extended here.",
   end_not_in_future: "Choose a trial end in the future.",
   note_required: `Write a note of up to ${NOTE_MAX} characters.`,
   until_not_in_future: "Choose an end date in the future.",

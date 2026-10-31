@@ -66,7 +66,7 @@ test("bodies that are not objects are refused", () => {
 });
 
 test("every refusal code has plain words", () => {
-  assert.equal(adminErrorMessage("trial_has_card"), "Change the trial end in Razorpay.");
+  assert.equal(adminErrorMessage("trial_has_card"), "Card saved with Razorpay; the trial can't be extended here.");
   assert.equal(adminErrorMessage("not_trialing"), "Only trials can be extended.");
   assert.equal(adminErrorMessage("end_not_in_future"), "Choose a trial end in the future.");
   assert.equal(adminErrorMessage("note_required"), "Write a note of up to 500 characters.");
@@ -78,7 +78,7 @@ test("every refusal code has plain words", () => {
 });
 
 test("refusalMessage reads only known refusal codes from a database error", () => {
-  assert.deepEqual(refusalMessage({ code: "P0001", message: "trial_has_card" }), { known: true, message: "Change the trial end in Razorpay." });
+  assert.deepEqual(refusalMessage({ code: "P0001", message: "trial_has_card" }), { known: true, message: "Card saved with Razorpay; the trial can't be extended here." });
   assert.deepEqual(refusalMessage({ code: "P0001", message: "who knows" }), { known: false, message: "That did not work. Try again." });
   assert.deepEqual(refusalMessage({ code: "42501", message: "not_trialing" }), { known: false, message: "That did not work. Try again." });
   assert.deepEqual(refusalMessage(null), { known: false, message: "That did not work. Try again." });
