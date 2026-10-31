@@ -28,7 +28,7 @@ export async function loadOwnerBilling(): Promise<OwnerBilling | Response> {
 
   const businessId = (membership as BillingMembership).business_id;
   const { data: sub, error } = await supabase.from("subscriptions")
-    .select("stripe_customer_id, stripe_subscription_id, status, trial_ends_at")
+    .select("billing_customer_id, billing_subscription_id, status, trial_ends_at")
     .eq("business_id", businessId).maybeSingle();
   if (error) return Response.json({ error: error.message }, { status: 502 });
   const { data: ent, error: entError } = await supabase.rpc("business_entitlements", { target_business_id: businessId });
@@ -36,8 +36,8 @@ export async function loadOwnerBilling(): Promise<OwnerBilling | Response> {
   const parsed = parseEntitlements(ent);
   return {
     businessId,
-    customerId: sub?.stripe_customer_id ?? null,
-    subscriptionId: sub?.stripe_subscription_id ?? null,
+    customerId: sub?.billing_customer_id ?? null,
+    subscriptionId: sub?.billing_subscription_id ?? null,
     status: sub?.status ?? null,
     trialEndsAt: sub?.trial_ends_at ?? null,
     granted: isGranted(parsed, new Date()),

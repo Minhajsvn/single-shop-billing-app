@@ -64,7 +64,7 @@ export default async function AdminShopPage({ params }: { params: Promise<{ id: 
   const s = shop.subscription;
   const plan = shop.planId ? PLANS[shop.planId as PlanId]?.name ?? shop.planId : "—";
   // A live Stripe subscription: it has an id and is not canceled. Granting is refused then.
-  const paysThroughStripe = Boolean(s?.stripeSubscriptionId) && s?.status !== "canceled";
+  const paysThroughProvider = Boolean(s?.billingSubscriptionId) && s?.status !== "canceled";
   const grantPlan = shop.grant ? PLANS[shop.grant.planId]?.name ?? shop.grant.planId : null;
 
   return (
@@ -105,8 +105,8 @@ export default async function AdminShopPage({ params }: { params: Promise<{ id: 
               ["Cancel date", adminDateTime(s?.cancelAt ?? null)],
               ["Payment method on file", s ? (s.hasPaymentMethod ? "Yes" : "No") : "—"],
               ["Billing interval", s?.billingInterval === "year" ? "Annual" : s?.billingInterval === "month" ? "Monthly" : "—"],
-              ["Stripe customer", <CopyText key="customer" value={s?.stripeCustomerId ?? null} />],
-              ["Stripe subscription", <CopyText key="subscription" value={s?.stripeSubscriptionId ?? null} />],
+              ["Stripe customer", <CopyText key="customer" value={s?.billingCustomerId ?? null} />],
+              ["Stripe subscription", <CopyText key="subscription" value={s?.billingSubscriptionId ?? null} />],
               ["Last Stripe event", adminDateTime(s?.lastEventAt ?? null)],
             ]} />
           </Section>
@@ -196,7 +196,7 @@ export default async function AdminShopPage({ params }: { params: Promise<{ id: 
               extraTillUntil={shop.overrides.find((o) => o.kind === "extra_till" && o.active)?.expiresAt ?? null}
             />
           </Section>
-          <GrantPanel shopId={shop.id} grant={shop.grant} paysThroughStripe={paysThroughStripe} />
+          <GrantPanel shopId={shop.id} grant={shop.grant} paysThroughProvider={paysThroughProvider} />
           <MembersPanel shopId={shop.id} members={shop.members} membersAllowed={shop.membersAllowed} />
         </div>
       </div>

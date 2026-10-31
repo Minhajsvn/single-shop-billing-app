@@ -143,7 +143,7 @@ test("new refusal codes have plain copy", () => {
   const copy = {
     plan_not_found: "Choose a plan.",
     no_grant: "This shop has no granted plan.",
-    stripe_subscription_live: "This shop pays through Stripe. Cancel that subscription first.",
+    billing_subscription_live: "This shop pays through Stripe. Cancel that subscription first.",
     role_not_allowed: "Choose cashier or manager.",
     already_member: "This person is already a member of this shop.",
     plan_limit_reached: "This shop's plan has no free member places.",

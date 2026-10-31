@@ -29,8 +29,8 @@ export type AdminBillingFlag = { id: string; field: string; ours: string | null;
 export type AdminSubscription = {
   planId: string;
   status: string;
-  stripeCustomerId: string | null;
-  stripeSubscriptionId: string | null;
+  billingCustomerId: string | null;
+  billingSubscriptionId: string | null;
   trialEndsAt: string | null;
   currentPeriodEnd: string | null;
   graceEndsAt: string | null;
@@ -172,7 +172,7 @@ async function shopCounts(admin: AdminClient, needsLook: number): Promise<ShopCo
   const [shops, paying, grantedIds, trialingIds] = await Promise.all([
     admin.from("businesses").select("id", { count: "exact", head: true }),
     admin.from("subscriptions").select("business_id", { count: "exact", head: true })
-      .not("stripe_subscription_id", "is", null).in("status", ["active", "past_due"]),
+      .not("billing_subscription_id", "is", null).in("status", ["active", "past_due"]),
     businessIds((from, to) => admin.from("plan_grants").select("business_id").is("revoked_at", null).lte("starts_at", nowIso)
       .or(`ends_at.is.null,ends_at.gt.${nowIso}`).order("id").range(from, to)),
     businessIds((from, to) => admin.from("subscriptions").select("business_id").eq("status", "trialing").order("business_id").range(from, to)),
@@ -295,7 +295,7 @@ export async function getShop(id: string): Promise<AdminShop | null> {
     country: business.country,
     ownerConfirmed: Boolean(owner?.email_confirmed_at),
     subscription: s ? {
-      planId: s.plan_id, status: s.status, stripeCustomerId: s.stripe_customer_id, stripeSubscriptionId: s.stripe_subscription_id,
+      planId: s.plan_id, status: s.status, billingCustomerId: s.billing_customer_id, billingSubscriptionId: s.billing_subscription_id,
       trialEndsAt: s.trial_ends_at, currentPeriodEnd: s.current_period_end, graceEndsAt: s.grace_ends_at,
       addonTills: s.addon_tills, addonBranches: s.addon_branches, hasPaymentMethod: s.has_payment_method,
       billingInterval: s.billing_interval, cancelAt: s.cancel_at, canceledAt: s.canceled_at, lastEventAt: s.last_event_at, updatedAt: s.updated_at,

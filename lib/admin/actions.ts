@@ -24,7 +24,7 @@ const MESSAGES: Record<string, string> = {
   flag_already_seen: "This flag was already marked looked at.",
   plan_not_found: "Choose a plan.",
   no_grant: "This shop has no granted plan.",
-  stripe_subscription_live: "This shop pays through Stripe. Cancel that subscription first.",
+  billing_subscription_live: "This shop pays through Stripe. Cancel that subscription first.",
   role_not_allowed: "Choose cashier or manager.",
   already_member: "This person is already a member of this shop.",
   member_of_other_shop: "This account belongs to another shop.",

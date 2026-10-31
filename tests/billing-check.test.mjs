@@ -176,7 +176,7 @@ function fakeAdmin({ shops, rows }) {
 
 const SHOP_A = "a0000000-0000-4000-8000-000000000001";
 const SHOP_B = "a0000000-0000-4000-8000-000000000002";
-const rowFor = (sub) => ({ ...ours, stripe_subscription_id: sub });
+const rowFor = (sub) => ({ ...ours, billing_subscription_id: sub });
 
 test("the runner only reads subscriptions and only writes through admin_record_billing_check", async () => {
   const admin = fakeAdmin({ shops: [SHOP_A, SHOP_B], rows: { [SHOP_A]: rowFor("sub_a"), [SHOP_B]: rowFor("sub_b") } });

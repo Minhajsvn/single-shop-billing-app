@@ -528,7 +528,7 @@ begin
 
   result := public.apply_billing_event(trial_invoice);
   assert result = 'unknown_business', 'unlinked subscription id is unknown, got ' || coalesce(result, 'null');
-  assert not exists (select 1 from public.stripe_events where id = 'evt_24_trial_invoice'), 'unknown-business event is not kept, so a redelivery is applied';
+  assert not exists (select 1 from public.billing_events where id = 'evt_24_trial_invoice'), 'unknown-business event is not kept, so a redelivery is applied';
 
   result := public.apply_billing_event(jsonb_build_object(
     'id', 'evt_24_checkout', 'created', now() - interval '50 minutes', 'kind', 'checkout_completed',
@@ -538,7 +538,7 @@ begin
   select * into sub from public.subscriptions where business_id = biz;
   assert sub.status = 'trialing' and sub.plan_id = 'pro', 'paying during the trial stays on the Pro trial';
   assert sub.has_payment_method and sub.billing_interval = 'month', 'card and interval recorded';
-  assert sub.stripe_customer_id = 'cus_24' and sub.stripe_subscription_id = 'sub_24', 'Stripe ids stored';
+  assert sub.billing_customer_id = 'cus_24' and sub.billing_subscription_id = 'sub_24', 'Stripe ids stored';
 
   -- Redelivery after checkout linked the ids is applied; the $0 invoice keeps the Pro trial.
   result := public.apply_billing_event(trial_invoice);
@@ -608,7 +608,7 @@ begin
   assert result = 'stale', 'an event older than the last applied one is stale, got ' || coalesce(result, 'null');
   select * into sub from public.subscriptions where business_id = biz;
   assert sub.status = 'past_due' and sub.billing_interval = 'month', 'stale event changes nothing';
-  assert exists (select 1 from public.stripe_events where id = 'evt_24_changed_old'), 'stale event id is still recorded';
+  assert exists (select 1 from public.billing_events where id = 'evt_24_changed_old'), 'stale event id is still recorded';
 
   result := public.apply_billing_event(jsonb_build_object(
     'id', 'evt_24_paid_2', 'created', now() - interval '10 minutes', 'kind', 'invoice_paid',
@@ -632,7 +632,7 @@ begin
     'businessId', null, 'customerId', 'cus_nobody', 'subscriptionId', 'sub_nobody', 'status', 'active',
     'trialEnd', null, 'currentPeriodEnd', null, 'cancelAt', null, 'interval', null));
   assert result = 'unknown_business', 'no matching business, got ' || coalesce(result, 'null');
-  assert not exists (select 1 from public.stripe_events where id = 'evt_24_nobody'), 'unknown-business event is not recorded';
+  assert not exists (select 1 from public.billing_events where id = 'evt_24_nobody'), 'unknown-business event is not recorded';
 end $$;
 reset role;
 
@@ -969,7 +969,7 @@ insert into auth.users (id, instance_id, aud, role, email) values
 insert into public.businesses (id, owner_id, legal_name, trn, address, phone)
 values ('b2400000-0000-4000-8000-000000000007', '00000000-0000-4000-8000-00000000000e', 'Shop E LLC', '100000000000007', 'Deira, Dubai', '+971500000247');
 update public.subscriptions set status = 'active', plan_id = 'starter', has_payment_method = true,
-  stripe_customer_id = 'cus_24g', stripe_subscription_id = 'sub_24g', billing_interval = 'month',
+  billing_customer_id = 'cus_24g', billing_subscription_id = 'sub_24g', billing_interval = 'month',
   trial_ends_at = now() - interval '1 day', grace_ends_at = null, last_event_at = now() - interval '1 hour'
 where business_id = 'b2400000-0000-4000-8000-000000000007';
 set local role service_role;
@@ -1021,7 +1021,7 @@ begin
   assert result = 'applied', 'new checkout applied, got ' || coalesce(result, 'null');
   select * into sub from public.subscriptions where business_id = biz;
   assert sub.status = 'active' and sub.plan_id = 'starter' and sub.canceled_at is null and sub.grace_ends_at is null, 'new checkout reactivates on Starter';
-  assert sub.stripe_subscription_id = 'sub_24g_new', 'new subscription id stored';
+  assert sub.billing_subscription_id = 'sub_24g_new', 'new subscription id stored';
 
   -- subscription_changed applied paths.
   result := public.apply_billing_event(jsonb_build_object(
@@ -1915,7 +1915,7 @@ reset role;
 -- 26d. Billing check flags. Shop K gets a Stripe-like subscription id; shop I has none and is never checked.
 -- One open flag per (shop, field): a repeat run updates it, "looked at" closes it with an audit row, and a field
 -- still wrong on the next run opens a new flag. The check never touches subscriptions.
-update public.subscriptions set stripe_subscription_id = 'sub_26d_k', stripe_customer_id = 'cus_26d_k'
+update public.subscriptions set billing_subscription_id = 'sub_26d_k', billing_customer_id = 'cus_26d_k'
 where business_id = 'b2600000-0000-4000-8000-000000000002';
 set local role service_role;
 do $$
@@ -2080,7 +2080,7 @@ end $$;
 -- Shop I becomes a Pro trial with a card on file and Stripe ids.
 update public.subscriptions set status = 'trialing', plan_id = 'pro', has_payment_method = true,
   trial_ends_at = now() + interval '5 days', current_period_end = now() + interval '5 days', cancel_at = null,
-  stripe_subscription_id = 'sub_26f_i', stripe_customer_id = 'cus_26f_i', last_event_at = null
+  billing_subscription_id = 'sub_26f_i', billing_customer_id = 'cus_26f_i', last_event_at = null
 where business_id = 'b2600000-0000-4000-8000-000000000001';
 set local role service_role;
 do $$
@@ -2236,7 +2236,7 @@ insert into public.businesses (id, owner_id, legal_name, trn, address, phone) va
 update public.subscriptions set status = 'trialing', plan_id = 'pro', has_payment_method = false, trial_ends_at = now() - interval '1 day'
 where business_id in ('b2700000-0000-4000-8000-000000000001', 'b2700000-0000-4000-8000-000000000002');
 update public.subscriptions set status = 'active', plan_id = 'starter', has_payment_method = true,
-  stripe_customer_id = 'cus_27d', stripe_subscription_id = 'sub_27d'
+  billing_customer_id = 'cus_27d', billing_subscription_id = 'sub_27d'
 where business_id = 'b2700000-0000-4000-8000-000000000003';
 
 -- 27a. Service role only.
@@ -2395,7 +2395,7 @@ begin
     assert false, 'a live Stripe subscription must be refused';
   exception when others then failure := sqlerrm;
   end;
-  assert failure = 'stripe_subscription_live', 'live subscription, got ' || coalesce(failure, 'null');
+  assert failure = 'billing_subscription_live', 'live subscription, got ' || coalesce(failure, 'null');
   assert not exists (select 1 from public.plan_grants where business_id = biz), 'refusal writes no grant';
 
   update public.subscriptions set status = 'canceled' where business_id = biz;
@@ -2808,5 +2808,106 @@ begin
   assert failure = 'read_only', '27l(e) late grant-era shift is read_only, got ' || coalesce(failure, 'null');
 end $$;
 reset role;
+
+-- 28. Stage 1J Razorpay billing. Shop S (owner ...f1): trialing with a card. Shop T (owner ...f2): active, sub_A.
+-- Shop U (owner ...f3): active, sub_A, record_billing_cancel target. Staff is ...15.
+reset role;
+insert into auth.users (id, instance_id, aud, role, email) values
+  ('00000000-0000-4000-8000-0000000000f1', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'owner-s@test.local'),
+  ('00000000-0000-4000-8000-0000000000f2', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'owner-t@test.local'),
+  ('00000000-0000-4000-8000-0000000000f3', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'owner-u@test.local');
+insert into public.businesses (id, owner_id, legal_name, trn, address, phone) values
+  ('b2800000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-0000000000f1', 'Shop S LLC', '100000000000041', 'Satwa, Dubai', '+971500000291'),
+  ('b2800000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-0000000000f2', 'Shop T LLC', '100000000000042', 'Satwa, Dubai', '+971500000292'),
+  ('b2800000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-0000000000f3', 'Shop U LLC', '100000000000043', 'Satwa, Dubai', '+971500000293');
+update public.subscriptions set status = 'trialing', plan_id = 'pro', has_payment_method = true,
+  billing_customer_id = 'cust_28b', billing_subscription_id = 'sub_28b', cancel_at = now() + interval '5 days',
+  trial_ends_at = date_trunc('second', now() + interval '5 days')
+where business_id = 'b2800000-0000-4000-8000-000000000001';
+update public.subscriptions set status = 'active', plan_id = 'starter', has_payment_method = true,
+  billing_customer_id = 'cust_28c_' || business_id::text, billing_subscription_id = 'sub_A' || case when business_id = 'b2800000-0000-4000-8000-000000000003' then '_u' else '' end, last_event_at = null
+where business_id in ('b2800000-0000-4000-8000-000000000002', 'b2800000-0000-4000-8000-000000000003');
+
+-- 28a. No public function mentions Stripe.
+do $$
+begin
+  assert not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.prokind = 'f' and pg_get_functiondef(p.oid) ilike '%stripe%'), '28a a public function still mentions Stripe';
+end $$;
+
+-- 28b. trial_card_removed frees the card and keeps the trial.
+do $$
+declare
+  biz constant uuid := 'b2800000-0000-4000-8000-000000000001';
+  before_end timestamptz;
+  result text;
+  s public.subscriptions;
+begin
+  select trial_ends_at into before_end from public.subscriptions where business_id = biz;
+  result := public.apply_billing_event(jsonb_build_object(
+    'id', 'evt_28b', 'created', now(), 'kind', 'trial_card_removed', 'businessId', biz,
+    'customerId', null, 'subscriptionId', null, 'status', null,
+    'trialEnd', null, 'currentPeriodEnd', null, 'cancelAt', null, 'interval', null));
+  assert result = 'applied', '28b applied, got ' || coalesce(result, 'null');
+  select * into s from public.subscriptions where business_id = biz;
+  assert s.status = 'trialing' and s.plan_id = 'pro' and s.has_payment_method = false, '28b still a Pro trial without a card';
+  assert s.billing_customer_id is null and s.billing_subscription_id is null and s.cancel_at is null, '28b ids and cancel_at cleared';
+  assert s.trial_ends_at = before_end, '28b trial end unchanged';
+end $$;
+
+-- 28c. Events for a stray subscription change nothing.
+do $$
+declare
+  biz constant uuid := 'b2800000-0000-4000-8000-000000000002';
+  kind text;
+  result text;
+  before_row public.subscriptions;
+  after_row public.subscriptions;
+begin
+  foreach kind in array array['subscription_deleted', 'payment_failed', 'invoice_paid'] loop
+    select * into before_row from public.subscriptions where business_id = biz;
+    result := public.apply_billing_event(jsonb_build_object(
+      'id', 'evt_28c_' || kind, 'created', now(), 'kind', kind, 'businessId', biz,
+      'customerId', 'cust_28c', 'subscriptionId', 'sub_B', 'status', null,
+      'trialEnd', null, 'currentPeriodEnd', null, 'cancelAt', null, 'interval', null));
+    assert result = 'stale', '28c ' || kind || ' for sub_B is stale, got ' || coalesce(result, 'null');
+    select * into after_row from public.subscriptions where business_id = biz;
+    assert before_row = after_row, '28c ' || kind || ' leaves the row unchanged';
+  end loop;
+end $$;
+
+-- 28d. A second paid checkout is superseded and recorded.
+do $$
+declare
+  biz constant uuid := 'b2800000-0000-4000-8000-000000000002';
+  result text;
+begin
+  result := public.apply_billing_event(jsonb_build_object(
+    'id', 'evt_28d', 'created', now(), 'kind', 'checkout_completed', 'businessId', biz,
+    'customerId', 'cust_28c', 'subscriptionId', 'sub_B', 'status', 'active',
+    'trialEnd', null, 'currentPeriodEnd', null, 'cancelAt', null, 'interval', 'month'));
+  assert result = 'superseded', '28d superseded, got ' || coalesce(result, 'null');
+  assert (select billing_subscription_id from public.subscriptions where business_id = biz) = 'sub_A', '28d row keeps sub_A';
+  assert exists (select 1 from public.billing_events where id = 'evt_28d'), '28d event id recorded';
+end $$;
+
+-- 28e. record_billing_cancel.
+do $$
+declare
+  biz constant uuid := 'b2800000-0000-4000-8000-000000000003';
+  staff constant uuid := '00000000-0000-4000-8000-000000000015';
+  at timestamptz := date_trunc('second', now() + interval '20 days');
+  ev public.audit_events;
+begin
+  perform public.record_billing_cancel(biz, at, staff);
+  assert (select cancel_at from public.subscriptions where business_id = biz) = at, '28e cancel_at set';
+  select * into ev from public.audit_events where business_id = biz and action = 'billing.cancel';
+  assert (ev.summary->>'cancel_at')::timestamptz = at and ev.actor_id = staff, '28e audit row';
+  delete from public.audit_events where id = ev.id;
+  perform public.record_billing_cancel(biz, null, staff);
+  assert (select cancel_at from public.subscriptions where business_id = biz) is null, '28e null clears cancel_at';
+  assert (select count(*) from public.audit_events where business_id = biz and action = 'billing.cancel') = 1, '28e audit row with null cancel_at';
+  assert not has_function_privilege('authenticated', 'public.record_billing_cancel(uuid, timestamptz, uuid)', 'execute'), '28e not executable by authenticated';
+end $$;
 
 rollback;

@@ -125,7 +125,7 @@ async function pretendSubscription(id: string): Promise<ProviderSubscription | n
   const { data, error } = await createAdminClient()
     .from("subscriptions")
     .select("status, current_period_end, cancel_at, trial_ends_at")
-    .eq("stripe_subscription_id", id)
+    .eq("billing_subscription_id", id)
     .maybeSingle();
   if (error) throw error;
   if (!data) return null;

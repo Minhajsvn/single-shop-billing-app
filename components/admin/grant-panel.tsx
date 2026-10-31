@@ -14,7 +14,7 @@ type Props = {
   /** The plan grant in force, or null. */
   grant: AdminGrant | null;
   /** The shop has a live Stripe subscription (an id and a status other than canceled): granting is refused. */
-  paysThroughStripe: boolean;
+  paysThroughProvider: boolean;
 };
 
 type Mode = "grant" | "revoke" | null;
@@ -35,7 +35,7 @@ function endsInText(endsAt: string, now: Date): string {
   return days === 1 ? "Ends in 1 day" : `Ends in ${days} days`;
 }
 
-export function GrantPanel({ shopId, grant, paysThroughStripe }: Props) {
+export function GrantPanel({ shopId, grant, paysThroughProvider }: Props) {
   const router = useRouter();
   const [mode, setMode] = useState<Mode>(null);
   const [planId, setPlanId] = useState<PlanId>(grant?.planId ?? "pro");
@@ -138,10 +138,10 @@ export function GrantPanel({ shopId, grant, paysThroughStripe }: Props) {
           </dl>
         ) : <p className="admin-muted" style={{ margin: 0 }}>No plan is granted. The shop is on whatever its subscription says.</p>}
 
-        {paysThroughStripe ? <p className="notice" style={{ margin: 0 }} role="status">{adminErrorMessage("stripe_subscription_live")}</p> : null}
+        {paysThroughProvider ? <p className="notice" style={{ margin: 0 }} role="status">{adminErrorMessage("billing_subscription_live")}</p> : null}
 
         <div className="admin-row">
-          <button type="button" className="button" aria-expanded={mode === "grant"} disabled={paysThroughStripe} onClick={() => open("grant")}>
+          <button type="button" className="button" aria-expanded={mode === "grant"} disabled={paysThroughProvider} onClick={() => open("grant")}>
             {grant ? "Change grant" : "Grant a plan"}
           </button>
           {grant ? <button type="button" className="button" aria-expanded={mode === "revoke"} onClick={() => open("revoke")}>Revoke grant</button> : null}

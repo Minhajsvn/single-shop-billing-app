@@ -17,7 +17,7 @@ export type BillingCheckAdmin = {
   };
 };
 
-type Row = SubscriptionRow & { stripe_subscription_id: string | null };
+type Row = SubscriptionRow & { billing_subscription_id: string | null };
 
 export async function runBillingCheckWith(
   deps: { admin: BillingCheckAdmin; provider: Pick<BillingProvider, "kind" | "getSubscription"> },
@@ -36,14 +36,14 @@ export async function runBillingCheckWith(
   for (const businessId of shops) {
     try {
       const { data, error: readError } = await admin.from("subscriptions")
-        .select("status, stripe_subscription_id, current_period_end, cancel_at, trial_ends_at")
+        .select("status, billing_subscription_id, current_period_end, cancel_at, trial_ends_at")
         .eq("business_id", businessId)
         .maybeSingle();
       if (readError) throw readError;
       const row = data as Row | null;
-      if (!row?.stripe_subscription_id) continue;
+      if (!row?.billing_subscription_id) continue;
 
-      const theirs = (await provider.getSubscription(row.stripe_subscription_id)) ?? MISSING_SUBSCRIPTION;
+      const theirs = (await provider.getSubscription(row.billing_subscription_id)) ?? MISSING_SUBSCRIPTION;
       const found = compareSubscription(row, theirs);
       const { error: recordError } = await admin.rpc("admin_record_billing_check", { p_business_id: businessId, p_mismatches: found });
       if (recordError) throw recordError;
