@@ -66,7 +66,7 @@ test("bodies that are not objects are refused", () => {
 });
 
 test("every refusal code has plain words", () => {
-  assert.equal(adminErrorMessage("trial_has_card"), "Change the trial end in Stripe.");
+  assert.equal(adminErrorMessage("trial_has_card"), "Change the trial end in Razorpay.");
   assert.equal(adminErrorMessage("not_trialing"), "Only trials can be extended.");
   assert.equal(adminErrorMessage("end_not_in_future"), "Choose a trial end in the future.");
   assert.equal(adminErrorMessage("note_required"), "Write a note of up to 500 characters.");
@@ -78,14 +78,14 @@ test("every refusal code has plain words", () => {
 });
 
 test("refusalMessage reads only known refusal codes from a database error", () => {
-  assert.deepEqual(refusalMessage({ code: "P0001", message: "trial_has_card" }), { known: true, message: "Change the trial end in Stripe." });
+  assert.deepEqual(refusalMessage({ code: "P0001", message: "trial_has_card" }), { known: true, message: "Change the trial end in Razorpay." });
   assert.deepEqual(refusalMessage({ code: "P0001", message: "who knows" }), { known: false, message: "That did not work. Try again." });
   assert.deepEqual(refusalMessage({ code: "42501", message: "not_trialing" }), { known: false, message: "That did not work. Try again." });
   assert.deepEqual(refusalMessage(null), { known: false, message: "That did not work. Try again." });
 });
 
 test("marking a flag looked at needs a note; flag refusals have plain words", () => {
-  assert.deepEqual(parseFlagSeen({ note: "  Checked in Stripe " }), { ok: true, note: "Checked in Stripe" });
+  assert.deepEqual(parseFlagSeen({ note: "  Checked in Razorpay " }), { ok: true, note: "Checked in Razorpay" });
   assert.deepEqual(parseFlagSeen({ note: "" }), { ok: false, error: "Write a note of up to 500 characters." });
   assert.deepEqual(parseFlagSeen(null), { ok: false, error: "Write a note of up to 500 characters." });
   assert.equal(adminErrorMessage("flag_not_found"), "This flag no longer exists.");
@@ -143,7 +143,7 @@ test("new refusal codes have plain copy", () => {
   const copy = {
     plan_not_found: "Choose a plan.",
     no_grant: "This shop has no granted plan.",
-    billing_subscription_live: "This shop pays through Stripe. Cancel that subscription first.",
+    billing_subscription_live: "This shop pays through Razorpay. Cancel that subscription first.",
     role_not_allowed: "Choose cashier or manager.",
     already_member: "This person is already a member of this shop.",
     plan_limit_reached: "This shop's plan has no free member places.",

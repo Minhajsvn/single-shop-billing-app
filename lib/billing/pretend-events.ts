@@ -1,4 +1,4 @@
-// Development-only pretend billing: builds the same BillingEvents a Stripe webhook would deliver,
+// Development-only pretend billing: builds the same BillingEvents a Razorpay webhook would deliver,
 // so every state goes through the real apply_billing_event lifecycle. Pure; the route does the I/O.
 import type { BillingEvent, BillingInterval } from "./events.ts";
 
@@ -10,10 +10,11 @@ export type PretendAction =
   | "fail_renewal"
   | "end_trial"
   | "end_grace"
-  | "renew";
+  | "renew"
+  | "remove_trial_card";
 
 export const PRETEND_ACTIONS: readonly PretendAction[] = [
-  "pay", "decline", "update_card", "cancel", "fail_renewal", "end_trial", "end_grace", "renew",
+  "pay", "decline", "update_card", "cancel", "fail_renewal", "end_trial", "end_grace", "renew", "remove_trial_card",
 ];
 
 export type PretendContext = {
@@ -82,6 +83,8 @@ export function pretendEvent(action: PretendAction, ctx: PretendContext): Billin
       return [make("payment_failed")];
     case "end_trial":
       return ctx.hasPaymentMethod ? [make("invoice_paid", { currentPeriodEnd: newPeriodEnd })] : [];
+    case "remove_trial_card":
+      return [make("trial_card_removed", { status: "canceled" })];
     case "renew":
       return ctx.cancelAt
         ? [make("subscription_deleted", { status: "canceled" })]

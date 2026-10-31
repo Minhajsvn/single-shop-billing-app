@@ -18,7 +18,7 @@ export function UpdateCardButton({ className = "button" }: { className?: string 
     setBusy(true);
     setError("");
     try {
-      const response = await fetch("/api/v1/billing/portal", { method: "POST" });
+      const response = await fetch("/api/v1/billing/update-card", { method: "POST" });
       const body = await response.json().catch(() => null) as { url?: string; error?: string } | null;
       if (response.ok && body?.url) {
         window.location.assign(body.url);

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-/** A value with a Copy button (Stripe ids on the admin shop page). */
+/** A value with a Copy button (Razorpay ids on the admin shop page). */
 export function CopyText({ value }: { value: string | null }) {
   const [copied, setCopied] = useState(false);
   if (!value) return <span className="admin-muted">—</span>;

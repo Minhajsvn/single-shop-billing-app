@@ -7,10 +7,13 @@ import { ownerGuard, type BillingMembership } from "@/lib/billing/owner-guard";
 
 export type OwnerBilling = {
   businessId: string;
-  customerId: string | null;
   subscriptionId: string | null;
   status: string | null;
   trialEndsAt: string | null;
+  cancelAt: string | null;
+  currentPeriodEnd: string | null;
+  hasPaymentMethod: boolean;
+  userId: string;
   /** True while platform staff provide the plan; checkout is refused then. */
   granted: boolean;
 };
@@ -28,7 +31,7 @@ export async function loadOwnerBilling(): Promise<OwnerBilling | Response> {
 
   const businessId = (membership as BillingMembership).business_id;
   const { data: sub, error } = await supabase.from("subscriptions")
-    .select("billing_customer_id, billing_subscription_id, status, trial_ends_at")
+    .select("billing_subscription_id, status, trial_ends_at, cancel_at, current_period_end")
     .eq("business_id", businessId).maybeSingle();
   if (error) return Response.json({ error: error.message }, { status: 502 });
   const { data: ent, error: entError } = await supabase.rpc("business_entitlements", { target_business_id: businessId });
@@ -36,10 +39,13 @@ export async function loadOwnerBilling(): Promise<OwnerBilling | Response> {
   const parsed = parseEntitlements(ent);
   return {
     businessId,
-    customerId: sub?.billing_customer_id ?? null,
     subscriptionId: sub?.billing_subscription_id ?? null,
     status: sub?.status ?? null,
     trialEndsAt: sub?.trial_ends_at ?? null,
+    cancelAt: sub?.cancel_at ?? null,
+    currentPeriodEnd: sub?.current_period_end ?? null,
+    hasPaymentMethod: parsed.hasPaymentMethod,
+    userId: (user as { id: string }).id,
     granted: isGranted(parsed, new Date()),
   };
 }

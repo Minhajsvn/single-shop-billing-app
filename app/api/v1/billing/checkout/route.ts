@@ -19,17 +19,16 @@ export async function POST(request: Request) {
     }
     // A second checkout would start a second, separately charged subscription.
     if (owner.subscriptionId && owner.status !== "canceled") {
-      return Response.json({ error: "This shop already has a subscription. Use Manage billing to change it." }, { status: 409 });
+      return Response.json({ error: "This shop already has a subscription." }, { status: 409 });
     }
 
-    const url = await provider.startCheckout({
+    const result = await provider.startCheckout({
       businessId: owner.businessId,
-      customerId: owner.customerId,
       interval,
       trialEndsAt: owner.status === "trialing" ? owner.trialEndsAt : null,
       origin: new URL(request.url).origin,
     });
-    return Response.json({ url });
+    return Response.json(result);
   } catch {
     return Response.json({ error: "Checkout could not be started. Try again." }, { status: 502 });
   }

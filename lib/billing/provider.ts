@@ -1,26 +1,34 @@
-import Stripe from "stripe";
 import type { ProviderSubscription } from "./billing-check.ts";
-import { subscriptionSnapshot } from "./stripe-events.ts";
+import { subscriptionSnapshot } from "./razorpay-events.ts";
+import { isMissing, razorpayErrorDescription, razorpayRequest, type FetchLike } from "./razorpay-api.ts";
 import type { BillingInterval } from "./events.ts";
+import { hasPlaceholders, SITE_INFO, type SiteInfo } from "../site-info.ts";
 
 export type { ProviderSubscription } from "./billing-check.ts";
 
-export type BillingProviderKind = "stripe" | "pretend" | "none";
+export type BillingProviderKind = "razorpay" | "pretend" | "none";
 
 export type CheckoutInput = {
   businessId: string;
-  customerId: string | null;
   interval: BillingInterval;
   trialEndsAt: string | null;
   origin: string;
 };
 
-export type PortalInput = { customerId: string; origin: string };
+/** Razorpay opens its own checkout in the page (subscriptionId + keyId); the pretend provider redirects. */
+export type CheckoutResult =
+  | { kind: "razorpay"; subscriptionId: string; keyId: string }
+  | { kind: "redirect"; url: string };
+
+export type CancelInput = { businessId: string; subscriptionId: string; atPeriodEnd: boolean };
 
 export type BillingProvider = {
   kind: BillingProviderKind;
-  startCheckout(input: CheckoutInput): Promise<string>;
-  openPortal(input: PortalInput): Promise<string>;
+  startCheckout(input: CheckoutInput): Promise<CheckoutResult>;
+  /** A page where the owner can change the card on this subscription. */
+  updateCardUrl(subscriptionId: string, origin: string): Promise<string>;
+  /** Idempotent: a subscription that is already cancelled counts as cancelled. */
+  cancel(input: CancelInput): Promise<void>;
   /** The provider's view of a subscription for the billing check; null when the provider has no such subscription. */
   getSubscription(id: string): Promise<ProviderSubscription | null>;
 };
@@ -29,96 +37,96 @@ type Env = Record<string, string | undefined>;
 
 export const BILLING_NOT_SET_UP = "Billing is not set up yet.";
 
-const STRIPE_VARIABLES = [
-  "STRIPE_SECRET_KEY",
-  "STRIPE_WEBHOOK_SECRET",
-  "STRIPE_PRICE_STARTER_MONTHLY",
-  "STRIPE_PRICE_STARTER_ANNUAL",
+const RAZORPAY_VARIABLES = [
+  "RAZORPAY_KEY_ID",
+  "RAZORPAY_KEY_SECRET",
+  "RAZORPAY_WEBHOOK_SECRET",
+  "RAZORPAY_PLAN_STARTER_MONTHLY",
+  "RAZORPAY_PLAN_STARTER_ANNUAL",
 ] as const;
 
-export function stripeConfigured(env: Env = process.env): boolean {
-  return STRIPE_VARIABLES.every((name) => Boolean(env[name]));
+export function razorpayConfigured(env: Env = process.env): boolean {
+  return RAZORPAY_VARIABLES.every((name) => Boolean(env[name]));
 }
 
-/** True when at least one Stripe variable is set: a partial config is a broken Stripe setup, not "no Stripe". */
-function anyStripeVariable(env: Env): boolean {
-  return STRIPE_VARIABLES.some((name) => Boolean(env[name]));
+/** True when at least one RAZORPAY_ variable is set: a partial config is a broken Razorpay setup, not "no Razorpay". */
+function anyRazorpayVariable(env: Env): boolean {
+  return Object.keys(env).some((name) => name.startsWith("RAZORPAY_") && Boolean(env[name]));
 }
 
-/** Stripe refuses a trial_end less than 48 hours away. */
-const MIN_TRIAL_END_MS = 48 * 60 * 60 * 1000;
+/** A subscription starting later than this is accepted as a trial (the first charge is at start_at). */
+export const MIN_START_LEAD_MS = 24 * 60 * 60 * 1000;
 
-/** Unix seconds for subscription_data.trial_end, or null when the trial is too close to its end (charge now). */
-export function checkoutTrialEnd(trialEndsAt: string | null, now: Date = new Date()): number | null {
-  if (!trialEndsAt) return null;
-  const end = Date.parse(trialEndsAt);
-  if (!Number.isFinite(end) || end - now.getTime() <= MIN_TRIAL_END_MS) return null;
-  return Math.floor(end / 1000);
-}
+/** total_count is required by Razorpay; these give a 10-year runway (the docs state no per-plan maximum). */
+export const RAZORPAY_MAX_COUNT: Record<BillingInterval, number> = { month: 120, year: 10 };
 
-const billingUrl = (origin: string, path: string) => new URL(path, origin).toString();
-
-export function checkoutSessionParams(env: Env, input: CheckoutInput, now: Date = new Date()): Stripe.Checkout.SessionCreateParams {
-  const price = input.interval === "year" ? env.STRIPE_PRICE_STARTER_ANNUAL : env.STRIPE_PRICE_STARTER_MONTHLY;
-  if (!price) throw new Error(BILLING_NOT_SET_UP);
-  const trialEnd = checkoutTrialEnd(input.trialEndsAt, now);
+/** The body for POST /v1/subscriptions. start_at (unix seconds) carries a running trial's end, when it is far enough away. */
+export function subscriptionCreateBody(
+  env: Env,
+  input: Pick<CheckoutInput, "businessId" | "interval" | "trialEndsAt">,
+  now: Date = new Date(),
+): Record<string, unknown> {
+  const plan = input.interval === "year" ? env.RAZORPAY_PLAN_STARTER_ANNUAL : env.RAZORPAY_PLAN_STARTER_MONTHLY;
+  if (!plan) throw new Error(BILLING_NOT_SET_UP);
+  const trialEnd = input.trialEndsAt ? Date.parse(input.trialEndsAt) : NaN;
+  const delayed = Number.isFinite(trialEnd) && trialEnd - now.getTime() > MIN_START_LEAD_MS;
   return {
-    mode: "subscription",
-    line_items: [{ price, quantity: 1 }],
-    client_reference_id: input.businessId,
-    metadata: { business_id: input.businessId, interval: input.interval },
-    ...(input.customerId
-      ? { customer: input.customerId, customer_update: { address: "auto" as const, name: "auto" as const } }
-      : {}),
-    automatic_tax: { enabled: true },
-    subscription_data: {
-      metadata: { business_id: input.businessId },
-      ...(trialEnd !== null ? { trial_end: trialEnd } : {}),
-    },
-    success_url: billingUrl(input.origin, "/settings?tab=billing&checkout=success"),
-    cancel_url: billingUrl(input.origin, "/settings?tab=billing&checkout=cancel"),
+    plan_id: plan,
+    total_count: RAZORPAY_MAX_COUNT[input.interval],
+    customer_notify: 1,
+    notes: { business_id: input.businessId, interval: input.interval },
+    ...(delayed ? { start_at: Math.floor(trialEnd / 1000) } : {}),
   };
 }
 
-function stripeProvider(env: Env): BillingProvider {
-  const client = () => new Stripe(env.STRIPE_SECRET_KEY as string);
+/** Razorpay answers a second cancel of a finished subscription with 400 "not cancellable in <status> status". */
+const ALREADY_ENDED = /not cancellable in (cancelled|completed|expired) status/i;
+
+export function razorpayProvider(env: Env, fetchImpl?: FetchLike): BillingProvider {
+  const request = (method: "GET" | "POST", path: string, body?: object) => razorpayRequest(env, method, path, body, fetchImpl);
+  const fail = (what: string, result: { status: number; json: unknown }) =>
+    new Error(`Razorpay ${what} failed (${result.status}): ${razorpayErrorDescription(result.json)}`);
   return {
-    kind: "stripe",
+    kind: "razorpay",
     async startCheckout(input) {
-      const session = await client().checkout.sessions.create(checkoutSessionParams(env, input));
-      if (!session.url) throw new Error("Stripe did not return a checkout URL.");
-      return session.url;
+      const result = await request("POST", "/subscriptions", subscriptionCreateBody(env, input));
+      const id = (result.json as { id?: unknown } | null)?.id;
+      if (result.status !== 200 || typeof id !== "string") throw fail("subscription create", result);
+      return { kind: "razorpay", subscriptionId: id, keyId: env.RAZORPAY_KEY_ID as string };
     },
-    async openPortal(input) {
-      const session = await client().billingPortal.sessions.create({
-        customer: input.customerId,
-        return_url: billingUrl(input.origin, "/settings?tab=billing"),
+    async updateCardUrl(subscriptionId) {
+      const result = await request("GET", `/subscriptions/${encodeURIComponent(subscriptionId)}`);
+      const url = (result.json as { short_url?: unknown } | null)?.short_url;
+      if (result.status !== 200 || typeof url !== "string" || url === "") throw fail("subscription fetch", result);
+      return url;
+    },
+    async cancel(input) {
+      const result = await request("POST", `/subscriptions/${encodeURIComponent(input.subscriptionId)}/cancel`, {
+        cancel_at_cycle_end: input.atPeriodEnd ? 1 : 0,
       });
-      return session.url;
+      if (result.status === 200) return;
+      if (result.status === 400 && ALREADY_ENDED.test(razorpayErrorDescription(result.json))) return;
+      throw fail("cancel", result);
     },
     async getSubscription(id) {
-      try {
-        return subscriptionSnapshot(await client().subscriptions.retrieve(id));
-      } catch (error) {
-        if (isMissingResource(error)) return null;
-        throw error;
-      }
+      const result = await request("GET", `/subscriptions/${encodeURIComponent(id)}`);
+      if (isMissing(result)) return null;
+      const entity = result.json;
+      if (result.status !== 200 || entity === null || typeof entity !== "object") throw fail("subscription fetch", result);
+      return subscriptionSnapshot(entity as Record<string, unknown>);
     },
   };
-}
-
-/** Stripe answers an unknown subscription id with a 404 resource_missing error. */
-function isMissingResource(error: unknown): boolean {
-  const e = error as { code?: unknown; statusCode?: unknown } | null;
-  return e?.code === "resource_missing" || e?.statusCode === 404;
 }
 
 /** Subscription ids the pretend provider makes (lib/billing/pretend-events.ts): pretend_sub_<business id>. */
 const PRETEND_SUBSCRIPTION_PREFIX = "pretend_sub_";
 
+/** Our statuses in Razorpay's words, so the check's status mapping (ourStatusFor) agrees end to end locally. */
+const PRETEND_STATUS: Record<string, string> = { trialing: "authenticated", past_due: "pending", canceled: "cancelled" };
+
 /**
  * The pretend provider's view of a subscription is our own row, so a local check agrees end to end. An id it did not
- * make (for example a Stripe-like sub_… set by hand in a test) does not exist there, which the check flags.
+ * make (for example a Razorpay-like sub_… set by hand in a test) does not exist there, which the check flags.
  */
 async function pretendSubscription(id: string): Promise<ProviderSubscription | null> {
   if (!id.startsWith(PRETEND_SUBSCRIPTION_PREFIX)) return null;
@@ -132,7 +140,7 @@ async function pretendSubscription(id: string): Promise<ProviderSubscription | n
   if (!data) return null;
   return {
     exists: true,
-    status: data.status as string,
+    status: PRETEND_STATUS[data.status as string] ?? (data.status as string),
     currentPeriodEnd: data.current_period_end as string | null,
     cancelAt: data.cancel_at as string | null,
     trialEnd: data.trial_ends_at as string | null,
@@ -142,10 +150,17 @@ async function pretendSubscription(id: string): Promise<ProviderSubscription | n
 const pretendProvider: BillingProvider = {
   kind: "pretend",
   async startCheckout(input) {
-    return billingUrl(input.origin, `/billing/pretend?interval=${encodeURIComponent(input.interval)}`);
+    return { kind: "redirect", url: `/billing/pretend?interval=${encodeURIComponent(input.interval)}` };
   },
-  async openPortal(input) {
-    return billingUrl(input.origin, "/billing/pretend/portal");
+  async updateCardUrl() {
+    return "/billing/pretend/portal";
+  },
+  async cancel(input) {
+    // At period end the route records cancel_at and the pretend "renew" action later ends the subscription.
+    if (input.atPeriodEnd) return;
+    const [{ applyBillingEvent }, { pretendEvent }] = await Promise.all([import("./apply-event.ts"), import("./pretend-events.ts")]);
+    const events = pretendEvent("remove_trial_card", { businessId: input.businessId, interval: "month", now: new Date(), trialEndsAt: null });
+    for (const event of events) await applyBillingEvent(event);
   },
   getSubscription: pretendSubscription,
 };
@@ -155,7 +170,10 @@ const noProvider: BillingProvider = {
   async startCheckout() {
     throw new Error(BILLING_NOT_SET_UP);
   },
-  async openPortal() {
+  async updateCardUrl() {
+    throw new Error(BILLING_NOT_SET_UP);
+  },
+  async cancel() {
     throw new Error(BILLING_NOT_SET_UP);
   },
   async getSubscription() {
@@ -164,11 +182,12 @@ const noProvider: BillingProvider = {
 };
 
 /**
- * Stripe when fully configured; the pretend provider only outside production and with no Stripe variable set;
- * otherwise none (a partial Stripe config is "billing not set up" in every NODE_ENV).
+ * Razorpay when fully configured and the business details are filled in; the pretend provider only outside production
+ * and with no RAZORPAY_ variable set; otherwise none (a partial config, or placeholder details, is "billing not set up"
+ * in every NODE_ENV).
  */
-export function billingProvider(env: Env = process.env): BillingProvider {
-  if (stripeConfigured(env)) return stripeProvider(env);
-  if (env.NODE_ENV !== "production" && !anyStripeVariable(env)) return pretendProvider;
+export function billingProvider(env: Env = process.env, info: SiteInfo = SITE_INFO): BillingProvider {
+  if (razorpayConfigured(env)) return hasPlaceholders(info) ? noProvider : razorpayProvider(env);
+  if (env.NODE_ENV !== "production" && !anyRazorpayVariable(env)) return pretendProvider;
   return noProvider;
 }

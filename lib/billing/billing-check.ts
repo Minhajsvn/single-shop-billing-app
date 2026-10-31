@@ -1,5 +1,5 @@
 // Pure comparison for the daily billing check: our subscriptions row against the billing provider's subscription.
-// No I/O and no Stripe import, so it is safe anywhere. The check only reports; it never changes a subscription.
+// No I/O and no provider import, so it is safe anywhere. The check only reports; it never changes a subscription.
 
 /** The provider's view of one subscription. `exists: false` means the provider has no such subscription. */
 export type ProviderSubscription = {
@@ -22,7 +22,8 @@ export type FlagField = "status" | "current_period_end" | "cancel_at" | "trial_e
 
 export type Mismatch = { field: FlagField; ours: string | null; theirs: string | null };
 
-export const FLAG_FIELDS: readonly FlagField[] = ["status", "current_period_end", "cancel_at", "trial_end", "exists"];
+// cancel_at is no longer checked (Razorpay gives no cancel date to compare); old flags still display through FlagField.
+export const FLAG_FIELDS: readonly FlagField[] = ["status", "current_period_end", "trial_end", "exists"];
 
 /** Times within this much of each other agree (webhooks and clocks drift a little). */
 export const TIME_TOLERANCE_MS = 60 * 60 * 1000;
@@ -32,19 +33,23 @@ export const MISSING_SUBSCRIPTION: ProviderSubscription = {
 };
 
 /**
- * The status we would hold for a Stripe status, mapped the way public.apply_billing_event maps webhook statuses:
- * unpaid counts as past_due; incomplete, incomplete_expired, paused and anything unknown are never applied (null),
- * so they are not a disagreement. canceled is what subscription_deleted sets.
+ * The status we would hold for a Razorpay subscription status: authenticated is a card-saved trial, pending and
+ * halted are failed payments, and cancelled, completed and expired are over. created, paused and anything unknown
+ * are never applied (null), so they are not a disagreement.
  */
-export function ourStatusFor(stripeStatus: string | null): string | null {
-  switch (stripeStatus) {
-    case "trialing":
+export function ourStatusFor(razorpayStatus: string | null): string | null {
+  switch (razorpayStatus) {
+    case "authenticated":
+      return "trialing";
     case "active":
-    case "canceled":
-      return stripeStatus;
-    case "past_due":
-    case "unpaid":
+      return "active";
+    case "pending":
+    case "halted":
       return "past_due";
+    case "cancelled":
+    case "completed":
+    case "expired":
+      return "canceled";
     default:
       return null;
   }
@@ -70,15 +75,14 @@ export function compareSubscription(ours: SubscriptionRow, theirs: ProviderSubsc
   const mapped = ourStatusFor(theirs.status);
   if (mapped !== null && mapped !== ours.status) mismatches.push({ field: "status", ours: ours.status, theirs: theirs.status });
 
-  // Ended on both sides: Stripe keeps the old period and cancel dates on a canceled subscription, we clear cancel_at.
+  // Ended on both sides: the period dates of a canceled subscription no longer matter.
   if (ours.status === "canceled" && mapped === "canceled") return mismatches;
 
   const times: [FlagField, string | null, string | null][] = [
     ["current_period_end", ours.current_period_end, theirs.currentPeriodEnd],
-    ["cancel_at", ours.cancel_at, theirs.cancelAt],
   ];
-  // Our trial_ends_at is also the signup trial, which Stripe never sees when the owner paid without a trial:
-  // a missing Stripe trial end only disagrees while we still think the shop is trialing.
+  // Our trial_ends_at is also the signup trial, which Razorpay never sees when the owner paid without a trial:
+  // a missing Razorpay trial end only disagrees while we still think the shop is trialing.
   if (theirs.trialEnd !== null || ours.status === "trialing") times.push(["trial_end", ours.trial_ends_at, theirs.trialEnd]);
 
   for (const [field, a, b] of times) {
@@ -92,7 +96,7 @@ const FIELD_LABELS: Record<FlagField, string> = {
   current_period_end: "Current period end",
   cancel_at: "Cancel date",
   trial_end: "Trial end",
-  exists: "Subscription exists in Stripe",
+  exists: "Subscription exists in Razorpay",
 };
 
 export function flagFieldLabel(field: string): string {

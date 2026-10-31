@@ -13,7 +13,7 @@ type Props = {
   shopId: string;
   /** The plan grant in force, or null. */
   grant: AdminGrant | null;
-  /** The shop has a live Stripe subscription (an id and a status other than canceled): granting is refused. */
+  /** The shop has a live Razorpay subscription (an id and a status other than canceled): granting is refused. */
   paysThroughProvider: boolean;
 };
 

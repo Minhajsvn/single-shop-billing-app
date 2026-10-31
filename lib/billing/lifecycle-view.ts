@@ -90,7 +90,7 @@ export function registerOpenDecision(input: {
   return "allow";
 }
 
-function dubaiDate(iso: string | null, withYear: boolean): string {
+export function dubaiDate(iso: string | null, withYear: boolean): string {
   const date = iso ? new Date(iso) : null;
   if (!date || !Number.isFinite(date.getTime())) return "";
   return new Intl.DateTimeFormat("en-GB", {

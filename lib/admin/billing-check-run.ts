@@ -1,4 +1,4 @@
-// SERVER ONLY. Runs the billing check: for each shop with a Stripe subscription id, compare our subscriptions row with
+// SERVER ONLY. Runs the billing check: for each shop with a Razorpay subscription id, compare our subscriptions row with
 // the provider's view and record the result through admin_record_billing_check. It reads subscriptions and never
 // writes them (tests/billing-check.test.mjs holds it to that). Callers check staff or the cron secret first.
 import { compareSubscription, MISSING_SUBSCRIPTION, type SubscriptionRow } from "../billing/billing-check.ts";
@@ -58,7 +58,7 @@ export async function runBillingCheckWith(
   return { checked, mismatches, failed };
 }
 
-/** Every shop with a Stripe subscription, or just `businessId`. Provider none: nothing is done. */
+/** Every shop with a Razorpay subscription, or just `businessId`. Provider none: nothing is done. */
 export async function runBillingCheck(input: { businessId?: string }): Promise<BillingCheckResult> {
   const provider = billingProvider();
   if (provider.kind === "none") return { error: BILLING_NOT_SET_UP };

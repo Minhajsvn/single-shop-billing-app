@@ -63,7 +63,7 @@ export default async function AdminShopPage({ params }: { params: Promise<{ id: 
 
   const s = shop.subscription;
   const plan = shop.planId ? PLANS[shop.planId as PlanId]?.name ?? shop.planId : "—";
-  // A live Stripe subscription: it has an id and is not canceled. Granting is refused then.
+  // A live Razorpay subscription: it has an id and is not canceled. Granting is refused then.
   const paysThroughProvider = Boolean(s?.billingSubscriptionId) && s?.status !== "canceled";
   const grantPlan = shop.grant ? PLANS[shop.grant.planId]?.name ?? shop.grant.planId : null;
 
@@ -105,9 +105,9 @@ export default async function AdminShopPage({ params }: { params: Promise<{ id: 
               ["Cancel date", adminDateTime(s?.cancelAt ?? null)],
               ["Payment method on file", s ? (s.hasPaymentMethod ? "Yes" : "No") : "—"],
               ["Billing interval", s?.billingInterval === "year" ? "Annual" : s?.billingInterval === "month" ? "Monthly" : "—"],
-              ["Stripe customer", <CopyText key="customer" value={s?.billingCustomerId ?? null} />],
-              ["Stripe subscription", <CopyText key="subscription" value={s?.billingSubscriptionId ?? null} />],
-              ["Last Stripe event", adminDateTime(s?.lastEventAt ?? null)],
+              ["Razorpay customer", <CopyText key="customer" value={s?.billingCustomerId ?? null} />],
+              ["Razorpay subscription", <CopyText key="subscription" value={s?.billingSubscriptionId ?? null} />],
+              ["Last Razorpay event", adminDateTime(s?.lastEventAt ?? null)],
             ]} />
           </Section>
 

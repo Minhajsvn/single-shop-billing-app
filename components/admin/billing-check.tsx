@@ -26,7 +26,7 @@ export function BillingCheck({ shopId, shopName, flags, lastChecked }: Props) {
   async function runCheck() {
     const ok = await requestConfirm({
       title: `Run the billing check for ${shopName}?`,
-      body: "Compares this shop's billing record with Stripe and flags anything that disagrees. Nothing is changed.",
+      body: "Compares this shop's billing record with Razorpay and flags anything that disagrees. Nothing is changed.",
       confirmLabel: "Run check",
     });
     if (!ok) return;
@@ -39,9 +39,9 @@ export function BillingCheck({ shopId, shopName, flags, lastChecked }: Props) {
       if (!response.ok || !result || result.error) {
         toast(result?.error ?? "That did not work. Try again.");
       } else if (result.failed) {
-        toast("Stripe could not be reached for this shop. Try again.");
+        toast("Razorpay could not be reached for this shop. Try again.");
       } else if (!result.checked) {
-        toast("This shop has no Stripe subscription to check.");
+        toast("This shop has no Razorpay subscription to check.");
       } else {
         toast(result.mismatches ? `Check done: ${result.mismatches} ${result.mismatches === 1 ? "thing disagrees" : "things disagree"}` : "Check done: everything agrees");
       }
@@ -65,7 +65,7 @@ export function BillingCheck({ shopId, shopName, flags, lastChecked }: Props) {
     if (!preview.ok) { setError(preview.error); return; }
     const ok = await requestConfirm({
       title: `Mark this flag for ${shopName} as looked at?`,
-      body: `${flag.label}: ours ${flag.ours}, Stripe ${flag.theirs}. It opens again if the next check still disagrees.`,
+      body: `${flag.label}: ours ${flag.ours}, Razorpay ${flag.theirs}. It opens again if the next check still disagrees.`,
       confirmLabel: "Mark looked at",
     });
     if (!ok) return;
@@ -100,7 +100,7 @@ export function BillingCheck({ shopId, shopName, flags, lastChecked }: Props) {
               <div className="admin-row between">
                 <div style={{ minWidth: 0 }}>
                   <div className="admin-flag-title">{flag.label}</div>
-                  <div>Ours: {flag.ours} · Stripe: {flag.theirs}</div>
+                  <div>Ours: {flag.ours} · Razorpay: {flag.theirs}</div>
                   <div className="admin-muted">First seen {flag.firstSeen} · last seen {flag.lastSeen}</div>
                 </div>
                 <button type="button" className={button} aria-expanded={open === flag.id} onClick={() => toggle(flag.id)} disabled={busy}>Mark looked at</button>

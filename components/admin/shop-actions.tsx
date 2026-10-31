@@ -139,7 +139,7 @@ export function ShopActions({ shopId, shopName, status, hasPaymentMethod, trialE
           <button type="button" className={button} aria-expanded={panel === "end"} onClick={() => open("end")}>End extra till</button>
         ) : null}
       </div>
-      {trialing && hasPaymentMethod ? <p className="admin-muted">This trial has a card on file. Change the trial end in Stripe.</p> : null}
+      {trialing && hasPaymentMethod ? <p className="admin-muted">This trial has a card on file. Change the trial end in Razorpay.</p> : null}
       {!status ? <p className="admin-muted">This shop has no subscription yet.</p> : null}
 
       {panel === "trial" ? (

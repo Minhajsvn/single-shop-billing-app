@@ -33,7 +33,7 @@ export async function applyBillingEvent(event: BillingEvent, client: RpcClient =
   return data as ApplyResult;
 }
 
-/** unknown_business is a non-2xx so Stripe redelivers it once checkout has linked the ids. */
+/** unknown_business is a non-2xx so Razorpay redelivers it once checkout has linked the ids. */
 export function webhookStatus(result: ApplyResult): number {
   return result === "unknown_business" ? 409 : 200;
 }

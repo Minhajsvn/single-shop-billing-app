@@ -10,7 +10,7 @@ import { refreshEntitlements, refreshSnapshot, useShopContext } from "@/lib/demo
 import { toast } from "@/lib/ui/toast-store";
 
 type Interval = "month" | "year";
-type Kind = "stripe" | "pretend" | "none";
+type Kind = "razorpay" | "pretend" | "none";
 
 const NOT_SET_UP = "Billing is not set up yet.";
 const money = (minor: number) => (minor / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });

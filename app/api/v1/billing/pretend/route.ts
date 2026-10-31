@@ -7,7 +7,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-/** Development only: drives billing states through the same lifecycle code a Stripe webhook uses. */
+/** Development only: drives billing states through the same lifecycle code a Razorpay webhook uses. */
 export async function POST(request: Request) {
   if (!pretendAvailable(billingProvider().kind)) return Response.json({ error: "Not found." }, { status: 404 });
   try {

@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { compareSubscription, flagFieldLabel, flagValueText, MISSING_SUBSCRIPTION, ourStatusFor, TIME_TOLERANCE_MS } from "../lib/billing/billing-check.ts";
+import { compareSubscription, FLAG_FIELDS, flagFieldLabel, flagValueText, MISSING_SUBSCRIPTION, ourStatusFor, TIME_TOLERANCE_MS } from "../lib/billing/billing-check.ts";
 import { billingProvider, BILLING_NOT_SET_UP } from "../lib/billing/provider.ts";
-import { normalizeStripeEvent, subscriptionSnapshot } from "../lib/billing/stripe-events.ts";
+import { subscriptionSnapshot } from "../lib/billing/razorpay-events.ts";
 import { runBillingCheckWith } from "../lib/admin/billing-check-run.ts";
 import { billingCheckCaller, billingCheckRefusal, CRON_SECRET_HEADER } from "../lib/admin/staff.ts";
 import { adminNotFound } from "../lib/admin/not-found.ts";
@@ -28,23 +28,23 @@ test("matching records have no mismatches", () => {
   assert.deepEqual(compareSubscription(ours, theirs), []);
 });
 
-test("a different status is one status mismatch with Stripe's own word", () => {
-  assert.deepEqual(compareSubscription(ours, { ...theirs, status: "past_due" }), [{ field: "status", ours: "active", theirs: "past_due" }]);
-  assert.deepEqual(compareSubscription(ours, { ...theirs, status: "canceled" }), [{ field: "status", ours: "active", theirs: "canceled" }]);
+test("a different status is one status mismatch with Razorpay's own word", () => {
+  assert.deepEqual(compareSubscription(ours, { ...theirs, status: "pending" }), [{ field: "status", ours: "active", theirs: "pending" }]);
+  assert.deepEqual(compareSubscription(ours, { ...theirs, status: "cancelled" }), [{ field: "status", ours: "active", theirs: "cancelled" }]);
 });
 
-test("statuses are mapped the way the webhook maps them", () => {
-  assert.equal(ourStatusFor("unpaid"), "past_due");
-  assert.equal(ourStatusFor("past_due"), "past_due");
-  assert.equal(ourStatusFor("trialing"), "trialing");
+test("ourStatusFor maps each Razorpay status as listed", () => {
+  assert.equal(ourStatusFor("authenticated"), "trialing");
   assert.equal(ourStatusFor("active"), "active");
-  assert.equal(ourStatusFor("canceled"), "canceled");
-  for (const ignored of ["incomplete", "incomplete_expired", "paused", null, "something_new"]) assert.equal(ourStatusFor(ignored), null);
-  // unpaid in Stripe is past_due for us: no flag.
-  assert.deepEqual(compareSubscription({ ...ours, status: "past_due" }, { ...theirs, status: "unpaid" }), []);
+  assert.equal(ourStatusFor("pending"), "past_due");
+  assert.equal(ourStatusFor("halted"), "past_due");
+  for (const ended of ["cancelled", "completed", "expired"]) assert.equal(ourStatusFor(ended), "canceled");
+  for (const ignored of ["created", "paused", null, "something_new"]) assert.equal(ourStatusFor(ignored), null);
+  // halted in Razorpay is past_due for us: no flag.
+  assert.deepEqual(compareSubscription({ ...ours, status: "past_due" }, { ...theirs, status: "halted" }), []);
   // A status we never apply from the webhook is not a disagreement.
-  assert.deepEqual(compareSubscription(ours, { ...theirs, status: "incomplete" }), []);
-  assert.deepEqual(compareSubscription(ours, { ...theirs, status: "incomplete_expired" }), []);
+  assert.deepEqual(compareSubscription(ours, { ...theirs, status: "created" }), []);
+  assert.deepEqual(compareSubscription(ours, { ...theirs, status: "paused" }), []);
 });
 
 test("current period end matches within one hour either way", () => {
@@ -56,64 +56,56 @@ test("current period end matches within one hour either way", () => {
   assert.deepEqual(compareSubscription(ours, { ...theirs, currentPeriodEnd: null }), [{ field: "current_period_end", ours: ours.current_period_end, theirs: null }]);
 });
 
-test("cancel_at: set on one side only, or more than an hour apart", () => {
+test("compareSubscription no longer reports cancel_at", () => {
   const cancel = "2026-11-25T10:00:00.000Z";
-  assert.deepEqual(compareSubscription(ours, { ...theirs, cancelAt: cancel }), [{ field: "cancel_at", ours: null, theirs: cancel }]);
-  assert.deepEqual(compareSubscription({ ...ours, cancel_at: cancel }, { ...theirs, cancelAt: at(cancel, 30 * 60 * 1000) }), []);
-  assert.deepEqual(compareSubscription({ ...ours, cancel_at: cancel }, { ...theirs, cancelAt: at(cancel, 2 * HOUR) }), [{ field: "cancel_at", ours: cancel, theirs: at(cancel, 2 * HOUR) }]);
-  assert.deepEqual(compareSubscription({ ...ours, cancel_at: cancel }, theirs), [{ field: "cancel_at", ours: cancel, theirs: null }]);
+  assert.deepEqual(compareSubscription(ours, { ...theirs, cancelAt: cancel }), []);
+  assert.deepEqual(compareSubscription({ ...ours, cancel_at: cancel }, theirs), []);
+  assert.equal(FLAG_FIELDS.includes("cancel_at"), false);
+  // Old flags still display.
+  assert.equal(flagFieldLabel("cancel_at"), "Cancel date");
 });
 
 test("trial_end: compared with an hour's tolerance", () => {
   const trialing = { ...ours, status: "trialing", trial_ends_at: "2026-11-01T10:00:00.000Z", current_period_end: "2026-11-01T10:00:00.000Z" };
-  const stripeTrial = { ...theirs, status: "trialing", trialEnd: "2026-11-01T10:30:00.000Z", currentPeriodEnd: "2026-11-01T10:00:00.000Z" };
-  assert.deepEqual(compareSubscription(trialing, stripeTrial), []);
-  assert.deepEqual(compareSubscription(trialing, { ...stripeTrial, trialEnd: "2026-11-03T10:00:00.000Z" }), [{ field: "trial_end", ours: trialing.trial_ends_at, theirs: "2026-11-03T10:00:00.000Z" }]);
-  assert.deepEqual(compareSubscription(trialing, { ...stripeTrial, trialEnd: null }), [{ field: "trial_end", ours: trialing.trial_ends_at, theirs: null }]);
-  // Stripe never had a trial (checked out after our signup trial): our old trial end is not a disagreement.
+  const razorpayTrial = { ...theirs, status: "authenticated", trialEnd: "2026-11-01T10:30:00.000Z", currentPeriodEnd: "2026-11-01T10:00:00.000Z" };
+  assert.deepEqual(compareSubscription(trialing, razorpayTrial), []);
+  assert.deepEqual(compareSubscription(trialing, { ...razorpayTrial, trialEnd: "2026-11-03T10:00:00.000Z" }), [{ field: "trial_end", ours: trialing.trial_ends_at, theirs: "2026-11-03T10:00:00.000Z" }]);
+  assert.deepEqual(compareSubscription(trialing, { ...razorpayTrial, trialEnd: null }), [{ field: "trial_end", ours: trialing.trial_ends_at, theirs: null }]);
+  // Razorpay never had a trial (checked out after our signup trial): our old trial end is not a disagreement.
   assert.deepEqual(compareSubscription(ours, { ...theirs, trialEnd: null }), []);
 });
 
 test("several fields disagreeing give one mismatch each, in a fixed order", () => {
-  const result = compareSubscription(ours, { exists: true, status: "past_due", currentPeriodEnd: "2026-12-25T10:00:00.000Z", cancelAt: "2026-12-25T10:00:00.000Z", trialEnd: "2026-10-01T10:00:00.000Z" });
-  assert.deepEqual(result.map((m) => m.field), ["status", "current_period_end", "cancel_at", "trial_end"]);
+  const result = compareSubscription(ours, { exists: true, status: "pending", currentPeriodEnd: "2026-12-25T10:00:00.000Z", cancelAt: "2026-12-25T10:00:00.000Z", trialEnd: "2026-10-01T10:00:00.000Z" });
+  assert.deepEqual(result.map((m) => m.field), ["status", "current_period_end", "trial_end"]);
 });
 
 test("a canceled subscription on both sides only compares the status", () => {
   const canceled = { ...ours, status: "canceled", cancel_at: null };
-  assert.deepEqual(compareSubscription(canceled, { ...theirs, status: "canceled", cancelAt: "2026-10-01T00:00:00.000Z", currentPeriodEnd: null }), []);
+  assert.deepEqual(compareSubscription(canceled, { ...theirs, status: "cancelled", cancelAt: "2026-10-01T00:00:00.000Z", currentPeriodEnd: null }), []);
 });
 
-test("a missing Stripe subscription is one exists mismatch", () => {
+test("a missing Razorpay subscription is one exists mismatch", () => {
   assert.deepEqual(compareSubscription(ours, MISSING_SUBSCRIPTION), [{ field: "exists", ours: "yes", theirs: "no" }]);
-  assert.deepEqual(compareSubscription(ours, { ...theirs, exists: false, status: "past_due" }), [{ field: "exists", ours: "yes", theirs: "no" }]);
+  assert.deepEqual(compareSubscription(ours, { ...theirs, exists: false, status: "pending" }), [{ field: "exists", ours: "yes", theirs: "no" }]);
 });
 
-test("subscriptionSnapshot reads the period end from subscription items (API 2026-09-30)", () => {
-  const snap = subscriptionSnapshot({
-    id: "sub_1", status: "active", trial_end: null, cancel_at: null, cancel_at_period_end: true,
-    items: { data: [{ current_period_end: 1795000000 }, { current_period_end: 1795003600 }] },
-  });
+test("subscriptionSnapshot: a card-saved trial is authenticated and start_at is the trial end", () => {
+  const snap = subscriptionSnapshot({ id: "sub_1", status: "authenticated", start_at: 1795000000, current_end: null, notes: {} });
   assert.deepEqual(snap, {
-    exists: true, status: "active",
-    currentPeriodEnd: new Date(1795003600 * 1000).toISOString(),
-    cancelAt: new Date(1795003600 * 1000).toISOString(),
-    trialEnd: null,
+    exists: true, status: "authenticated", currentPeriodEnd: null, cancelAt: null, trialEnd: new Date(1795000000 * 1000).toISOString(),
   });
+  const active = subscriptionSnapshot({ id: "sub_1", status: "active", start_at: 1790000000, current_end: 1795000000, notes: {} });
+  assert.equal(active.trialEnd, null);
+  assert.equal(active.currentPeriodEnd, new Date(1795000000 * 1000).toISOString());
 });
 
-test("after a trial end changed in Stripe is applied, the check agrees on trial_end", () => {
-  const stripeSub = {
-    id: "sub_t", status: "trialing", trial_end: 1795000000, cancel_at: null, cancel_at_period_end: false,
-    items: { data: [{ current_period_end: 1795000000 }] }, metadata: { business_id: "b" },
-  };
-  const event = normalizeStripeEvent({ id: "evt_t", type: "customer.subscription.updated", created: 1794000000, data: { object: stripeSub } });
-  // apply_billing_event (202610250037) stores trialEnd as trial_ends_at for a trialing subscription_changed.
-  const row = { status: "trialing", trial_ends_at: event.trialEnd, current_period_end: event.currentPeriodEnd, cancel_at: event.cancelAt };
-  assert.deepEqual(compareSubscription(row, subscriptionSnapshot(stripeSub)), []);
-  // Before the fix our old trial end stayed, which the check flags every day.
+test("a Razorpay trial subscription agrees with a trialing row on trial_end", () => {
+  const sub = { id: "sub_t", status: "authenticated", start_at: 1795000000, current_end: null, notes: { business_id: "b" } };
+  const row = { status: "trialing", trial_ends_at: new Date(1795000000 * 1000).toISOString(), current_period_end: null, cancel_at: null };
+  assert.deepEqual(compareSubscription(row, subscriptionSnapshot(sub)), []);
   const stale = { ...row, trial_ends_at: new Date((1795000000 - 7 * 86400) * 1000).toISOString() };
-  assert.deepEqual(compareSubscription(stale, subscriptionSnapshot(stripeSub)).map((m) => m.field), ["trial_end"]);
+  assert.deepEqual(compareSubscription(stale, subscriptionSnapshot(sub)).map((m) => m.field), ["trial_end"]);
 });
 
 test("getSubscription: none throws the plain message", async () => {
@@ -125,14 +117,14 @@ test("getSubscription: none throws the plain message", async () => {
 test("getSubscription: pretend knows only the subscriptions it made", async () => {
   const pretend = billingProvider({ NODE_ENV: "development" });
   assert.equal(pretend.kind, "pretend");
-  // A Stripe-like id is not one the pretend provider created, so it does not exist there (no database read).
+  // A Razorpay-like id is not one the pretend provider created, so it does not exist there (no database read).
   assert.equal(await pretend.getSubscription("sub_1LiveLooking"), null);
 });
 
 test("flag fields and values in plain words", () => {
   const fmt = (iso) => `T(${iso})`;
   assert.equal(flagFieldLabel("current_period_end"), "Current period end");
-  assert.equal(flagFieldLabel("exists"), "Subscription exists in Stripe");
+  assert.equal(flagFieldLabel("exists"), "Subscription exists in Razorpay");
   assert.equal(flagValueText("status", "past_due", fmt), "Past due");
   assert.equal(flagValueText("status", "incomplete", fmt), "incomplete");
   assert.equal(flagValueText("trial_end", "2026-11-01T10:00:00.000Z", fmt), "T(2026-11-01T10:00:00.000Z)");
@@ -181,8 +173,8 @@ const rowFor = (sub) => ({ ...ours, billing_subscription_id: sub });
 test("the runner only reads subscriptions and only writes through admin_record_billing_check", async () => {
   const admin = fakeAdmin({ shops: [SHOP_A, SHOP_B], rows: { [SHOP_A]: rowFor("sub_a"), [SHOP_B]: rowFor("sub_b") } });
   const provider = {
-    kind: "stripe",
-    async getSubscription(id) { return id === "sub_a" ? theirs : { ...theirs, status: "past_due" }; },
+    kind: "razorpay",
+    async getSubscription(id) { return id === "sub_a" ? theirs : { ...theirs, status: "pending" }; },
   };
   const result = await runBillingCheckWith({ admin, provider }, {});
   assert.deepEqual(result, { checked: 2, mismatches: 1, failed: 0 });
@@ -196,13 +188,13 @@ test("the runner only reads subscriptions and only writes through admin_record_b
   const records = admin.calls.filter((c) => c.rpc === "admin_record_billing_check").map((c) => c.args);
   assert.deepEqual(records, [
     { p_business_id: SHOP_A, p_mismatches: [] },
-    { p_business_id: SHOP_B, p_mismatches: [{ field: "status", ours: "active", theirs: "past_due" }] },
+    { p_business_id: SHOP_B, p_mismatches: [{ field: "status", ours: "active", theirs: "pending" }] },
   ]);
 });
 
-test("the runner checks one shop when asked, and a missing Stripe subscription is recorded", async () => {
+test("the runner checks one shop when asked, and a missing Razorpay subscription is recorded", async () => {
   const admin = fakeAdmin({ shops: [SHOP_A, SHOP_B], rows: { [SHOP_A]: rowFor("sub_a"), [SHOP_B]: rowFor("sub_b") } });
-  const provider = { kind: "stripe", async getSubscription() { return null; } };
+  const provider = { kind: "razorpay", async getSubscription() { return null; } };
   const result = await runBillingCheckWith({ admin, provider }, { businessId: SHOP_B });
   assert.deepEqual(result, { checked: 1, mismatches: 1, failed: 0 });
   const records = admin.calls.filter((c) => c.rpc === "admin_record_billing_check").map((c) => c.args);
@@ -211,7 +203,7 @@ test("the runner checks one shop when asked, and a missing Stripe subscription i
 
 test("a shop the provider cannot answer for is counted as failed and records nothing", async () => {
   const admin = fakeAdmin({ shops: [SHOP_A], rows: { [SHOP_A]: rowFor("sub_a") } });
-  const provider = { kind: "stripe", async getSubscription() { throw new Error("network down"); } };
+  const provider = { kind: "razorpay", async getSubscription() { throw new Error("network down"); } };
   const original = console.error;
   console.error = () => {};
   try {
