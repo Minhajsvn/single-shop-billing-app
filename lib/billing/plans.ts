@@ -73,11 +73,3 @@ export const GRACE_DAYS = 7;
 export function planHasFeature(planId: PlanId, feature: FeatureKey): boolean {
   return PLANS[planId].features.includes(feature);
 }
-
-export const STARTER_VAT_RATE = 0.05;
-
-// Prices are shown before VAT; VAT is rounded half-up to the fil.
-export function priceWithVat(minor: number): { netMinor: number; vatMinor: number; grossMinor: number } {
-  const vatMinor = Math.round(minor * STARTER_VAT_RATE);
-  return { netMinor: minor, vatMinor, grossMinor: minor + vatMinor };
-}

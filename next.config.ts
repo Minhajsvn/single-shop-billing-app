@@ -16,6 +16,14 @@ const nextConfig: NextConfig = {
           { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), payment=(), usb=()" },
         ],
       },
+      // Razorpay Checkout's wallet buttons need the Payment Request API; only the Billing tab (inside /settings) opens it.
+      // Later entries win for the same header key, so this replaces the global value on /settings only.
+      {
+        source: "/settings/:path*",
+        headers: [
+          { key: "Permissions-Policy", value: 'camera=(), microphone=(), geolocation=(), payment=(self "https://api.razorpay.com" "https://checkout.razorpay.com"), usb=()' },
+        ],
+      },
       {
         source: "/sw.js",
         headers: [

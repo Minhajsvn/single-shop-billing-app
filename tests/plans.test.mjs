@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import test from "node:test";
-import { GRACE_DAYS, PLANS, TRIAL_DAYS, TRIAL_PLAN, planHasFeature, priceWithVat } from "../lib/billing/plans.ts";
+import * as plansModule from "../lib/billing/plans.ts";
+import { GRACE_DAYS, PLANS, TRIAL_DAYS, TRIAL_PLAN, planHasFeature } from "../lib/billing/plans.ts";
 import { planCatalogSql } from "../scripts/plan-catalog-sql.mjs";
 
 test("plan limits match the approved matrix", () => {
@@ -46,9 +47,12 @@ test("the database trial bootstrap uses the same plan and length", () => {
   assert.equal(Number(match[2]), TRIAL_DAYS);
 });
 
-test("starter costs 99 a month and 990 a year before VAT", () => {
+test("PLANS.starter monthly 9900 and annual 99000", () => {
   assert.equal(PLANS.starter.monthlyPriceMinor.AED, 9900);
   assert.equal(PLANS.starter.annualPriceMinor.AED, 99000);
-  assert.deepEqual(priceWithVat(9900), { netMinor: 9900, vatMinor: 495, grossMinor: 10395 });
-  assert.deepEqual(priceWithVat(99000), { netMinor: 99000, vatMinor: 4950, grossMinor: 103950 });
+});
+
+test("plans module exports no VAT helper", () => {
+  assert.equal(plansModule.priceWithVat, undefined);
+  assert.equal(plansModule.STARTER_VAT_RATE, undefined);
 });

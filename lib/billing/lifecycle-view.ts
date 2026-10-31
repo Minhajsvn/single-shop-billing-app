@@ -122,6 +122,14 @@ export function billingSummary(e: Entitlements, now: Date): string {
   return renews ? `${plan} · renews ${renews}` : plan;
 }
 
+/** The Starter price line, charged as is (no VAT line). */
+export function priceLine(interval: "month" | "year"): string {
+  const starter = PLANS.starter;
+  const minor = (interval === "year" ? starter.annualPriceMinor : starter.monthlyPriceMinor)?.AED ?? 0;
+  const amount = (minor / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return interval === "year" ? `${starter.name} · AED ${amount.replace(/\.00$/, "")} / year (2 months free)` : `${starter.name} · AED ${amount} / month`;
+}
+
 export function canWrite(state: LifecycleState, registerOpen: boolean): boolean {
   return state !== "read_only" || registerOpen;
 }

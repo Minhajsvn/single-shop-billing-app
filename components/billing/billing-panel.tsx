@@ -1,36 +1,36 @@
 "use client";
 
 import { CreditCard } from "@/components/icons";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { fixesInPortal } from "@/components/billing/lifecycle-banner";
 import { useEntitlement } from "@/components/billing/use-entitlement";
-import { billingSummary, isGranted } from "@/lib/billing/lifecycle-view";
-import { PLANS } from "@/lib/billing/plans";
+import { billingSummary, dubaiDate, isGranted, priceLine } from "@/lib/billing/lifecycle-view";
+import { loadRazorpayCheckout, openRazorpayCheckout } from "@/lib/billing/razorpay-checkout";
 import { refreshEntitlements, refreshSnapshot, useShopContext } from "@/lib/demo-store";
+import { requestConfirm } from "@/lib/ui/confirm-store";
 import { toast } from "@/lib/ui/toast-store";
 
 type Interval = "month" | "year";
 type Kind = "razorpay" | "pretend" | "none";
+type Busy = "checkout" | "update-card" | "cancel";
+type Checkout = { kind: "razorpay"; subscriptionId: string; keyId: string } | { kind: "redirect"; url: string };
 
 const NOT_SET_UP = "Billing is not set up yet.";
-const money = (minor: number) => (minor / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-/** Price shown to the owner: the net price, the 5% VAT and the total, from the plan table. */
-function priceLines(interval: Interval) {
-  const starter = PLANS.starter;
-  const net = (interval === "year" ? starter.annualPriceMinor : starter.monthlyPriceMinor)?.AED ?? 0;
-  const vat = Math.round(net * 0.05);
-  return { net, vat, total: net + vat };
-}
+const POLL_EVERY_MS = 3_000;
+const POLL_FOR_MS = 60_000;
 
 export function BillingPanel({ overTillLimit, onShowTills }: { overTillLimit: boolean; onShowTills: () => void }) {
-  const { mode } = useShopContext();
+  const { mode, business } = useShopContext();
   const { e, now, role } = useEntitlement();
   const hosted = mode === "hosted";
   const [kind, setKind] = useState<Kind | null>(null);
   const [interval, setInterval] = useState<Interval>("month");
-  const [busy, setBusy] = useState<"checkout" | "portal" | null>(null);
+  const [busy, setBusy] = useState<Busy | null>(null);
   const [error, setError] = useState("");
+  // The poll after a payment compares against the latest entitlements without restarting on every render.
+  const seen = useRef(e);
+  const poll = useRef<ReturnType<typeof globalThis.setInterval> | null>(null);
+  useEffect(() => { seen.current = e; }, [e]);
 
   useEffect(() => {
     if (!hosted) return;
@@ -42,7 +42,9 @@ export function BillingPanel({ overTillLimit, onShowTills }: { overTillLimit: bo
     return () => { alive = false; };
   }, [hosted]);
 
-  // Coming back from checkout or the portal: re-read the subscription, then drop the marker from the address.
+  useEffect(() => () => { if (poll.current) globalThis.clearInterval(poll.current); }, []);
+
+  // Coming back from the pretend pages: re-read the subscription, then drop the marker from the address.
   useEffect(() => {
     if (!hosted) return;
     const search = new URLSearchParams(window.location.search);
@@ -60,34 +62,107 @@ export function BillingPanel({ overTillLimit, onShowTills }: { overTillLimit: bo
     window.history.replaceState(window.history.state, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
   }, [hosted]);
 
-  async function go(path: "checkout" | "portal") {
-    setBusy(path);
+  const state = () => `${seen.current.status}|${seen.current.hasPaymentMethod}|${seen.current.planId}`;
+
+  /** The webhook lands a moment after the payment window closes: check every 3 s, for up to a minute, until the plan changes. */
+  function waitForPlanChange() {
+    toast("Payment received, updating…");
+    if (poll.current) globalThis.clearInterval(poll.current);
+    const before = state();
+    const startedAt = Date.now();
+    poll.current = globalThis.setInterval(() => {
+      void refreshEntitlements().then(() => {
+        if (state() !== before || Date.now() - startedAt >= POLL_FOR_MS) {
+          if (poll.current) globalThis.clearInterval(poll.current);
+          poll.current = null;
+          if (state() !== before) void refreshSnapshot();
+        }
+      });
+    }, POLL_EVERY_MS);
+  }
+
+  function fail(status: number, body: { error?: string } | null, fallback: string) {
+    if (status === 503) setError(NOT_SET_UP);
+    else if (status === 401 || status === 403) setError("Only the shop owner can manage billing.");
+    else setError(body?.error ?? fallback);
+  }
+
+  async function post(path: Busy, init?: RequestInit) {
+    const response = await fetch(`/api/v1/billing/${path}`, { method: "POST", ...init });
+    const body = await response.json().catch(() => null) as Record<string, unknown> | null;
+    return { response, body };
+  }
+
+  async function choosePlan() {
+    setBusy("checkout");
     setError("");
     try {
-      const response = await fetch(`/api/v1/billing/${path}`, {
-        method: "POST",
-        ...(path === "checkout" ? { headers: { "content-type": "application/json" }, body: JSON.stringify({ interval }) } : {}),
-      });
-      const body = await response.json().catch(() => null) as { url?: string; error?: string } | null;
-      if (response.ok && body?.url) {
-        window.location.assign(body.url);
+      const { response, body } = await post("checkout", { headers: { "content-type": "application/json" }, body: JSON.stringify({ interval }) });
+      const result = body as (Checkout & { error?: string }) | null;
+      if (response.ok && result?.kind === "razorpay") {
+        await loadRazorpayCheckout();
+        openRazorpayCheckout({ keyId: result.keyId, subscriptionId: result.subscriptionId, onPaid: () => { setBusy(null); waitForPlanChange(); }, onDismiss: () => setBusy(null) });
         return;
       }
-      if (response.status === 503) setError(NOT_SET_UP);
-      else if (response.status === 401 || response.status === 403) setError("Only the shop owner can manage billing.");
-      else if (response.status === 409 && path === "checkout") setError("This shop already has a subscription. Use Manage billing to change it.");
-      else if (response.status === 409) setError("There is no billing account yet. Choose a plan first.");
-      else setError(body?.error ?? "Billing could not be opened. Try again.");
+      if (response.ok && result?.kind === "redirect") {
+        window.location.assign(result.url);
+        return;
+      }
+      fail(response.status, result, "Billing could not be opened. Try again.");
     } catch {
       setError("Billing could not be opened. Check the connection and try again.");
     }
     setBusy(null);
   }
 
-  const prices = priceLines(interval);
+  async function updateCard() {
+    setBusy("update-card");
+    setError("");
+    try {
+      const { response, body } = await post("update-card");
+      const url = typeof body?.url === "string" ? body.url : null;
+      if (response.ok && url) {
+        // Razorpay's card page opens beside this one; the pretend page replaces it.
+        if (kind === "pretend") window.location.assign(url);
+        else window.open(url, "_blank", "noopener");
+      } else fail(response.status, body as { error?: string } | null, "Billing could not be opened. Try again.");
+    } catch {
+      setError("Billing could not be opened. Check the connection and try again.");
+    }
+    setBusy(null);
+  }
+
+  async function cancel() {
+    const trialCard = e.status === "trialing";
+    const shop = business?.legalName ?? "this shop";
+    const end = dubaiDate(trialCard ? (e.trialEndsAt ?? e.accessEndsAt) : e.currentPeriodEnd, true);
+    const ok = await requestConfirm({
+      title: `Cancel the subscription for ${shop}?`,
+      body: trialCard
+        ? `Your card is removed; the trial continues until ${end}.`
+        : `Starter stays until ${end}. After that the shop becomes read-only.`,
+      confirmLabel: "Cancel subscription",
+      destructive: true,
+    });
+    if (!ok) return;
+    setBusy("cancel");
+    setError("");
+    try {
+      const { response, body } = await post("cancel");
+      if (response.ok) {
+        await Promise.all([refreshEntitlements(), refreshSnapshot()]);
+        toast(typeof body?.cancelAt === "string" ? `Subscription ends on ${dubaiDate(body.cancelAt, true)}` : "Card removed");
+      } else fail(response.status, body as { error?: string } | null, "The subscription could not be cancelled. Try again.");
+    } catch {
+      setError("The subscription could not be cancelled. Check the connection and try again.");
+    }
+    setBusy(null);
+  }
+
   const unavailable = !hosted || kind === "none";
-  const manage = fixesInPortal(e);
+  const hasCard = fixesInPortal(e);
   const granted = isGranted(e, now);
+  const canCancel = hasCard && !e.cancelAt && (e.status === "active" || e.status === "past_due" || (e.status === "trialing" && e.hasPaymentMethod));
 
   return (
     <section className="panel">
@@ -104,24 +179,20 @@ export function BillingPanel({ overTillLimit, onShowTills }: { overTillLimit: bo
               <button type="button" className={`button ${interval === "month" ? "primary" : ""}`} aria-pressed={interval === "month"} onClick={() => setInterval("month")}>Monthly</button>
               <button type="button" className={`button ${interval === "year" ? "primary" : ""}`} aria-pressed={interval === "year"} onClick={() => setInterval("year")}>Annual</button>
             </div>
-            <div>
-              <div style={{ fontWeight: 600 }}>
-                {interval === "year" ? `Starter · AED ${money(prices.net).replace(/\.00$/, "")} / year (2 months free)` : `Starter · AED ${money(prices.net)} / month`}
-              </div>
-              <div className="panel-subtitle">
-                {`AED ${money(prices.net)} + ${money(prices.vat)} VAT (5%) = AED ${money(prices.total)} ${interval === "year" ? "a year" : "a month"}`}
-              </div>
-            </div>
+            <div style={{ fontWeight: 600 }}>{priceLine(interval)}</div>
             </>)}
             {overTillLimit ? (
               <p style={{ margin: 0 }}>Your plan allows fewer tills than are active. <button type="button" className="button" onClick={onShowTills}>Choose which till stays</button></p>
             ) : null}
             {role === "owner" && !granted ? (
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                {manage ? (
-                  <button type="button" className="button primary" onClick={() => void go("portal")} disabled={busy !== null}><CreditCard size={14} weight="bold" />{busy === "portal" ? "Opening…" : "Manage billing"}</button>
+                {hasCard ? (
+                  <>
+                    <button type="button" className="button primary" onClick={() => void updateCard()} disabled={busy !== null}><CreditCard size={14} weight="bold" />{busy === "update-card" ? "Opening…" : "Update card"}</button>
+                    {canCancel ? <button type="button" className="button" onClick={() => void cancel()} disabled={busy !== null}>{busy === "cancel" ? "Cancelling…" : "Cancel subscription"}</button> : null}
+                  </>
                 ) : (
-                  <button type="button" className="button primary" onClick={() => void go("checkout")} disabled={busy !== null}>{busy === "checkout" ? "Opening…" : "Choose a plan"}</button>
+                  <button type="button" className="button primary" onClick={() => void choosePlan()} disabled={busy !== null}>{busy === "checkout" ? "Opening…" : "Choose a plan"}</button>
                 )}
               </div>
             ) : null}

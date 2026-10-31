@@ -16,7 +16,6 @@ export default async function PretendPortalPage() {
         interval="month"
         buttons={[
           { action: "update_card", label: "Update card", tone: "primary", returnTo: "portal" },
-          { action: "cancel", label: "Cancel subscription at period end", returnTo: "portal" },
           { action: "renew", label: "Simulate renewal", returnTo: "portal" },
           { action: "fail_renewal", label: "Simulate failed renewal", returnTo: "portal" },
           { action: "end_trial", label: "End trial now", returnTo: "portal" },

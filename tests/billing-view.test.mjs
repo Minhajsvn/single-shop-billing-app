@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { bannerFor, billingSummary, canWrite, dubaiDaysLeft, isGranted, lifecycleState, registerOpenDecision } from "../lib/billing/lifecycle-view.ts";
+import { bannerFor, billingSummary, canWrite, dubaiDaysLeft, isGranted, lifecycleState, priceLine, registerOpenDecision } from "../lib/billing/lifecycle-view.ts";
 
 const now = new Date("2026-10-19T10:00:00Z"); // 14:00 in Dubai
 const base = {
@@ -135,4 +135,14 @@ test("lifecycleState is full while a grant is in force, whatever the subscriptio
   assert.equal(lifecycleState(trial("2026-10-25T00:00:00Z", { grantPlanId: "pro", grantEndsAt: null }), now), "full");
   const lapsed = { ...base, status: "canceled", access: "full", accessEndsAt: "2026-10-01T00:00:00Z", grantPlanId: "pro", grantEndsAt: "2026-10-10T00:00:00Z" };
   assert.equal(lifecycleState(lapsed, now), "read_only");
+});
+
+test("price line has the net price and no VAT", () => {
+  assert.equal(priceLine("month"), "Starter · AED 99.00 / month");
+  assert.equal(priceLine("year"), "Starter · AED 990 / year (2 months free)");
+  assert.doesNotMatch(priceLine("month") + priceLine("year"), /VAT/);
+});
+
+test("cancelling shows the cancel date", () => {
+  assert.match(billingSummary({ ...base, accessEndsAt: "2026-11-19T08:00:00Z", cancelAt: "2026-11-19T08:00:00Z" }, now), /cancels on 19 Nov 2026/i);
 });
