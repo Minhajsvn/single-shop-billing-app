@@ -2,7 +2,7 @@
 
 ## Product
 
-Working name: Shop Ledger UAE  
+Working name: billo  
 Release: MVP 1.0  
 Market: Single-location UAE retail shop  
 Currency and timezone: AED, Asia/Dubai

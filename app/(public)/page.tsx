@@ -2,7 +2,7 @@ import { PRICE_TEXT } from "@/lib/billing/price-text";
 import type { Metadata } from "next";
 import Link from "next/link";
 
-export const metadata: Metadata = { title: "Shop Ledger UAE: a till and billing app for shops" };
+export const metadata: Metadata = { title: "billo: a till and billing app for shops" };
 
 export default function HomePage() {
   return (
@@ -11,7 +11,7 @@ export default function HomePage() {
         <div className="eyebrow">For shops in the UAE</div>
         <h1 className="page-title">A till and billing app that keeps selling offline</h1>
         <p className="page-copy">
-          Shop Ledger is a till and billing app for shops in the UAE. Ring up sales, print receipts, track stock and
+          billo is a till and billing app for shops in the UAE. Ring up sales, print receipts, track stock and
           customers, and close the day with a cash register. The till keeps working when the internet drops and syncs when it returns.
         </p>
         <div className="public-cta">

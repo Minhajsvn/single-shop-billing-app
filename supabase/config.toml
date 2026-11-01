@@ -244,16 +244,16 @@ otp_expiry = 3600
 
 # Token-hash links (not same-browser code exchange) so a link opened on another device still works.
 [auth.email.template.confirmation]
-subject = "Confirm your email for Shop Ledger"
+subject = "Confirm your email for billo"
 content_path = "./supabase/templates/confirmation.html"
 
 [auth.email.template.recovery]
-subject = "Reset your Shop Ledger password"
+subject = "Reset your billo password"
 content_path = "./supabase/templates/recovery.html"
 
 # Uncomment to customize email template
 [auth.email.template.invite]
-subject = "You're invited to Shop Ledger"
+subject = "You're invited to billo"
 content_path = "./supabase/templates/invite.html"
 
 # Uncomment to customize notification email template

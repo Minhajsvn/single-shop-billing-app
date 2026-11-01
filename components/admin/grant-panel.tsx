@@ -84,7 +84,7 @@ export function GrantPanel({ shopId, grant, paysThroughProvider }: Props) {
     if (!preview.ok) { setError(preview.error); return; }
     const ok = await requestConfirm({
       title: `Grant the ${planName(planId)} plan?`,
-      body: `The shop gets full access on the ${planName(planId)} plan ${preview.until ? `until ${adminDateTime(preview.until)}` : "until you revoke it"}.${grant ? " This replaces the current grant." : ""} The owner will see that Shop Ledger provides the plan, and cannot start a checkout meanwhile.`,
+      body: `The shop gets full access on the ${planName(planId)} plan ${preview.until ? `until ${adminDateTime(preview.until)}` : "until you revoke it"}.${grant ? " This replaces the current grant." : ""} The owner will see that billo provides the plan, and cannot start a checkout meanwhile.`,
       confirmLabel: "Grant plan",
     });
     if (ok) await send("POST", body, "Plan granted");
@@ -123,7 +123,7 @@ export function GrantPanel({ shopId, grant, paysThroughProvider }: Props) {
       <div className="panel-header">
         <div>
           <h2 className="panel-title" id="grant-title">Granted plan</h2>
-          <div className="panel-subtitle">Full access on a plan, given by Shop Ledger</div>
+          <div className="panel-subtitle">Full access on a plan, given by billo</div>
         </div>
         {grant?.endingSoon && grant.endsAt ? <span className="badge yellow" suppressHydrationWarning>{endsInText(grant.endsAt, new Date())}</span> : null}
       </div>

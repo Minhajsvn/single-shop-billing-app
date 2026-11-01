@@ -43,7 +43,7 @@ export function openRazorpayCheckout(opts: { keyId: string; subscriptionId: stri
   new window.Razorpay({
     key: opts.keyId,
     subscription_id: opts.subscriptionId,
-    name: "Shop Ledger",
+    name: "billo",
     description: "Starter plan",
     handler: opts.onPaid,
     modal: { ondismiss: opts.onDismiss },

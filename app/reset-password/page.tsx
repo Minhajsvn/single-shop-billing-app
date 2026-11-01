@@ -6,6 +6,7 @@ import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
+import { BrandMark } from "@/components/brand-mark";
 
 type View = "checking" | "ready" | "no-session";
 
@@ -52,7 +53,7 @@ export default function ResetPasswordPage() {
   return (
     <main className="auth-shell">
       <section className="auth-card panel" aria-labelledby="reset-title">
-        <div className="auth-brand"><span className="brand-mark">SL</span><span><strong>Shop Ledger</strong><small>UAE retail till</small></span></div>
+        <div className="auth-brand"><BrandMark /><span><strong>billo</strong><small>UAE retail till</small></span></div>
         <div className="eyebrow">Password reset</div>
         <h1 id="reset-title">Choose a new password</h1>
         {view === "checking" ? <p className="page-copy" role="status">Checking your link…</p> : null}

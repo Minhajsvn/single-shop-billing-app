@@ -8,6 +8,7 @@ import { SiteFooter } from "@/components/public/site-footer";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
+import { BrandMark } from "@/components/brand-mark";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -71,7 +72,7 @@ export default function SignupPage() {
     <>
     <main className="auth-shell">
       <section className="auth-card panel" aria-labelledby={sentTo ? "check-email-title" : "signup-title"}>
-        <div className="auth-brand"><span className="brand-mark">SL</span><span><strong>Shop Ledger</strong><small>UAE retail till</small></span></div>
+        <div className="auth-brand"><BrandMark /><span><strong>billo</strong><small>UAE retail till</small></span></div>
         {sentTo ? (
           <CheckEmail email={sentTo} onStartAgain={startAgain} />
         ) : (

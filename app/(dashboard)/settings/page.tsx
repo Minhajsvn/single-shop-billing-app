@@ -118,12 +118,12 @@ export default function SettingsPage() {
 
 
   function downloadBackup() {
-    const payload = { schemaVersion: 3, exportedAt: new Date().toISOString(), app: "Shop Ledger UAE", settings, state: createDemoStateBackup() };
+    const payload = { schemaVersion: 3, exportedAt: new Date().toISOString(), app: "billo", settings, state: createDemoStateBackup() };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `shop-ledger-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    anchor.download = `billo-backup-${new Date().toISOString().slice(0, 10)}.json`;
     document.body.append(anchor);
     anchor.click();
     anchor.remove();
@@ -147,7 +147,7 @@ export default function SettingsPage() {
       }
       setBackupMessage("Backup restored and validated successfully.");
     } catch {
-      setBackupMessage("Restore stopped: the selected file is not valid Shop Ledger JSON.");
+      setBackupMessage("Restore stopped: the selected file is not valid billo JSON.");
     }
   }
 
@@ -266,7 +266,7 @@ export default function SettingsPage() {
           </section> : null}
           {ownerView ? <section className="panel backup-panel">
             <div className="panel-header"><div><div className="panel-title">Backup and recovery</div><div className="panel-subtitle">Portable local snapshot for this single device</div></div><ShieldCheck size={20} weight="duotone" /></div>
-            <div className="panel-body backup-body"><div><strong>Keep a recoverable copy</strong><p>Download after closing each business day. The file contains invoices, customers, products, stock movements, register data, and settings.</p></div><div className="backup-actions"><button className="button" onClick={downloadBackup}><DownloadSimple size={15} weight="bold" /> Download backup</button>{!hosted ? <><button className="button" onClick={() => backupInput.current?.click()}><UploadSimple size={15} weight="bold" /> Restore backup</button><input className="sr-only" ref={backupInput} type="file" accept="application/json,.json" onChange={restoreBackup} aria-label="Choose Shop Ledger backup file" /></> : null}</div></div>
+            <div className="panel-body backup-body"><div><strong>Keep a recoverable copy</strong><p>Download after closing each business day. The file contains invoices, customers, products, stock movements, register data, and settings.</p></div><div className="backup-actions"><button className="button" onClick={downloadBackup}><DownloadSimple size={15} weight="bold" /> Download backup</button>{!hosted ? <><button className="button" onClick={() => backupInput.current?.click()}><UploadSimple size={15} weight="bold" /> Restore backup</button><input className="sr-only" ref={backupInput} type="file" accept="application/json,.json" onChange={restoreBackup} aria-label="Choose billo backup file" /></> : null}</div></div>
             {backupMessage && <div className="backup-message" role="status">{backupMessage}</div>}
           </section> : null}
           {!hosted && ownerView ?<section className="panel sync-diagnostics">

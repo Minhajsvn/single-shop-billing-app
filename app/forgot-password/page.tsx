@@ -5,6 +5,7 @@ import { INVALID_EMAIL, isNetworkError, isValidEmail, NETWORK_ERROR, RATE_LIMITE
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import Link from "next/link";
 import { FormEvent, useState } from "react";
+import { BrandMark } from "@/components/brand-mark";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
@@ -46,7 +47,7 @@ export default function ForgotPasswordPage() {
   return (
     <main className="auth-shell">
       <section className="auth-card panel" aria-labelledby="forgot-title">
-        <div className="auth-brand"><span className="brand-mark">SL</span><span><strong>Shop Ledger</strong><small>UAE retail till</small></span></div>
+        <div className="auth-brand"><BrandMark /><span><strong>billo</strong><small>UAE retail till</small></span></div>
         {sentTo ? (
           <>
             <div className="eyebrow">Password reset</div>

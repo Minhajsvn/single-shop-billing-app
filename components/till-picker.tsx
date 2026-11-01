@@ -7,6 +7,7 @@ import { isOwnerView } from "@/lib/access/cashier";
 import { refreshSnapshot, useShopContext } from "@/lib/demo-store";
 import { storeDeviceId } from "@/lib/device";
 import { createClient } from "@/lib/supabase/client";
+import { BrandMark } from "@/components/brand-mark";
 
 export function TillPicker() {
   const { business, devices, entitlements, role } = useShopContext();
@@ -49,7 +50,7 @@ export function TillPicker() {
   return (
     <main className="auth-shell">
       <section className="auth-card panel" aria-labelledby="till-title">
-        <div className="auth-brand"><span className="brand-mark">SL</span><span><strong>{business?.legalName ?? "Shop Ledger"}</strong><small>Choose this browser&apos;s till</small></span></div>
+        <div className="auth-brand"><BrandMark /><span><strong>{business?.legalName ?? "billo"}</strong><small>Choose this browser&apos;s till</small></span></div>
         <div className="eyebrow">Till setup</div>
         <h1 id="till-title">Which till is this browser?</h1>
         <p className="page-copy">Each till has its own invoice numbers. Pick the till this computer works as{isOwnerView(role) ? ", or register a new one" : ""}.</p>

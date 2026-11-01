@@ -8,7 +8,7 @@ import { requireStaff } from "@/lib/admin/require-staff";
 // Static metadata would also render on the non-staff 404 and reveal the console, so it is gated too.
 export async function generateMetadata(): Promise<Metadata> {
   if (!(await requireStaff()).ok) return {};
-  return { title: "Admin · Shop Ledger UAE", robots: { index: false, follow: false } };
+  return { title: "Admin · billo", robots: { index: false, follow: false } };
 }
 
 // Outside the (dashboard) group on purpose: staff need no shop or till.
@@ -22,7 +22,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     <div className="admin-shell">
       <header className="topbar">
         <div className="admin-brand">
-          <strong>Shop Ledger · Admin</strong>
+          <strong>billo · Admin</strong>
           <small title={staff.email}>{staff.email}</small>
         </div>
         <Link href="/overview" className="admin-open-link">Open shop app</Link>

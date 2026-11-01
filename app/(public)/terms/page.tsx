@@ -4,16 +4,16 @@ import { SITE_INFO } from "@/lib/site-info";
 import type { Metadata } from "next";
 import Link from "next/link";
 
-export const metadata: Metadata = { title: "Terms of service | Shop Ledger UAE" };
+export const metadata: Metadata = { title: "Terms of service | billo" };
 
 export default function TermsPage() {
   return (
     <article className="public-doc">
       <h1 className="page-title">Terms of service</h1>
-      <p className="page-copy">These terms cover your use of Shop Ledger, provided by {SITE_INFO.legalName}.</p>
+      <p className="page-copy">These terms cover your use of billo, provided by {SITE_INFO.legalName}.</p>
 
       <h2>The service</h2>
-      <p>Shop Ledger is a till and billing app for shops in the UAE. It records sales, stock, customers and the cash register, and it keeps working on your device when the internet is down.</p>
+      <p>billo is a till and billing app for shops in the UAE. It records sales, stock, customers and the cash register, and it keeps working on your device when the internet is down.</p>
 
       <h2>Free trial</h2>
       <p>A new shop gets a {PRICE_TEXT.trialDays}-day {PRICE_TEXT.trialPlanName} trial. No card is needed to start. If you add a card during the trial, it is first charged when the trial ends, or straight away if the trial ends within {MIN_START_LEAD_MS / 3_600_000} hours.</p>

@@ -1,4 +1,4 @@
-const CACHE = "shop-ledger-shell-v4";
+const CACHE = "shop-ledger-shell-v5";
 const SHELL = ["/overview", "/sale", "/sales", "/sales/offline", "/inventory", "/customers", "/register", "/reports", "/settings", "/manifest.webmanifest", "/icon.svg"];
 
 self.addEventListener("install", (event) => {

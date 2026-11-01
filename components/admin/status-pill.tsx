@@ -4,7 +4,7 @@ export type StatusTone = "green" | "red" | "yellow" | "blue";
 export function statusTone(text: string): StatusTone {
   if (text.startsWith("Read-only")) return "red";
   if (text.startsWith("Payment failed")) return "yellow";
-  if (text.startsWith("Pro trial") || text.includes("provided by Shop Ledger")) return "blue";
+  if (text.startsWith("Pro trial") || text.includes("provided by billo")) return "blue";
   return "green";
 }
 

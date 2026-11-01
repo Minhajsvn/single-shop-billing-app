@@ -6,6 +6,7 @@ import { enabledCountries } from "@/lib/fiscal/countries";
 import { createClient } from "@/lib/supabase/client";
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
+import { BrandMark } from "@/components/brand-mark";
 
 type SetupValues = {
   name: string;
@@ -90,7 +91,7 @@ export function BusinessSetup() {
   return (
     <main className="auth-shell">
       <section className="auth-card setup-card panel" aria-labelledby="setup-title">
-        <div className="auth-brand"><span className="brand-mark">SL</span><span><strong>Shop Ledger</strong><small>UAE retail till</small></span></div>
+        <div className="auth-brand"><BrandMark /><span><strong>billo</strong><small>UAE retail till</small></span></div>
         <div className="eyebrow">First-time setup</div>
         <h1 id="setup-title">Set up your shop</h1>
         <p className="page-copy">These legal details are stored in Supabase and used to scope your shop records securely.</p>

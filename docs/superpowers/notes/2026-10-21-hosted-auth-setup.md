@@ -56,7 +56,7 @@ Supabase's built-in mail only sends a few emails an hour and only to team member
 
 1. Get SMTP details from your mail provider (for example Resend, Postmark, SendGrid, Amazon SES or Zoho): host, port, user name, password, and a sender address on a domain you own.
 2. Go to **Authentication → Emails → SMTP Settings** and turn on **Enable custom SMTP**.
-3. Fill in **Sender email** (for example `no-reply@your-domain`), **Sender name** (`Shop Ledger`), **Host**, **Port**, **Username** and **Password**.
+3. Fill in **Sender email** (for example `no-reply@your-domain`), **Sender name** (`billo`), **Host**, **Port**, **Username** and **Password**.
 4. Click **Save**.
 5. Go to **Authentication → Rate Limits** and raise **Rate limit for sending emails** to a number that fits your expected sign-ups per hour (for example 30).
 
@@ -66,15 +66,15 @@ The app's links verify a one-time token on the server, so they work even when th
 
 1. Go to **Authentication → Emails → Templates**.
 2. Choose **Confirm signup**.
-   - **Subject:** `Confirm your email for Shop Ledger`
+   - **Subject:** `Confirm your email for billo`
    - **Body:** delete everything, then paste the whole of `supabase/templates/confirmation.html` from this repository.
    - Click **Save**.
 3. Choose **Reset Password**.
-   - **Subject:** `Reset your Shop Ledger password`
+   - **Subject:** `Reset your billo password`
    - **Body:** delete everything, then paste the whole of `supabase/templates/recovery.html`.
    - Click **Save**.
 4. Choose **Invite user**.
-   - **Subject:** `You're invited to Shop Ledger`
+   - **Subject:** `You're invited to billo`
    - **Body:** delete everything, then paste the whole of `supabase/templates/invite.html`.
    - Click **Save**.
 

@@ -119,8 +119,8 @@ test("billingSummary names the shop's own plan once it is paid", () => {
 
 test("a granted plan reads in plain words and shows no banner", () => {
   const grant = { ...base, planId: "pro", grantPlanId: "pro", grantEndsAt: "2026-11-30T19:59:59.999Z" };
-  assert.equal(billingSummary(grant, now), "Pro plan · provided by Shop Ledger until 30 Nov 2026");
-  assert.equal(billingSummary({ ...grant, grantEndsAt: null }, now), "Pro plan · provided by Shop Ledger");
+  assert.equal(billingSummary(grant, now), "Pro plan · provided by billo until 30 Nov 2026");
+  assert.equal(billingSummary({ ...grant, grantEndsAt: null }, now), "Pro plan · provided by billo");
   const pd = { ...grant, status: "past_due", graceEndsAt: "2026-10-24T09:00:00Z" };
   assert.equal(bannerFor({ e: pd, stale: false, role: "owner", now }), null);
   assert.equal(isGranted(grant, now), true);

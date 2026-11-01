@@ -25,7 +25,7 @@ export function ReportsWorkspace() {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `shop-ledger-daily-${date}.csv`;
+    anchor.download = `billo-daily-${date}.csv`;
     document.body.append(anchor);
     anchor.click();
     anchor.remove();
@@ -42,7 +42,7 @@ export function ReportsWorkspace() {
     <div className="page-heading no-print"><div><div className="eyebrow">Daily reconciliation</div><h1 className="page-title">Reports</h1><p className="page-copy">One Dubai business day across invoices, VAT, payment methods, returns, and the register.</p></div><div className="report-actions"><label className="date-control"><CalendarBlank size={16} weight="bold" /><span className="sr-only">Business date</span><input type="date" value={date} onInput={(event) => setDate(event.currentTarget.value)} /></label><button className="button" onClick={downloadCsv}><DownloadSimple size={16} weight="bold" /> Export CSV</button><button className="button primary" onClick={printReport}><Printer size={16} weight="bold" /> Print report</button>{exported && <span className="badge green" role="status">CSV downloaded</span>}</div></div>
 
     <article className="daily-report-document">
-      <header className="report-print-header"><div><span>Shop Ledger UAE</span><strong>Daily sales report</strong></div><div><span>Business date</span><strong>{reportDateLabel(date)}</strong></div></header>
+      <header className="report-print-header"><div><span>billo</span><strong>Daily sales report</strong></div><div><span>Business date</span><strong>{reportDateLabel(date)}</strong></div></header>
       <div className="no-print"><SummaryStrip label="Daily totals" items={[{ label: "Net sales", value: formatAED(report.netFils) }, { label: "VAT 5%", value: formatAED(report.vatFils) }, { label: "Gross", value: formatAED(report.grossFils) }, { label: "Returns", value: formatAED(report.returnsFils) }]} /></div>
       <section className="metric-grid report-metrics print-only" aria-label="Daily report totals"><div className="metric"><div className="metric-label">Net sales</div><div className="metric-value">{formatAED(report.netFils)}</div><div className="metric-note">After credit notes</div></div><div className="metric"><div className="metric-label">VAT 5%</div><div className="metric-value">{formatAED(report.vatFils)}</div><div className="metric-note">Included in gross</div></div><div className="metric"><div className="metric-label">Gross sales</div><div className="metric-value">{formatAED(report.grossFils)}</div><div className="metric-note">{report.invoiceCount} {report.invoiceCount === 1 ? "invoice" : "invoices"}</div></div><div className="metric"><div className="metric-label">Returns</div><div className="metric-value">{formatAED(report.returnsFils)}</div><div className="metric-note">{report.creditNoteCount} {report.creditNoteCount === 1 ? "credit note" : "credit notes"}</div></div></section>
 

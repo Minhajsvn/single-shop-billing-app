@@ -1,10 +1,10 @@
-# Shop Ledger UAE — Product Overview and Marketing Brief
+# billo — Product Overview and Marketing Brief
 
-This document describes what Shop Ledger UAE is, what it does today, and what a digital or social media marketing team needs to know to promote it accurately. Technical detail lives in the [PRD](PRD.md), [Product design](PRODUCT_DESIGN.md), and [Technical design](TECHNICAL_DESIGN.md).
+This document describes what billo is, what it does today, and what a digital or social media marketing team needs to know to promote it accurately. Technical detail lives in the [PRD](PRD.md), [Product design](PRODUCT_DESIGN.md), and [Technical design](TECHNICAL_DESIGN.md).
 
 ## Short description
 
-**Shop Ledger UAE** is a fast, installable point-of-sale and billing app for a single UAE retail shop. It lets the owner sell, print VAT-compliant tax invoices, track stock, manage customers and returns, and balance the cash drawer at the end of the day — all from one browser-based app that keeps working through short internet outages.
+**billo** is a fast, installable point-of-sale and billing app for a single UAE retail shop. It lets the owner sell, print VAT-compliant tax invoices, track stock, manage customers and returns, and balance the cash drawer at the end of the day — all from one browser-based app that keeps working through short internet outages.
 
 ### Taglines (pick and test)
 
@@ -15,7 +15,7 @@ This document describes what Shop Ledger UAE is, what it does today, and what a 
 
 ### One-paragraph pitch
 
-Small UAE shops often run on paper receipts, spreadsheets, and a cash drawer that never quite balances. Shop Ledger UAE replaces that with one dependable app: every sale automatically produces a 5% VAT tax invoice, updates stock, and records the payment in the day's register. At closing time the owner sees exactly what was sold, how much VAT was collected, how much cash should be in the drawer, and any difference — in under five minutes.
+Small UAE shops often run on paper receipts, spreadsheets, and a cash drawer that never quite balances. billo replaces that with one dependable app: every sale automatically produces a 5% VAT tax invoice, updates stock, and records the payment in the day's register. At closing time the owner sees exactly what was sold, how much VAT was collected, how much cash should be in the drawer, and any difference — in under five minutes.
 
 ## Who it is for
 
@@ -132,7 +132,7 @@ From the [product design spec](PRODUCT_DESIGN.md):
 - **Typography:** Geist Sans (or Helvetica Neue) for text; Geist Mono for numbers and invoice data.
 - **Icon:** `public/icon.svg`. Icons in the app use the Phosphor icon set.
 - **Tone of voice:** plain, confident, practical. Talk like a helpful shop accountant, not a tech startup. Short sentences; money in AED.
-- **App names:** full name "Shop Ledger UAE"; short name "Shop Ledger". ("Shop Ledger UAE" is a working name — confirm the final brand before large campaigns.)
+- **App names:** full name "billo"; short name "billo". ("billo" is a working name — confirm the final brand before large campaigns.)
 
 ## Capturing screenshots and demos
 

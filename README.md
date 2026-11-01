@@ -1,4 +1,4 @@
-# Shop Ledger UAE
+# billo
 
 Single-shop sales, VAT billing, inventory, customer history, and daily cash-register management.
 

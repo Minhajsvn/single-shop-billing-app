@@ -18,6 +18,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { clearHostedStore, useDemoStore, useShopContext } from "@/lib/demo-store";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { requestConfirm } from "@/lib/ui/confirm-store";
+import { BrandMark } from "@/components/brand-mark";
 
 // Phone bar (owner's choice): Overview · Sales · New sale (centre, highlighted) · Inventory · More.
 const phoneTabs = [
@@ -109,7 +110,7 @@ export function AppShell({ children, loading = false }: { children: ReactNode; l
     router.replace("/login");
   }
 
-  const shopName = business?.legalName ?? (mode === "sample" ? "Sample shop" : "Shop Ledger");
+  const shopName = business?.legalName ?? (mode === "sample" ? "Sample shop" : "billo");
   const tillLabel = mode === "sample" ? "This browser" : device ? `Till ${device.tillNumber} · ${device.branchName}` : "No till selected";
   const signOutLabel = isSupabaseConfigured() ? (mode === "sample" ? "Leave sample" : "Sign out") : null;
   const moreActive = moreLinks.some(({ href }) => active(pathOf(href)));
@@ -118,10 +119,10 @@ export function AppShell({ children, loading = false }: { children: ReactNode; l
     <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
       <aside className="sidebar" id="app-sidebar">
         <div className="sidebar-head">
-          <Link className="brand" href="/overview" aria-label="Shop Ledger overview">
-            <span className="brand-mark">SL</span>
+          <Link className="brand" href="/overview" aria-label="billo overview">
+            <BrandMark />
             <span>
-              <span className="brand-name">Shop Ledger</span>
+              <span className="brand-name">billo</span>
               <span className="brand-meta">UAE retail till</span>
             </span>
           </Link>

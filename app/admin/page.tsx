@@ -32,7 +32,7 @@ export default async function AdminShopsPage({ searchParams }: { searchParams: P
     { label: "Shops", value: counts.shops, note: "All shops" },
     { label: "Needs a look", value: counts.needsLook, note: counts.needsLook === 1 ? "Shop with an open billing flag" : "Shops with an open billing flag" },
     { label: "On trial", value: counts.trial, note: "Trying Pro" },
-    { label: "Granted", value: counts.granted, note: "Plan given by Shop Ledger" },
+    { label: "Granted", value: counts.granted, note: "Plan given by billo" },
     { label: "Paying", value: counts.paying, note: "Through Razorpay" },
   ];
 

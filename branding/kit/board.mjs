@@ -1,0 +1,105 @@
+// Builds board.html (presentation board with retail mockups) and screenshots it to board.png.
+// Run after kit.mjs: node branding/kit/board.mjs
+import { readFileSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { join } from "node:path";
+import { COLORS as C } from "./colors.mjs";
+
+const root = fileURLToPath(new URL(".", import.meta.url));
+const inline = (rel) => readFileSync(join(root, rel), "utf8").replace(/<title>.*?<\/title>/, "");
+const png = (rel, h, css = "") =>
+  `<img src="data:image/png;base64,${readFileSync(join(root, rel)).toString("base64")}" style="height:${h}px;width:${h}px;image-rendering:pixelated;${css}">`;
+
+const sym = (k) => inline(`svg/billo-symbol-${k}.svg`);
+const hor = (k) => inline(`svg/billo-horizontal-${k}.svg`);
+const stk = (k) => inline(`svg/billo-stacked-${k}.svg`);
+const small = (k) => inline(`svg/billo-symbol-small-${k}.svg`);
+
+const html = `<!doctype html><meta charset="utf-8"><title>billo logo board</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#ecebe6;font:15px/1.45 system-ui,"Segoe UI",sans-serif;color:${C.ink};width:1600px;padding:48px}
+h1{font-size:28px;margin:0}h2{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:#6d726d;margin:0 0 14px}
+.sub{color:#5d625d;margin:6px 0 32px}.grid{display:grid;grid-template-columns:repeat(6,1fr);gap:20px}
+.card{background:#fff;border-radius:18px;padding:24px;overflow:hidden;position:relative}
+.s2{grid-column:span 2}.s3{grid-column:span 3}.s4{grid-column:span 4}.s6{grid-column:span 6}
+svg{display:block}.hero{display:flex;align-items:center;justify-content:space-around;height:300px;background:${C.paper}}
+.hero svg{height:180px}.green{background:${C.green}}.ink{background:${C.ink}}
+.sw{display:flex;gap:14px}.sw div{flex:1;border-radius:12px;height:120px;padding:12px;font-size:12px;display:flex;flex-direction:column;justify-content:flex-end}
+.receipt{width:250px;margin:0 auto;background:${C.paper};padding:22px 20px 34px;font:12px/1.6 ui-monospace,Consolas,monospace;
+ clip-path:polygon(0 0,100% 0,100% calc(100% - 12px),87.5% 100%,75% calc(100% - 12px),62.5% 100%,50% calc(100% - 12px),37.5% 100%,25% calc(100% - 12px),12.5% 100%,0 calc(100% - 12px));box-shadow:0 0 0 1px #e4dccb inset}
+.receipt .r{display:flex;justify-content:space-between}.receipt hr{border:0;border-top:1px dashed #b9b2a3;margin:8px 0}
+.mock{background:#d9d7cf;display:flex;align-items:center;justify-content:center;height:330px;border-radius:14px}
+.app{width:560px;height:290px;background:#fbfbfa;border-radius:12px;box-shadow:0 8px 30px #0002;overflow:hidden}
+.bar{height:56px;display:flex;align-items:center;gap:12px;padding:0 18px;background:#fff;border-bottom:1px solid #e8e7e2}
+.bar svg{height:30px}.pill{margin-left:auto;font-size:12px;background:${C.green};color:#fff;padding:6px 12px;border-radius:99px}
+.rows div{height:14px;margin:18px;background:#ecebe6;border-radius:4px}.rows div:nth-child(2){width:60%}
+.phone{width:210px;height:300px;border-radius:30px;background:linear-gradient(160deg,#2c3a35,#0f1613);padding:28px 22px;display:grid;grid-template-columns:repeat(3,1fr);gap:16px;align-content:start}
+.phone i{display:block;width:46px;height:46px;border-radius:12px;background:#ffffff22;margin:0 auto}
+.phone .me svg{width:46px;height:46px;border-radius:12px;margin:0 auto}.phone span{font:10px system-ui;color:#fff;text-align:center;display:block;margin-top:4px}
+.sign{width:300px;height:300px;border-radius:50%;background:${C.green};display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;gap:12px;font-weight:600;box-shadow:0 10px 30px #0003}
+.sign svg{height:120px}.bcard{width:340px;height:200px;border-radius:10px;background:${C.paper};box-shadow:0 8px 24px #0002;padding:26px;display:flex;flex-direction:column;justify-content:space-between}
+.bcard svg{height:46px}.bcard p{margin:0;font-size:12px;color:#4d524d}
+.tab{width:520px;background:#dfe1e5;border-radius:12px 12px 0 0;padding:8px 8px 0}.tab div{background:#fff;border-radius:10px 10px 0 0;padding:10px 14px;display:flex;gap:10px;align-items:center;width:240px;font-size:13px}
+.tab svg{height:16px;width:16px}.url{background:#fff;padding:10px 16px;width:520px;font-size:13px;color:#555;border-top:1px solid #eee}
+.ladder{display:flex;align-items:flex-end;gap:28px}.ladder figure{margin:0;text-align:center;font-size:11px;color:#6d726d}
+.clear{display:flex;justify-content:center}.clear svg{height:260px}
+.dont{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}.dont div{background:#f6f5f1;border-radius:10px;height:120px;display:flex;align-items:center;justify-content:center;position:relative;font-size:11px}
+.dont div svg{height:72px}.dont b{position:absolute;bottom:6px;left:8px;font-weight:500;color:#a33}
+</style>
+<h1>billo — logo kit</h1><p class="sub">billoae.com · Billing for single shops in the UAE · Direction C “Receipt tile”: a till receipt with the b punched out of it.</p>
+<div class="grid">
+  <div class="card s4 hero">${hor("color")}</div>
+  <div class="card s2 hero green">${stk("white")}</div>
+
+  <div class="card s3"><h2>Palette</h2><div class="sw">
+    <div style="background:${C.green};color:#fff"><b>Billo Green</b>#0B6E4F · RGB 11 110 79<br>CMYK 90 25 75 25 · Pantone 3425 C*</div>
+    <div style="background:${C.ink};color:#fff"><b>Ink</b>#16201C · RGB 22 32 28<br>CMYK 70 45 60 85 · Pantone Black 3 C*</div>
+    <div style="background:${C.paper};box-shadow:0 0 0 1px #e4dccb inset"><b>Till Paper</b>#FFF7E8 · RGB 255 247 232<br>CMYK 0 3 9 0</div>
+  </div><p style="font-size:12px;color:#6d726d;margin:10px 0 0">Contrast: green on white 6.25:1, green on paper 5.87:1, ink on paper 15.7:1. *Nearest Pantone — confirm against a printed swatch.</p></div>
+  <div class="card s3"><h2>Small sizes — master above 32 px, small cut below</h2><div class="ladder">
+    <figure>${sym("color").replace("<svg", '<svg style="height:96px"')}<figcaption>master 96</figcaption></figure>
+    <figure>${sym("color").replace("<svg", '<svg style="height:48px"')}<figcaption>master 48</figcaption></figure>
+    <figure>${png("web/favicon-32.png", 32)}<figcaption>small 32</figcaption></figure>
+    <figure>${png("web/favicon-16.png", 16)}<figcaption>small 16</figcaption></figure>
+    <figure>${png("web/favicon-16.png", 64)}<figcaption>16 px ×4</figcaption></figure>
+    <figure style="background:${C.ink};padding:10px;border-radius:10px">${small("white").replace("<svg", '<svg style="height:32px"')}</figure>
+  </div></div>
+
+  <div class="card s2"><h2>Receipt</h2><div class="mock"><div class="receipt">
+    <div style="display:flex;justify-content:center">${hor("black").replace("<svg", '<svg style="height:30px"')}</div>
+    <div style="text-align:center;margin-top:6px">Al Noor Grocery · Deira<br>TRN 100XXXXXXXX00003</div><hr>
+    <div class="r"><span>Basmati 5kg</span><span>42.00</span></div><div class="r"><span>Laban 1L ×2</span><span>9.00</span></div>
+    <div class="r"><span>VAT 5%</span><span>2.55</span></div><hr><div class="r"><b>TOTAL AED</b><b>53.55</b></div>
+  </div></div></div>
+  <div class="card s2"><h2>Counter sign</h2><div class="mock"><div class="sign">${small("white")}<span>Billed with billo</span></div></div></div>
+  <div class="card s2"><h2>Home screen</h2><div class="mock"><div class="phone">
+    ${[0, 1, 2, 3, 4, 5, 6, 7, 8].map((i) => (i === 4 ? `<div class="me">${inline("svg/billo-app-icon.svg")}<span>billo</span></div>` : `<div><i></i><span>&nbsp;</span></div>`)).join("")}
+  </div></div></div>
+
+  <div class="card s3"><h2>App header</h2><div class="mock"><div class="app"><div class="bar">${hor("color")}<span class="pill">New bill</span></div>
+    <div class="rows"><div></div><div></div><div></div><div></div></div></div></div></div>
+  <div class="card s3"><h2>Browser tab & business card</h2><div class="mock" style="flex-direction:column;gap:22px">
+    <div><div class="tab"><div>${small("green")}billo — Today’s sales</div></div><div class="url">billoae.com/app</div></div>
+    <div class="bcard">${hor("color")}<p><b>Billing for your shop</b><br>hello@billoae.com · billoae.com</p></div>
+  </div></div>
+
+  <div class="card s2"><h2>Clear space = one tooth (x)</h2><div class="clear">
+    <svg viewBox="0 0 256 256"><rect x="14" y="-2" width="228" height="268" fill="none" stroke="#c44" stroke-dasharray="4 4"/>
+    ${sym("color").replace(/<svg[^>]*>/, '<svg x="40" y="20" width="176" height="208" viewBox="40 28 176 208">')}
+    <rect x="52" y="230" width="38" height="16" fill="#c4433322"/><text x="71" y="242" font-size="10" text-anchor="middle" fill="#c44">x</text></svg>
+  </div></div>
+  <div class="card s4"><h2>Don’t</h2><div class="dont">
+    <div>${sym("color").replace("<svg", '<svg style="transform:scaleX(1.4)"')}<b>✕ stretch</b></div>
+    <div>${sym("color").replace("<svg", '<svg style="transform:rotate(-12deg)"').replace(/#0B6E4F/g, "#2563eb")}<b>✕ recolour or rotate</b></div>
+    <div style="background:${C.green}">${sym("green")}<b style="color:#fff">✕ green on green</b></div>
+    <div style="background:linear-gradient(45deg,#e9a,#9be)">${sym("color").replace("<svg", '<svg style="filter:drop-shadow(4px 6px 4px #0006)"')}<b>✕ effects, busy backgrounds</b></div>
+  </div></div>
+</div>`;
+
+writeFileSync(join(root, "board.html"), html);
+execFileSync("C:/Program Files/Google/Chrome/Application/chrome.exe", [
+  "--headless=new", "--disable-gpu", "--hide-scrollbars", "--force-device-scale-factor=1",
+  "--window-size=1600,2040", `--screenshot=${join(root, "board.png")}`, "file:///" + join(root, "board.html").replace(/\\/g, "/"),
+], { stdio: "ignore" });
+console.log("ok");

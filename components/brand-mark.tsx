@@ -1,0 +1,12 @@
+// billo receipt-tile symbol. Master geometry lives in branding/kit/geometry.mjs.
+export function BrandMark() {
+  return (
+    <svg className="brand-mark" viewBox="40 28 176 208" aria-hidden="true" focusable="false">
+      <path
+        fill="currentColor"
+        fillRule="evenodd"
+        d="M52,64a28,28 0 0,1 28,-28H176a28,28 0 0,1 28,28V212L185,228L166,212L147,228L128,212L109,228L90,212L71,228L52,212ZM86,66H112V111.17A42,42 0 1,1 86,150ZM112,150a16,16 0 1,0 32,0a16,16 0 1,0 -32,0Z"
+      />
+    </svg>
+  );
+}

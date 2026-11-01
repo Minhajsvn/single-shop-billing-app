@@ -1,7 +1,7 @@
 import { SITE_INFO } from "@/lib/site-info";
 import type { Metadata } from "next";
 
-export const metadata: Metadata = { title: "Contact | Shop Ledger UAE" };
+export const metadata: Metadata = { title: "Contact | billo" };
 
 export default function ContactPage() {
   return (

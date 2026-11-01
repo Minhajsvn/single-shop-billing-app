@@ -1,6 +1,6 @@
 # Printer and PDF Acceptance Matrix
 
-The shop may choose any printer supported by the shop computer. Shop Ledger uses the browser's standard print dialog; it does not require a hard-coded printer model. The physical printer must still pass this matrix.
+The shop may choose any printer supported by the shop computer. billo uses the browser's standard print dialog; it does not require a hard-coded printer model. The physical printer must still pass this matrix.
 
 ## Target environment
 

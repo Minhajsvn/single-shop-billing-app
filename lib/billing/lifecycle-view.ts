@@ -103,7 +103,7 @@ export function billingSummary(e: Entitlements, now: Date): string {
   if (isGranted(e, now)) {
     const name = (e.grantPlanId && PLANS[e.grantPlanId]?.name) || "Starter";
     const until = dubaiDate(e.grantEndsAt, true);
-    return `${name} plan · provided by Shop Ledger${until ? ` until ${until}` : ""}`;
+    return `${name} plan · provided by billo${until ? ` until ${until}` : ""}`;
   }
   const state = lifecycleState(e, now);
   if (state === "read_only") return `Read-only since ${dubaiDate(e.accessEndsAt ?? e.graceEndsAt, false)}`.trim();

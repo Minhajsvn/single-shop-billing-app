@@ -1,8 +1,8 @@
-# Shop Ledger Operating Guide
+# billo Operating Guide
 
 ## Start the day
 
-1. Open Shop Ledger on the registered shop computer.
+1. Open billo on the registered shop computer.
 2. Confirm the sidebar says the device is ready or working offline.
 3. Open **Register**, count the physical drawer cash, and enter the opening balance.
 4. Review **Inventory** for low-stock items before selling.
@@ -15,7 +15,7 @@
 4. Select Cash or Card. Keyboard operators may press `F2` for Cash or `F3` for Card.
 5. Print the 80mm receipt or save/print the A4 invoice from the completed invoice screen.
 
-Card payments are recorded only after the external card terminal confirms payment. Shop Ledger does not charge the card itself.
+Card payments are recorded only after the external card terminal confirms payment. billo does not charge the card itself.
 
 ## Process a return
 
@@ -41,7 +41,7 @@ Card payments are recorded only after the external card terminal confirms paymen
 
 ## Recovery rules
 
-- Restore only a Shop Ledger JSON backup with schema version 3.
+- Restore only a billo JSON backup with schema version 3.
 - Restoring replaces the local device state. Download the current state first when possible.
 - After restore, compare the latest invoice number, product stock, register status, and report totals with the backup source.
 - Hosted production recovery must follow the managed Supabase restore procedure; local JSON restore is not a replacement for database backups.

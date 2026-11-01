@@ -10,6 +10,7 @@ import { SiteFooter } from "@/components/public/site-footer";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, use, useEffect, useState } from "react";
+import { BrandMark } from "@/components/brand-mark";
 
 type LoginProps = { searchParams: Promise<{ [key: string]: string | string[] | undefined }> };
 
@@ -70,7 +71,7 @@ export default function LoginPage({ searchParams }: LoginProps) {
     <>
     <main className="auth-shell">
       <section className="auth-card panel" aria-labelledby="login-title">
-        <div className="auth-brand"><span className="brand-mark">SL</span><span><strong>Shop Ledger</strong><small>UAE retail till</small></span></div>
+        <div className="auth-brand"><BrandMark /><span><strong>billo</strong><small>UAE retail till</small></span></div>
         <div className="eyebrow">Owner access</div>
         <h1 id="login-title">Sign in to your shop</h1>
         <p className="page-copy">Sign in with the email and password for your shop account.</p>
