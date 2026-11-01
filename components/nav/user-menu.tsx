@@ -4,8 +4,9 @@ import { CaretUp, Gear, SignOut } from "@/components/icons";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useSyncStatusText } from "@/components/offline-runtime";
+import { ThemeChoice } from "@/components/theme-choice";
 
-/** Bottom of the desktop sidebar: till, branch and sync status; opens to the account, Settings and Sign out. */
+/** Bottom of the desktop sidebar: till, branch and sync status; opens to the account, theme, Settings and Sign out. */
 export function UserMenu({ tillLabel, email, signOutLabel, onSignOut }: { tillLabel: string; email: string | null; signOutLabel: string | null; onSignOut: () => void }) {
   const status = useSyncStatusText();
   const [open, setOpen] = useState(false);
@@ -28,6 +29,7 @@ export function UserMenu({ tillLabel, email, signOutLabel, onSignOut }: { tillLa
       {open ? (
         <div className="user-menu-popover" role="menu">
           {email ? <div className="user-menu-email" title={email}>{email}</div> : null}
+          <ThemeChoice itemRole="menuitemradio" />
           <Link role="menuitem" href="/settings" onClick={() => setOpen(false)}><Gear size={15} weight="bold" />Settings</Link>
           {signOutLabel ? <button role="menuitem" type="button" onClick={() => { setOpen(false); onSignOut(); }}><SignOut size={15} weight="bold" />{signOutLabel}</button> : null}
         </div>

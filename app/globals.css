@@ -3,7 +3,8 @@
 /*
  * Design tokens: "billo green".
  * Charcoal surfaces, one Billo Green accent (brand #0B6E4F, see branding/kit), and a deep-green hero gradient kept for a few
- * standout cards. Dark is the default; prefers-color-scheme: light swaps the same names.
+ * standout cards. Dark is the default; [data-theme="light"] on <html> swaps the same names. The inline script in
+ * app/layout.tsx sets it before paint from the saved choice (System, Light or Dark; see lib/ui/theme.ts).
  * Glass goes on the shell, headers, KPI cards, banners and dialogs; dense data sits on --surface-solid.
  * Every text/background pair here meets WCAG AA (checked against --surface-solid and --bg).
  */
@@ -101,55 +102,53 @@
   --blue: var(--info);
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    color-scheme: light;
+:root[data-theme="light"] {
+  color-scheme: light;
 
-    --bg: #f4f4f6;
-    --orb-1: rgba(11, 110, 79, .10);
-    --orb-2: rgba(20, 150, 120, .06);
-    --orb-3: rgba(11, 110, 79, .07);
+  --bg: #fbf5ea;
+  --orb-1: rgba(11, 110, 79, .10);
+  --orb-2: rgba(20, 150, 120, .06);
+  --orb-3: rgba(11, 110, 79, .07);
 
-    --surface-glass: rgba(255, 255, 255, .62);
-    --surface-glass-strong: rgba(255, 255, 255, .80);
-    --surface-dialog: rgba(255, 255, 255, .94);
-    --surface-bar: rgba(250, 250, 251, .78);
-    --surface-solid: #ffffff;
-    --surface-raised: #fafafa;
-    --surface-sunken: #f0f0f3;
-    --surface-hover: #ececf1;
-    --border-glass: rgba(24, 24, 27, .09);
-    --border-solid: #e4e4e7;
-    --border-strong-solid: #d4d4d8;
-    --highlight: rgba(255, 255, 255, .9);
-    --scrim: rgba(24, 24, 27, .30);
+  --surface-glass: rgba(255, 253, 247, .66);
+  --surface-glass-strong: rgba(255, 253, 247, .84);
+  --surface-dialog: rgba(255, 253, 248, .95);
+  --surface-bar: rgba(251, 246, 236, .80);
+  --surface-solid: #fffdf9;
+  --surface-raised: #fcf8f1;
+  --surface-sunken: #f4eee2;
+  --surface-hover: #efe8da;
+  --border-glass: rgba(22, 32, 28, .10);
+  --border-solid: #e7dfcf;
+  --border-strong-solid: #d6ccb8;
+  --highlight: rgba(255, 255, 255, .9);
+  --scrim: rgba(22, 32, 28, .30);
 
-    --text: #18181b;
-    --text-muted: #52525b;
-    --text-faint: #63636b;
+  --text: #16201c;
+  --text-muted: #555b52;
+  --text-faint: #60655b;
 
-    --accent: #0b6e4f;
-    --accent-hover: #095a41;
-    --accent-text: #0b6e4f;
-    --accent-soft: rgba(11, 110, 79, .10);
-    --accent-ring: rgba(11, 110, 79, .30);
-    --grad-text: linear-gradient(180deg, #18181b 0%, #0b6e4f 100%);
+  --accent: #0b6e4f;
+  --accent-hover: #095a41;
+  --accent-text: #0b6e4f;
+  --accent-soft: rgba(11, 110, 79, .10);
+  --accent-ring: rgba(11, 110, 79, .30);
+  --grad-text: linear-gradient(180deg, #16201c 0%, #0b6e4f 100%);
 
-    --success: #047857;
-    --success-bg: #e3f5ee;
-    --warning: #b45309;
-    --warning-bg: #fdf1e3;
-    --danger: #be123c;
-    --danger-bg: #fdebef;
-    --info: #0e7490;
-    --info-bg: #e2f4f8;
-    --focus: #0b6e4f;
+  --success: #047857;
+  --success-bg: #e3f5ee;
+  --warning: #b45309;
+  --warning-bg: #fdf1e3;
+  --danger: #be123c;
+  --danger-bg: #fdebef;
+  --info: #0e7490;
+  --info-bg: #e2f4f8;
+  --focus: #0b6e4f;
 
-    --shadow-sm: 0 1px 2px rgba(24, 24, 27, .06);
-    --shadow-md: 0 8px 24px rgba(24, 24, 27, .07), 0 2px 6px rgba(24, 24, 27, .05);
-    --shadow-lg: 0 24px 60px rgba(24, 24, 27, .14), 0 8px 18px rgba(24, 24, 27, .07);
-    --glow: 0 6px 18px rgba(11, 110, 79, .22);
-  }
+  --shadow-sm: 0 1px 2px rgba(22, 32, 28, .06);
+  --shadow-md: 0 8px 24px rgba(22, 32, 28, .07), 0 2px 6px rgba(22, 32, 28, .05);
+  --shadow-lg: 0 24px 60px rgba(22, 32, 28, .14), 0 8px 18px rgba(22, 32, 28, .07);
+  --glow: 0 6px 18px rgba(11, 110, 79, .22);
 }
 
 /* Tailwind utilities (used by the admin console) read the same tokens. */
@@ -236,9 +235,7 @@ a { color: inherit; text-decoration: none; }
  * Chromium; the ::-webkit-scrollbar rules give Safari and older Chromium the same look.
  */
 :root { --scroll-thumb: rgba(255, 255, 255, .16); --scroll-thumb-hover: rgba(63, 191, 143, .55); }
-@media (prefers-color-scheme: light) {
-  :root { --scroll-thumb: rgba(24, 24, 27, .20); --scroll-thumb-hover: rgba(16, 150, 106, .55); }
-}
+:root[data-theme="light"] { --scroll-thumb: rgba(22, 32, 28, .20); --scroll-thumb-hover: rgba(16, 150, 106, .55); }
 * { scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent; }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -307,7 +304,7 @@ a { color: inherit; text-decoration: none; }
 .main { transition: margin-left var(--dur) var(--ease-out); }
 /* billo symbol: white on the dark theme, Billo Green on light (see branding/kit/GUIDELINES.md). */
 .brand-mark { flex: none; display: block; width: 31px; height: 36px; color: #ffffff; }
-@media (prefers-color-scheme: light) { .brand-mark { color: #0b6e4f; } }
+:root[data-theme="light"] .brand-mark { color: #0b6e4f; }
 .brand-name { display: block; font-family: var(--ff-display); font-weight: 700; font-size: 16px; letter-spacing: -0.02em; }
 .brand-meta { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; }
 
@@ -369,6 +366,18 @@ a { color: inherit; text-decoration: none; }
 .user-menu-popover a:hover, .user-menu-popover button:hover { background: var(--surface-hover); }
 .user-menu-email { padding: 8px 10px; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-bottom: 1px solid var(--border-glass); margin-bottom: 2px; }
 .topbar-till { display: inline-flex; align-items: center; min-height: 32px; padding: 0 12px; border-radius: var(--r-full); border: 1px solid var(--border-glass); background: var(--surface-glass); color: var(--text-muted); font-size: 12px; font-weight: 500; white-space: nowrap; min-width: 0; max-width: 32ch; overflow: hidden; text-overflow: ellipsis; }
+/* System / Light / Dark switch (user menu and phone More sheet). */
+.theme-choice { display: grid; gap: 6px; padding: 8px 10px; }
+.theme-choice-label { color: var(--muted); font-size: 12px; }
+.theme-choice-options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; padding: 2px; background: var(--surface-sunken); border: 1px solid var(--border-glass); border-radius: var(--r-sm); }
+.theme-choice-options button, .user-menu-popover .theme-choice-options button { display: flex; align-items: center; justify-content: center; min-height: 32px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; color: var(--text-muted); font: inherit; font-size: 12px; cursor: pointer; }
+.theme-choice-options button:hover, .user-menu-popover .theme-choice-options button:hover { background: var(--surface-hover); color: var(--text); }
+.theme-choice-options button.active, .user-menu-popover .theme-choice-options button.active { background: var(--surface-solid); color: var(--text); box-shadow: var(--shadow-sm); }
+.theme-choice-options button:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.user-menu-popover .theme-choice { border-bottom: 1px solid var(--border-glass); margin-bottom: 2px; }
+.more-sheet .theme-choice { padding: 8px 0 0; }
+.more-sheet .theme-choice-options button { min-height: 44px; font-size: 13px; }
+
 .more-backdrop, .more-sheet { display: none; }
 
 .main { margin-left: 260px; min-height: 100vh; }
@@ -1188,7 +1197,8 @@ kbd { min-width: 22px; display: inline-grid; place-items: center; padding: 2px 6
  * original light values and fonts, and no glass, glow, gradient or orb reaches the paper.
  */
 @media print {
-  :root {
+  /* [data-theme] keeps print ahead of the light theme selector. */
+  :root, :root[data-theme] {
     color-scheme: light;
     --bg: #ffffff;
     --surface-solid: #ffffff; --surface-raised: #fbfbfa; --surface-sunken: #ffffff; --surface-hover: #ffffff;

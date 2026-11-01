@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useEffect, useRef, type KeyboardEvent } from "react";
 import { navIcon } from "@/components/nav/nav-icons";
 import { useSyncStatusText } from "@/components/offline-runtime";
+import { ThemeChoice } from "@/components/theme-choice";
 import { navLinksFor, type NavLink, type Role } from "@/lib/access/cashier";
 
 /** Pages on the phone bar itself; the rest of this role's pages go in More. */
@@ -17,7 +18,7 @@ export function moreLinksFor(role: Role): NavLink[] {
 
 const FOCUSABLE = "a[href], button:not([disabled])";
 
-/** Phone "More": the less-used pages plus the till, the account, sync status and Sign out. */
+/** Phone "More": the less-used pages plus the till, the account, sync status, theme and Sign out. */
 export function MoreSheet({ links, open, onClose, shopName, tillLabel, email, signOutLabel, onSignOut }: {
   links: NavLink[];
   open: boolean;
@@ -77,6 +78,7 @@ export function MoreSheet({ links, open, onClose, shopName, tillLabel, email, si
           })}
           {signOutLabel ? <button type="button" onClick={() => { onClose(); onSignOut(); }}><SignOut size={18} weight="bold" />{signOutLabel}</button> : null}
         </nav>
+        <ThemeChoice />
       </div>
     </div>
   );
