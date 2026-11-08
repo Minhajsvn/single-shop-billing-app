@@ -1529,3 +1529,8 @@ kbd { min-width: 22px; display: inline-grid; place-items: center; padding: 2px 6
   .pin-dots.shake { animation: none; }
   .lock-person:hover:not(:disabled) { transform: none; }
 }
+.staff-table td { vertical-align: middle; }
+.staff-table select.input { min-width: 120px; }
+.staff-table .row-actions .button { min-height: 34px; padding: 0 10px; font-size: 13px; }
+.checkbox-field { display: flex; align-items: center; gap: 10px; grid-column: 1 / -1; font-weight: 500; }
+.checkbox-field input { width: 18px; height: 18px; accent-color: var(--accent); }
