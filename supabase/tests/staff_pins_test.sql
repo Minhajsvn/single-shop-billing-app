@@ -148,6 +148,67 @@ begin
 end $$;
 reset role;
 
--- @task3
+-- 3. Operator and approver on synced records (Task 3). Records are inserted as the sync RPCs do; then the
+-- cashier's session calls apply_operator_sync with the same payload.
+insert into public.devices (id, business_id, name) values ('d0000000-0000-4000-8000-0000000002a0', 'b0000000-0000-4000-8000-0000000002a0', 'Till 1');
+insert into public.register_sessions (id, business_id, device_id, business_date, opening_cash_fils, opened_by)
+values ('e0000000-0000-4000-8000-0000000002a0', 'b0000000-0000-4000-8000-0000000002a0', 'd0000000-0000-4000-8000-0000000002a0', current_date, 0, '00000000-0000-4000-8000-0000000002a1');
+insert into public.sales (id, business_id, device_id, register_session_id, invoice_number, operation_id, payment_method, supply_date, supplier_snapshot, net_fils, vat_fils, gross_fils, created_by)
+select ('5a000000-0000-4000-8000-00000000020' || n)::uuid, 'b0000000-0000-4000-8000-0000000002a0', 'd0000000-0000-4000-8000-0000000002a0', 'e0000000-0000-4000-8000-0000000002a0',
+       'S-000' || n, gen_random_uuid(), 'cash', current_date, '{}'::jsonb, 100, 5, 105, '00000000-0000-4000-8000-0000000002a1'
+from generate_series(1, 4) n;
+insert into public.credit_notes (id, business_id, device_id, register_session_id, sale_id, credit_note_number, operation_id, payment_method, supplier_snapshot, net_fils, vat_fils, gross_fils, created_by)
+values ('c1000000-0000-4000-8000-0000000002a1', 'b0000000-0000-4000-8000-0000000002a0', 'd0000000-0000-4000-8000-0000000002a0', 'e0000000-0000-4000-8000-0000000002a0',
+        '5a000000-0000-4000-8000-000000000201', 'CN-0001', gen_random_uuid(), 'cash', '{}'::jsonb, 100, 5, 105, '00000000-0000-4000-8000-0000000002a1');
+insert into ids values ('other_shop', (select id from public.business_members where business_id = 'b0000000-0000-4000-8000-0000000002b0' and role = 'cashier'));
+
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000002a2","role":"authenticated"}', true);
+do $$
+declare
+  cashier text := (select id from ids where name = 'cashier')::text;
+  manager text := (select id from ids where name = 'manager')::text;
+  other text := (select id from ids where name = 'other_shop')::text;
+  biz uuid := 'b0000000-0000-4000-8000-0000000002a0';
+begin
+  perform public.apply_operator_sync(biz, 'sale', jsonb_build_object('sale', jsonb_build_object('id', '5a000000-0000-4000-8000-000000000201', 'operatorMemberId', cashier, 'approvedByMemberId', manager)));
+  perform public.apply_operator_sync(biz, 'sale', jsonb_build_object('sale', jsonb_build_object('id', '5a000000-0000-4000-8000-000000000202', 'operatorMemberId', other)));
+  perform public.apply_operator_sync(biz, 'sale', jsonb_build_object('sale', jsonb_build_object('id', '5a000000-0000-4000-8000-000000000203', 'operatorMemberId', cashier, 'approvedByMemberId', cashier)));
+  perform public.apply_operator_sync(biz, 'sale', jsonb_build_object('sale', jsonb_build_object('id', '5a000000-0000-4000-8000-000000000204')));
+  -- A retry with different ids changes nothing.
+  perform public.apply_operator_sync(biz, 'sale', jsonb_build_object('sale', jsonb_build_object('id', '5a000000-0000-4000-8000-000000000201', 'operatorMemberId', manager)));
+  perform public.apply_operator_sync(biz, 'credit-note', jsonb_build_object('creditNote', jsonb_build_object('id', 'c1000000-0000-4000-8000-0000000002a1', 'operatorMemberId', cashier, 'approvedByMemberId', manager)));
+  perform public.apply_operator_sync(biz, 'register', jsonb_build_object('action', 'open', 'register', jsonb_build_object('id', 'e0000000-0000-4000-8000-0000000002a0', 'openedOperatorMemberId', cashier, 'openedApprovedByMemberId', manager)));
+  perform public.apply_operator_sync(biz, 'register', jsonb_build_object('action', 'close', 'register', jsonb_build_object('id', 'e0000000-0000-4000-8000-0000000002a0', 'closedOperatorMemberId', 'not-a-uuid', 'closedApprovedByMemberId', cashier)));
+end $$;
+reset role;
+
+do $$
+declare
+  cashier uuid := (select id from ids where name = 'cashier');
+  manager uuid := (select id from ids where name = 'manager');
+begin
+  assert (select operator_member_id = cashier and approved_by_member_id = manager from public.sales where id = '5a000000-0000-4000-8000-000000000201'), '3a valid ids stored, retry ignored';
+  assert (select operator_member_id is null from public.sales where id = '5a000000-0000-4000-8000-000000000202'), '3b other shop member -> null';
+  assert (select operator_member_id = cashier and approved_by_member_id is null from public.sales where id = '5a000000-0000-4000-8000-000000000203'), '3c cashier cannot approve';
+  assert (select operator_member_id is null and approved_by_member_id is null from public.sales where id = '5a000000-0000-4000-8000-000000000204'), '3d no fields -> nulls';
+  assert (select count(*) from public.sales where business_id = 'b0000000-0000-4000-8000-0000000002a0') = 4, '3e no sale removed';
+  assert (select count(*) from public.audit_events where action = 'sync.operator_unverified' and entity_id = '5a000000-0000-4000-8000-000000000202') = 1, '3f logged other shop';
+  assert (select count(*) from public.audit_events where action = 'sync.operator_unverified' and entity_id = '5a000000-0000-4000-8000-000000000203' and summary ->> 'field' = 'approved_by_member_id') = 1, '3g logged approver';
+  assert (select count(*) from public.audit_events where action = 'sync.operator_unverified' and entity_id = '5a000000-0000-4000-8000-000000000204') = 0, '3h nothing to log';
+  assert (select operator_member_id = cashier and approved_by_member_id = manager from public.credit_notes where id = 'c1000000-0000-4000-8000-0000000002a1'), '3i credit note';
+  assert (select opened_operator_member_id = cashier and opened_approved_by_member_id = manager and closed_operator_member_id is null and closed_approved_by_member_id is null
+          from public.register_sessions where id = 'e0000000-0000-4000-8000-0000000002a0'), '3j register open stored, close nulls';
+  assert (select count(*) from public.audit_events where action = 'sync.operator_unverified' and entity_id = 'e0000000-0000-4000-8000-0000000002a0') = 2, '3k close logged twice (two fields)';
+end $$;
+
+-- A non-member cannot call it.
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000002b1","role":"authenticated"}', true);
+do $$ begin
+  begin perform public.apply_operator_sync('b0000000-0000-4000-8000-0000000002a0', 'sale', '{}'::jsonb); assert false, '3l non-member refused';
+  exception when sqlstate 'P0001' then assert sqlerrm = 'not_member', '3l code ' || sqlerrm; end;
+end $$;
+reset role;
 
 rollback;
