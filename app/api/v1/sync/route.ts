@@ -92,7 +92,7 @@ export async function POST(request: Request) {
     } else {
       // Record the person behind the PIN. This never rejects the record: a failure only leaves the names empty.
       if (carriesOperator(operation)) {
-        const named = await supabase.rpc("apply_operator_sync", { p_business_id: business.id, p_entity: operation.entity, p_payload: payload });
+        const named = await supabase.rpc("apply_operator_sync", { p_business_id: business.id, p_entity: operation.entity, p_entity_id: operation.entityId, p_payload: payload });
         if (named.error) console.error("apply_operator_sync failed", operation.id, named.error.message);
       }
       results.push({ id: operation.id, status: "accepted" });

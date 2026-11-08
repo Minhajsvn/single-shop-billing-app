@@ -171,15 +171,15 @@ declare
   other text := (select id from ids where name = 'other_shop')::text;
   biz uuid := 'b0000000-0000-4000-8000-0000000002a0';
 begin
-  perform public.apply_operator_sync(biz, 'sale', jsonb_build_object('sale', jsonb_build_object('id', '5a000000-0000-4000-8000-000000000201', 'operatorMemberId', cashier, 'approvedByMemberId', manager)));
-  perform public.apply_operator_sync(biz, 'sale', jsonb_build_object('sale', jsonb_build_object('id', '5a000000-0000-4000-8000-000000000202', 'operatorMemberId', other)));
-  perform public.apply_operator_sync(biz, 'sale', jsonb_build_object('sale', jsonb_build_object('id', '5a000000-0000-4000-8000-000000000203', 'operatorMemberId', cashier, 'approvedByMemberId', cashier)));
-  perform public.apply_operator_sync(biz, 'sale', jsonb_build_object('sale', jsonb_build_object('id', '5a000000-0000-4000-8000-000000000204')));
+  perform public.apply_operator_sync(biz, 'sale', '5a000000-0000-4000-8000-000000000201', jsonb_build_object('sale', jsonb_build_object('id', '5a000000-0000-4000-8000-000000000201', 'operatorMemberId', cashier, 'approvedByMemberId', manager)));
+  perform public.apply_operator_sync(biz, 'sale', '5a000000-0000-4000-8000-000000000202', jsonb_build_object('sale', jsonb_build_object('id', '5a000000-0000-4000-8000-000000000202', 'operatorMemberId', other)));
+  perform public.apply_operator_sync(biz, 'sale', '5a000000-0000-4000-8000-000000000203', jsonb_build_object('sale', jsonb_build_object('id', '5a000000-0000-4000-8000-000000000203', 'operatorMemberId', cashier, 'approvedByMemberId', cashier)));
+  perform public.apply_operator_sync(biz, 'sale', '5a000000-0000-4000-8000-000000000204', jsonb_build_object('sale', jsonb_build_object('id', '5a000000-0000-4000-8000-000000000204')));
   -- A retry with different ids changes nothing.
-  perform public.apply_operator_sync(biz, 'sale', jsonb_build_object('sale', jsonb_build_object('id', '5a000000-0000-4000-8000-000000000201', 'operatorMemberId', manager)));
-  perform public.apply_operator_sync(biz, 'credit-note', jsonb_build_object('creditNote', jsonb_build_object('id', 'c1000000-0000-4000-8000-0000000002a1', 'operatorMemberId', cashier, 'approvedByMemberId', manager)));
-  perform public.apply_operator_sync(biz, 'register', jsonb_build_object('action', 'open', 'register', jsonb_build_object('id', 'e0000000-0000-4000-8000-0000000002a0', 'openedOperatorMemberId', cashier, 'openedApprovedByMemberId', manager)));
-  perform public.apply_operator_sync(biz, 'register', jsonb_build_object('action', 'close', 'register', jsonb_build_object('id', 'e0000000-0000-4000-8000-0000000002a0', 'closedOperatorMemberId', 'not-a-uuid', 'closedApprovedByMemberId', cashier)));
+  perform public.apply_operator_sync(biz, 'sale', '5a000000-0000-4000-8000-000000000201', jsonb_build_object('sale', jsonb_build_object('id', '5a000000-0000-4000-8000-000000000201', 'operatorMemberId', manager)));
+  perform public.apply_operator_sync(biz, 'credit-note', 'c1000000-0000-4000-8000-0000000002a1', jsonb_build_object('creditNote', jsonb_build_object('id', 'c1000000-0000-4000-8000-0000000002a1', 'operatorMemberId', cashier, 'approvedByMemberId', manager)));
+  perform public.apply_operator_sync(biz, 'register', 'e0000000-0000-4000-8000-0000000002a0', jsonb_build_object('action', 'open', 'register', jsonb_build_object('id', 'e0000000-0000-4000-8000-0000000002a0', 'openedOperatorMemberId', cashier, 'openedApprovedByMemberId', manager)));
+  perform public.apply_operator_sync(biz, 'register', 'e0000000-0000-4000-8000-0000000002a0', jsonb_build_object('action', 'close', 'register', jsonb_build_object('id', 'e0000000-0000-4000-8000-0000000002a0', 'closedOperatorMemberId', 'not-a-uuid', 'closedApprovedByMemberId', cashier)));
 end $$;
 reset role;
 
@@ -200,6 +200,21 @@ begin
   assert (select opened_operator_member_id = cashier and opened_approved_by_member_id = manager and closed_operator_member_id is null and closed_approved_by_member_id is null
           from public.register_sessions where id = 'e0000000-0000-4000-8000-0000000002a0'), '3j register open stored, close nulls';
   assert (select count(*) from public.audit_events where action = 'sync.operator_unverified' and entity_id = 'e0000000-0000-4000-8000-0000000002a0') = 2, '3k close logged twice (two fields)';
+end $$;
+
+-- 3m. An opened session is matched by the operation's entity id, even when the till's own register id differs.
+insert into public.devices (id, business_id, name) values ('d0000000-0000-4000-8000-0000000002a1', 'b0000000-0000-4000-8000-0000000002a0', 'Till 2');
+insert into public.register_sessions (id, business_id, device_id, business_date, opening_cash_fils, opened_by)
+values ('e0000000-0000-4000-8000-0000000002a1', 'b0000000-0000-4000-8000-0000000002a0', 'd0000000-0000-4000-8000-0000000002a1', current_date, 0, '00000000-0000-4000-8000-0000000002a1');
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000002a2","role":"authenticated"}', true);
+do $$ begin
+  perform public.apply_operator_sync('b0000000-0000-4000-8000-0000000002a0', 'register', 'e0000000-0000-4000-8000-0000000002a1',
+    jsonb_build_object('action', 'open', 'register', jsonb_build_object('id', gen_random_uuid(), 'openedOperatorMemberId', (select id from ids where name = 'cashier'))));
+end $$;
+reset role;
+do $$ begin
+  assert (select opened_operator_member_id = (select id from ids where name = 'cashier') from public.register_sessions where id = 'e0000000-0000-4000-8000-0000000002a1'), '3m open matched by entity id';
 end $$;
 
 -- 4. PIN hashes: hidden from the table for everyone; staff_list gives them to the owner only.
@@ -224,7 +239,7 @@ reset role;
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000002b1","role":"authenticated"}', true);
 do $$ begin
-  begin perform public.apply_operator_sync('b0000000-0000-4000-8000-0000000002a0', 'sale', '{}'::jsonb); assert false, '3l non-member refused';
+  begin perform public.apply_operator_sync('b0000000-0000-4000-8000-0000000002a0', 'sale', gen_random_uuid(), '{}'::jsonb); assert false, '3l non-member refused';
   exception when sqlstate 'P0001' then assert sqlerrm = 'not_member', '3l code ' || sqlerrm; end;
 end $$;
 reset role;

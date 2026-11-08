@@ -20,6 +20,7 @@ import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { requestConfirm } from "@/lib/ui/confirm-store";
 import { BrandMark } from "@/components/brand-mark";
 import { LockScreen } from "@/components/staff/lock-screen";
+import { ApprovalHost } from "@/components/staff/approval-dialog";
 import { OperatorChip } from "@/components/staff/operator-chip";
 import { useOperator } from "@/components/staff/use-operator";
 import { useIdleLock } from "@/hooks/use-idle-lock";
@@ -215,6 +216,7 @@ export function AppShell({ children, loading = false }: { children: ReactNode; l
       </main>
       <ConfirmHost />
       <Toaster />
+      <ApprovalHost />
       {locked ? <LockScreen /> : null}
     </div>
   );

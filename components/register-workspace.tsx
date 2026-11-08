@@ -9,6 +9,7 @@ import { toast } from "@/lib/ui/toast-store";
 import { EmptyState } from "@/components/ui/list-parts";
 import { RegisterStop } from "@/components/billing/register-stop";
 import { registerDecisionNow, useEntitlement, useRegisterDecision } from "@/components/billing/use-entitlement";
+import { useApproval } from "@/components/staff/approval-dialog";
 
 type Dialog = "open" | "adjust" | "close" | null;
 
@@ -22,8 +23,9 @@ export function RegisterWorkspace() {
   const context = useShopContext();
   const view = useEntitlement();
   const decision = useRegisterDecision();
+  const askApproval = useApproval();
 
-  function submitOpen(event: FormEvent<HTMLFormElement>) {
+  async function submitOpen(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     // Decided again at the click: the access end may have passed while the dialog was open.
     if (registerDecisionNow(view, context) !== "allow") {
@@ -32,7 +34,10 @@ export function RegisterWorkspace() {
     }
     const data = new FormData(event.currentTarget);
     const amount = Math.round(Number(data.get("openingCash")) * 100);
-    if (!Number.isFinite(amount) || amount < 0 || !openRegister(amount)) {
+    // Stage 2A: a cashier needs a manager to open the register.
+    const approver = Number.isFinite(amount) && amount >= 0 ? await askApproval({ kind: "register-open" }) : undefined;
+    if (approver === null) return;
+    if (!Number.isFinite(amount) || amount < 0 || !openRegister(amount, approver)) {
       setError("Enter a valid opening balance.");
       return;
     }
@@ -55,11 +60,14 @@ export function RegisterWorkspace() {
     setDialog(null);
   }
 
-  function submitClose(event: FormEvent<HTMLFormElement>) {
+  async function submitClose(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
     const counted = Math.round(Number(data.get("countedCash")) * 100);
-    if (!Number.isFinite(counted) || counted < 0 || !closeRegister(counted)) {
+    // Stage 2A: a cashier needs a manager to close the register.
+    const approver = Number.isFinite(counted) && counted >= 0 ? await askApproval({ kind: "register-close" }) : undefined;
+    if (approver === null) return;
+    if (!Number.isFinite(counted) || counted < 0 || !closeRegister(counted, approver)) {
       setError("Enter the counted cash before closing.");
       return;
     }

@@ -11,6 +11,7 @@ import { useFoundSale } from "@/components/sales/use-invoice-lookup";
 import { useRemoteSale } from "@/components/sales/use-remote-sale";
 import { isOwnerView } from "@/lib/access/cashier";
 import { useEffectiveRole } from "@/components/staff/use-operator";
+import { useApproval } from "@/components/staff/approval-dialog";
 import { createCreditNote, useDemoStore, useShopContext } from "@/lib/demo-store";
 import { refundedQuantities, remoteSaleRefundable, remoteSaleSource } from "@/lib/sales/invoice-lookup";
 import { formatAED, formatDateTime } from "@/lib/domain";
@@ -26,6 +27,7 @@ export function InvoiceDetailWorkspace({ id }: { id: string }) {
   // An owner opening a sale older than the browser's 90 days from the list (by id) still gets it view and reprint only.
   const { mode } = useShopContext();
   const role = useEffectiveRole();
+  const askApproval = useApproval();
   const ownerView = isOwnerView(role);
   // Whether the address carries ?invoice= (read after mount, like the list pages; null until then).
   const [hasInvoiceParam, setHasInvoiceParam] = useState<boolean | null>(null);
@@ -65,8 +67,10 @@ export function InvoiceDetailWorkspace({ id }: { id: string }) {
   // Refunds for sales this browser holds or found by invoice number; older invoices opened otherwise are view and reprint only.
   const hasReturnableLines = !viewOnly && sale.lines.some((item) => item.quantity > (returned.get(item.id) ?? 0));
 
-  function createReturn() {
-    const result = createCreditNote(sale!.id, returnQuantities, found);
+  async function createReturn() {
+    const approver = await askApproval({ kind: "refund" });
+    if (approver === null) return;
+    const result = createCreditNote(sale!.id, returnQuantities, found, approver);
     if (!result.ok) return setReturnError(result.error);
     setReturnOpen(false);
     setReturnQuantities({});
