@@ -24,6 +24,11 @@ export function isOwnerView(role: Role): boolean {
   return role === null || role === "owner";
 }
 
+/** Stage 2A: managers edit products and stock as well as the owner; cashiers see stock read-only. */
+export function canEditCatalogue(role: Role): boolean {
+  return role !== "cashier";
+}
+
 const under = (pathname: string, base: string) => pathname === base || pathname.startsWith(`${base}/`);
 
 /** Whether this role may open the page; a cashier opening any other page by address goes to /overview. */
