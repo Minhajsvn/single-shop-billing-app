@@ -10,6 +10,7 @@ import { ReceiptDocument, lineSaving, useReceiptShop } from "@/components/receip
 import { useFoundSale } from "@/components/sales/use-invoice-lookup";
 import { useRemoteSale } from "@/components/sales/use-remote-sale";
 import { isOwnerView } from "@/lib/access/cashier";
+import { useEffectiveRole } from "@/components/staff/use-operator";
 import { createCreditNote, useDemoStore, useShopContext } from "@/lib/demo-store";
 import { refundedQuantities, remoteSaleRefundable, remoteSaleSource } from "@/lib/sales/invoice-lookup";
 import { formatAED, formatDateTime } from "@/lib/domain";
@@ -23,7 +24,8 @@ export function InvoiceDetailWorkspace({ id }: { id: string }) {
   const online = useOnline();
   // A sale found by its invoice number ("Refund a sale by invoice number", any role) can be refunded (owner decision 8).
   // An owner opening a sale older than the browser's 90 days from the list (by id) still gets it view and reprint only.
-  const { mode, role } = useShopContext();
+  const { mode } = useShopContext();
+  const role = useEffectiveRole();
   const ownerView = isOwnerView(role);
   // Whether the address carries ?invoice= (read after mount, like the list pages; null until then).
   const [hasInvoiceParam, setHasInvoiceParam] = useState<boolean | null>(null);

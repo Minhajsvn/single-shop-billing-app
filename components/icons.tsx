@@ -53,6 +53,7 @@ import {
   Upload04Icon,
   UserAdd01Icon,
   UserIcon,
+  UserSwitchIcon,
 } from "@hugeicons/core-free-icons";
 
 /*
@@ -122,5 +123,6 @@ export const Trash = make(Delete02Icon);
 export const UploadSimple = make(Upload04Icon);
 export const User = make(UserIcon);
 export const UserPlus = make(UserAdd01Icon);
+export const UserSwitch = make(UserSwitchIcon);
 export const WarningCircle = make(AlertCircleIcon);
 export const X = make(Cancel01Icon);

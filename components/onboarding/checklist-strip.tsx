@@ -4,13 +4,16 @@ import { CheckCircle, ListChecks } from "@/components/icons";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useShopContext } from "@/lib/demo-store";
+import { useEffectiveRole } from "@/components/staff/use-operator";
 import { checklistView } from "@/lib/onboarding/checklist";
 
 const READY_VISIBLE_MS = 8000;
 
 /** "Get ready to sell · N of 3 · Next: <step>" for owners until the shop has products, a register and a first sale. */
 export function ChecklistStrip() {
-  const { onboarding, role, mode } = useShopContext();
+  const { onboarding, mode } = useShopContext();
+  // Stage 2A: a cashier or manager behind the PIN does not get the owner's setup strip.
+  const role = useEffectiveRole();
   const view = checklistView(onboarding, { role, mode });
   const done = view?.done ?? null;
   const [lastDone, setLastDone] = useState<number | null>(done);

@@ -19,6 +19,11 @@ import { clearHostedStore, useDemoStore, useShopContext } from "@/lib/demo-store
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { requestConfirm } from "@/lib/ui/confirm-store";
 import { BrandMark } from "@/components/brand-mark";
+import { LockScreen } from "@/components/staff/lock-screen";
+import { OperatorChip } from "@/components/staff/operator-chip";
+import { useOperator } from "@/components/staff/use-operator";
+import { useIdleLock } from "@/hooks/use-idle-lock";
+import { setOperator } from "@/lib/staff/operator-session";
 
 // Phone bar (owner's choice): Overview · Sales · New sale (centre, highlighted) · Inventory · More.
 const phoneTabs = [
@@ -72,7 +77,11 @@ export function AppShell({ children, loading = false }: { children: ReactNode; l
   const active = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
   const [email, setEmail] = useState<string | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
-  const { mode, business, device, role } = useShopContext();
+  const { mode, business, device, role: sessionRole, pinLock, lockSettings } = useShopContext();
+  const operator = useOperator();
+  // Stage 2A: with the PIN lock on, pages follow the person behind the PIN, not the signed-in account.
+  const role = pinLock && operator ? operator.role : sessionRole;
+  const locked = pinLock && !operator && !loading;
   const store = useDemoStore();
   const navLinks = navLinksFor(role);
   const settingsLink = navLinks.find((link) => pathOf(link.href) === "/settings");
@@ -88,6 +97,17 @@ export function AppShell({ children, loading = false }: { children: ReactNode; l
     const tab = new URLSearchParams(window.location.search).get("tab");
     if (!canUsePage(role, pathname, tab)) router.replace("/overview");
   }, [loading, pathname, role, router]);
+
+  // Lock after the idle time, and on F9 (Switch). The cart and payment step stay as they are.
+  useIdleLock(pinLock && !!operator, lockSettings.idleLockMinutes, () => setOperator(null));
+  useEffect(() => {
+    if (!pinLock || !operator) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "F9") { event.preventDefault(); setOperator(null); }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [pinLock, operator]);
 
   useEffect(() => {
     if (!isSupabaseConfigured()) return;
@@ -117,7 +137,8 @@ export function AppShell({ children, loading = false }: { children: ReactNode; l
 
   return (
     <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
-      <aside className="sidebar" id="app-sidebar">
+      {/* While the PIN lock covers the till, nothing behind it can be reached by keyboard or screen reader. */}
+      <aside className="sidebar" id="app-sidebar" inert={locked}>
         <div className="sidebar-head">
           <Link className="brand" href="/overview" aria-label="billo overview">
             <BrandMark />
@@ -164,7 +185,7 @@ export function AppShell({ children, loading = false }: { children: ReactNode; l
         </div>
       </aside>
 
-      <nav className="mobile-nav" aria-label="Mobile navigation">
+      <nav className="mobile-nav" aria-label="Mobile navigation" inert={locked}>
         {phoneTabs.map(({ href, label, icon: Icon, primary }) => (
           <Link href={href} key={href} className={`${active(href) ? "active" : ""} ${primary ? "nav-primary" : ""}`} aria-current={active(href) ? "page" : undefined}>
             <Icon size={primary ? 20 : 18} weight={active(href) || primary ? "fill" : "bold"} /><span>{label}</span>
@@ -176,7 +197,7 @@ export function AppShell({ children, loading = false }: { children: ReactNode; l
       </nav>
       <MoreSheet links={moreLinks} open={moreOpen} onClose={() => setMoreOpen(false)} shopName={shopName} tillLabel={tillLabel} email={email} signOutLabel={signOutLabel} onSignOut={() => void signOut()} />
 
-      <main className="main">
+      <main className="main" inert={locked}>
         <header className="topbar">
           <div className="topbar-title" title={shopName}>{shopName}</div>
           <div className="topbar-actions">
@@ -184,6 +205,7 @@ export function AppShell({ children, loading = false }: { children: ReactNode; l
               ? <Link className={`sync-line sync-pill ${syncStatus.tone}`} href={syncStatus.href}><span className="sync-dot" /><span>{syncStatus.text}</span></Link>
               : <span className={`sync-line sync-pill ${syncStatus.tone}`}><span className="sync-dot" /><span>{syncStatus.text}</span></span>}
             {mode === "sample" ? <span className="badge yellow">Sample shop</span> : device ? <span className="topbar-till">{tillLabel}</span> : null}
+            {pinLock && operator ? <OperatorChip operator={operator} onSwitch={() => setOperator(null)} /> : null}
             <Link className="button primary" href="/sale"><ShoppingCart size={15} weight="bold" /> New sale</Link>
           </div>
         </header>
@@ -193,6 +215,7 @@ export function AppShell({ children, loading = false }: { children: ReactNode; l
       </main>
       <ConfirmHost />
       <Toaster />
+      {locked ? <LockScreen /> : null}
     </div>
   );
 }

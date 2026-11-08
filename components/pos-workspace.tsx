@@ -15,6 +15,7 @@ import { findByCode } from "@/lib/checkout/lookup";
 import { saleBlockReason, staleRegister } from "@/lib/checkout/register-status";
 import { cartTotals, formatItemCount } from "@/lib/checkout/pricing";
 import { isOwnerView } from "@/lib/access/cashier";
+import { useEffectiveRole } from "@/components/staff/use-operator";
 import { completeSale, type CheckoutLine, useDemoStore, useShopContext } from "@/lib/demo-store";
 import { formatAED, type Product, type Sale } from "@/lib/domain";
 import { EmptyState } from "@/components/ui/list-parts";
@@ -23,7 +24,8 @@ type CartItem = CheckoutLine & { key: string };
 
 export function PosWorkspace() {
   const store = useDemoStore();
-  const { device, role } = useShopContext();
+  const { device } = useShopContext();
+  const role = useEffectiveRole();
   const [query, setQuery] = useState("");
   const [cart, setCart] = useState<CartItem[]>([]);
   const [customOpen, setCustomOpen] = useState(false);

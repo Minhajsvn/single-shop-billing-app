@@ -8,7 +8,8 @@ import { LabelPrintDialog } from "@/components/catalogue/label-print-dialog";
 import { ProductForm, type ProductFormValues } from "@/components/catalogue/product-form";
 import { EmptyState, Pager, SummaryStrip } from "@/components/ui/list-parts";
 import { useListParams } from "@/components/ui/use-list-params";
-import { isOwnerView } from "@/lib/access/cashier";
+import { canEditCatalogue } from "@/lib/access/cashier";
+import { useEffectiveRole } from "@/components/staff/use-operator";
 import { useShopContext } from "@/lib/demo-store";
 import { paginate } from "@/lib/lists/paging";
 import { useDemoProducts } from "@/hooks/use-demo-products";
@@ -47,7 +48,11 @@ export function InventoryWorkspace() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const { canWrite: planAllowsWrites } = useEntitlement();
   // A cashier sees products and stock read-only: no add, edit, import, stock adjustment or archive (owner decision 7).
-  const manage = isOwnerView(useShopContext().role);
+  // Stage 2A: a manager behind the PIN edits too, but only on the owner's signed-in till (the server takes catalogue
+  // changes from owner sessions only), so a manager signed in on their own device stays read-only.
+  const sessionRole = useShopContext().role;
+  const effectiveRole = useEffectiveRole();
+  const manage = (sessionRole === null || sessionRole === "owner") && canEditCatalogue(effectiveRole);
   const canWrite = planAllowsWrites && manage;
   const readOnlyTitle = planAllowsWrites ? undefined : READ_ONLY_REASON;
 
