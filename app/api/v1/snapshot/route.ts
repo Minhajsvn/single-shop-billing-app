@@ -2,6 +2,7 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { activeMembership } from "@/lib/access/membership";
 import { mapSnapshotRows } from "@/lib/snapshot/map-rows";
 import type { SnapshotRows } from "@/lib/snapshot/types";
+import { hasFeature, parseEntitlements } from "@/lib/billing/entitlements";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -44,8 +45,8 @@ export async function GET(request: Request) {
     const owner = membership.role === "owner";
     const since = owner ? new Date(Date.now() - HISTORY_DAYS * 86_400_000).toISOString() : ALL_TIME;
 
-    const [business, devices, products, customers, sales, creditNotes, stockMovements, register] = await Promise.all([
-      supabase.from("businesses").select("id, legal_name, trn, address, phone, invoice_prefix, receipt_footer, country, currency").eq("id", businessId).single(),
+    const [business, devices, products, customers, sales, creditNotes, stockMovements, register, staff, entitlements] = await Promise.all([
+      supabase.from("businesses").select("id, legal_name, trn, address, phone, invoice_prefix, receipt_footer, country, currency, pin_lock_enabled, idle_lock_minutes, manager_discount_pct").eq("id", businessId).single(),
       supabase.from("devices").select("id, name, till_number, branch_id, status, branch:branches(name)").eq("business_id", businessId),
       fetchAll((from, to) => supabase.from("products").select("id, name, sku, barcode, price_fils, stock_quantity, low_stock_threshold, status, tax_category").eq("business_id", businessId).order("name").order("id").range(from, to)),
       fetchAll((from, to) => supabase.from("customers").select("id, name, phone, email, address, trn, created_at, updated_at").eq("business_id", businessId).order("created_at", { ascending: false }).order("id").range(from, to)),
@@ -57,14 +58,27 @@ export async function GET(request: Request) {
       deviceId
         ? supabase.from("register_sessions").select("id, status, opened_at, opening_cash_fils, closed_at, counted_cash_fils, expected_cash_fils, variance_fils, cash_movements(id, type, amount_fils, reason, created_at)").eq("business_id", businessId).eq("device_id", deviceId).order("opened_at", { ascending: false }).limit(1).maybeSingle()
         : Promise.resolve({ data: null, error: null }),
+      // Stage 2A: the PIN hashes come only to the owner's session (staff_list refuses anyone else).
+      owner ? supabase.rpc("staff_list", { p_business_id: businessId }) : Promise.resolve({ data: [] as unknown[], error: null }),
+      supabase.rpc("business_entitlements", { target_business_id: businessId }),
     ]);
 
-    const failed = [business, devices, products, customers, sales, creditNotes, stockMovements, register].find((result) => result.error);
+    const failed = [business, devices, products, customers, sales, creditNotes, stockMovements, register, staff].find((result) => result.error);
     if (failed?.error) return Response.json({ error: failed.error.message }, { status: 502 });
 
+    const shop = business.data as Record<string, unknown>;
+    // An entitlement read failure keeps the lock off rather than failing the whole snapshot.
+    let lockAllowed = false;
+    try {
+      lockAllowed = !entitlements.error && hasFeature(parseEntitlements(entitlements.data), "staff_roles");
+    } catch {
+      lockAllowed = false;
+    }
     const rows = {
       role: membership.role, business: business.data, devices: devices.data ?? [], products: products.data ?? [], customers: customers.data ?? [],
       sales: sales.data ?? [], creditNotes: creditNotes.data ?? [], stockMovements: stockMovements.data ?? [], register: register.data ?? null,
+      lock: { pin_lock_enabled: shop.pin_lock_enabled === true, idle_lock_minutes: Number(shop.idle_lock_minutes ?? 5), manager_discount_pct: Number(shop.manager_discount_pct ?? 10), lock_allowed: lockAllowed },
+      staff: staff.data ?? [],
     } as unknown as SnapshotRows;
     return Response.json(mapSnapshotRows(rows, new Date().toISOString()));
   } catch {

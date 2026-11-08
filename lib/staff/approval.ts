@@ -1,5 +1,7 @@
 // Which till actions need a manager's PIN, and who may give it (spec 2A §5.4).
-import type { MemberRole } from "../snapshot/types.ts";
+import type { MemberRole, StaffMember } from "../snapshot/types.ts";
+
+export type { StaffMember };
 
 export type ApprovalAction =
   | { kind: "refund" }
@@ -8,15 +10,6 @@ export type ApprovalAction =
   | { kind: "register-open" }
   | { kind: "register-close" }
   | { kind: "discount"; discountFils: number; listTotalFils: number };
-
-export type StaffMember = {
-  memberId: string;
-  displayName: string;
-  role: MemberRole;
-  status: "active" | "disabled";
-  pinHash: string | null;
-  pinSalt: string | null;
-};
 
 /** Managers and the owner never need approval. A cashier's discount needs it only when strictly above the set percentage. */
 export function needsApproval(action: ApprovalAction, operatorRole: MemberRole, managerDiscountPct: number): boolean {
