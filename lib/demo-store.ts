@@ -23,7 +23,8 @@ import { clearOfflineCache, clearSyncedOutbox, loadOfflineCustomers, loadOffline
 import { refundedQuantities, type InvoiceLookup } from "@/lib/sales/invoice-lookup";
 import { mergeSnapshot } from "@/lib/snapshot/merge";
 import { registerTotals } from "@/lib/store/register-totals";
-import type { BusinessProfile, MemberRole, ShopSnapshot, TillDevice } from "@/lib/snapshot/types";
+import { DEFAULT_LOCK_SETTINGS, type BusinessProfile, type LockSettings, type MemberRole, type ShopSnapshot, type StaffMember, type TillDevice } from "@/lib/snapshot/types";
+import { actorFields, getOperator, reconcileOperator } from "@/lib/staff/operator-session";
 import {
   applySyncResults,
   chunk,
@@ -115,6 +116,10 @@ export type ShopContext = {
   lastRefreshedAt: string | null;
   /** The owner's get-ready-to-sell facts; null for everyone else, in sample mode, or until first loaded. */
   onboarding: ChecklistFlags | null;
+  /** Stage 2A. pinLock is true only on an owner-signed-in hosted till with the lock on and allowed by the plan. */
+  lockSettings: LockSettings;
+  staff: StaffMember[];
+  pinLock: boolean;
 };
 
 function sampleRequested() {
@@ -158,7 +163,15 @@ function buildContext(): ShopContext {
     role: mode === "hosted" ? hostedContext.role ?? null : "owner",
     lastRefreshedAt: hostedContext.lastRefreshedAt,
     onboarding: mode === "hosted" && hostedContext.role === "owner" ? onboardingFlags : null,
+    lockSettings: hostedContext.lockSettings ?? DEFAULT_LOCK_SETTINGS,
+    staff: hostedContext.staff ?? [],
+    pinLock: mode === "hosted" && hostedContext.role === "owner" && (hostedContext.lockSettings ?? DEFAULT_LOCK_SETTINGS).pinLockEnabled,
   };
+}
+
+/** The person behind the PIN, only while the PIN lock is on (spec 2A §5.5: lock off sends no operator fields). */
+function lockedOperator() {
+  return contextSnapshot.pinLock ? getOperator() : null;
 }
 
 let contextSnapshot: ShopContext = buildContext();
@@ -308,7 +321,10 @@ function applySnapshot(snapshot: ShopSnapshot) {
     role: snapshot.role ?? null,
     entitlementCache: sameBusiness ? hostedContext.entitlementCache : null,
     lastRefreshedAt: snapshot.generatedAt,
+    lockSettings: snapshot.lockSettings ?? DEFAULT_LOCK_SETTINGS,
+    staff: snapshot.staff ?? [],
   };
+  reconcileOperator(snapshot.staff ?? []);
   save(merged);
   emitContext();
   if (snapshot.role === "owner") void refreshOnboarding(snapshot.business.id);
@@ -638,11 +654,12 @@ export function applyImport(plan: ImportPlan): { createdIds: string[]; updatedId
   save(next);
   return { createdIds, updatedIds, operationIds };
 }
-export function adjustStock(productId: string, delta: number, reason: string) {
+export function adjustStock(productId: string, delta: number, reason: string, approvedByMemberId?: string) {
   const product = state.products.find((item) => item.id === productId);
   if (!product || product.stock + delta < 0) return false;
   const movement: StockMovement = {
     id: crypto.randomUUID(), productId, delta, type: delta > 0 ? "receipt" : "correction-out", reason, createdAt: new Date().toISOString(),
+    ...actorFields(lockedOperator(), approvedByMemberId),
   };
   const next = {
     ...state,
@@ -658,23 +675,31 @@ export function getRegisterTotals(source = state) {
   return registerTotals(source, mode === "hosted" ? contextSnapshot.device?.id ?? null : null);
 }
 
-export function openRegister(openingCashFils: number) {
+export function openRegister(openingCashFils: number, approvedByMemberId?: string) {
   if (state.register?.status === "open") return false;
-  const register: NonNullable<DemoState["register"]> = { id: crypto.randomUUID(), status: "open", openedAt: new Date().toISOString(), openingCashFils, adjustments: [] };
+  const actor = actorFields(lockedOperator(), approvedByMemberId);
+  const register: NonNullable<DemoState["register"]> = {
+    id: crypto.randomUUID(), status: "open", openedAt: new Date().toISOString(), openingCashFils, adjustments: [],
+    openedOperatorMemberId: actor.operatorMemberId, openedApprovedByMemberId: actor.approvedByMemberId,
+  };
   save(queueRegisterOperation({ ...state, register }, crypto.randomUUID(), { action: "open", register }));
   return true;
 }
-export function addCashAdjustment(amountFils: number, reason: string) {
+export function addCashAdjustment(amountFils: number, reason: string, approvedByMemberId?: string) {
   if (!state.register || state.register.status !== "open" || amountFils === 0) return false;
-  const cashAdjustment = { id: crypto.randomUUID(), amountFils, reason, createdAt: new Date().toISOString() };
+  const cashAdjustment = { id: crypto.randomUUID(), amountFils, reason, createdAt: new Date().toISOString(), ...actorFields(lockedOperator(), approvedByMemberId) };
   const register = { ...state.register, adjustments: [cashAdjustment, ...state.register.adjustments] };
   save(queueRegisterOperation({ ...state, register }, cashAdjustment.id, { action: "adjustment", registerId: state.register.id, adjustment: cashAdjustment, register: state.register }));
   return true;
 }
-export function closeRegister(countedCashFils: number) {
+export function closeRegister(countedCashFils: number, approvedByMemberId?: string) {
   if (!state.register || state.register.status !== "open") return false;
   const { expectedCashFils } = getRegisterTotals();
-  const register: NonNullable<DemoState["register"]> = { ...state.register, status: "closed", closedAt: new Date().toISOString(), countedCashFils, expectedCashFils, varianceFils: countedCashFils - expectedCashFils };
+  const actor = actorFields(lockedOperator(), approvedByMemberId);
+  const register: NonNullable<DemoState["register"]> = {
+    ...state.register, status: "closed", closedAt: new Date().toISOString(), countedCashFils, expectedCashFils, varianceFils: countedCashFils - expectedCashFils,
+    closedOperatorMemberId: actor.operatorMemberId, closedApprovedByMemberId: actor.approvedByMemberId,
+  };
   save(queueRegisterOperation({ ...state, register }, crypto.randomUUID(), { action: "close", register }));
   return true;
 }
@@ -696,7 +721,7 @@ function tillNumber() {
   return mode === "hosted" ? contextSnapshot.device?.tillNumber ?? null : 1;
 }
 
-export function completeSale(inputLines: CheckoutLine[], paymentMethod: PaymentMethod, customerId?: string): { ok: true; sale: Sale } | { ok: false; error: string } {
+export function completeSale(inputLines: CheckoutLine[], paymentMethod: PaymentMethod, customerId?: string, approvedByMemberId?: string): { ok: true; sale: Sale } | { ok: false; error: string } {
   const till = tillNumber();
   if (till === null) return { ok: false, error: "Choose which till this browser is before selling." };
   // Re-checked here, not only at render: a sale started before Dubai midnight must not land on yesterday's register.
@@ -736,6 +761,7 @@ export function completeSale(inputLines: CheckoutLine[], paymentMethod: PaymentM
     supplier: business ? { name: business.legalName, trn: business.trn, address: business.address, phone: business.phone } : undefined,
     deviceId: mode === "hosted" ? contextSnapshot.device?.id : undefined,
     status: "completed",
+    ...actorFields(lockedOperator(), approvedByMemberId),
   };
   const movements: StockMovement[] = lines.filter((item) => item.productId).map((item) => ({
     id: crypto.randomUUID(), productId: item.productId!, delta: -item.quantity, type: "sale", reason: sale.invoiceNumber, createdAt: sale.createdAt,
@@ -761,7 +787,7 @@ export function returnedQuantities(saleId: string) {
  * number (owner decision 8: any sale of the shop can be refunded from its receipt). The server's existing credit
  * notes for that sale count against what is left to return.
  */
-export function createCreditNote(saleId: string, requestedQuantities: Record<string, number>, found?: InvoiceLookup): { ok: true; creditNote: CreditNote } | { ok: false; error: string } {
+export function createCreditNote(saleId: string, requestedQuantities: Record<string, number>, found?: InvoiceLookup, approvedByMemberId?: string): { ok: true; creditNote: CreditNote } | { ok: false; error: string } {
   const till = tillNumber();
   if (till === null) return { ok: false, error: "Choose which till this browser is before processing a refund." };
   if (!state.register || state.register.status !== "open") return { ok: false, error: "Open the register before processing a refund." };
@@ -788,6 +814,7 @@ export function createCreditNote(saleId: string, requestedQuantities: Record<str
     id: crypto.randomUUID(), creditNoteNumber, saleId, invoiceNumber: sale.invoiceNumber, createdAt: now.toISOString(), paymentMethod: sale.paymentMethod, lines,
     netFils: lines.reduce((sum, item) => sum + item.netFils, 0), vatFils: lines.reduce((sum, item) => sum + item.vatFils, 0), grossFils: lines.reduce((sum, item) => sum + item.grossFils, 0),
     deviceId: mode === "hosted" ? contextSnapshot.device?.id : undefined,
+    ...actorFields(lockedOperator(), approvedByMemberId),
   };
   const restored = new Map<string, number>();
   for (const item of lines) if (item.productId) restored.set(item.productId, (restored.get(item.productId) ?? 0) + item.quantity);
