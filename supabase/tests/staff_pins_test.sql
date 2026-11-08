@@ -111,7 +111,7 @@ begin
   begin perform public.staff_set_pin('b0000000-0000-4000-8000-0000000002a0', owner_member, 'short', 'BwcHBwcHBwcHBwcHBwcHBw=='); assert false, '2k bad hash refused';
   exception when sqlstate 'P0001' then assert sqlerrm = 'invalid_pin_hash', '2k code ' || sqlerrm; end;
   perform public.staff_reset_pin('b0000000-0000-4000-8000-0000000002a0', (select id from ids where name = 'cashier'));
-  assert (select pin_hash is null and pin_salt is null and pin_set_at is null from public.business_members where id = (select id from ids where name = 'cashier')), '2l PIN reset';
+  assert (select pin_hash is null and pin_salt is null and pin_set_at is null from public.staff_list('b0000000-0000-4000-8000-0000000002a0') where member_id = (select id from ids where name = 'cashier')), '2l PIN reset';
   perform public.staff_set_status('b0000000-0000-4000-8000-0000000002a0', (select id from ids where name = 'manager'), 'disabled');
   begin perform public.staff_set_pin('b0000000-0000-4000-8000-0000000002a0', (select id from ids where name = 'manager'), 'JpGjAh9aPug1yuS6zmq1z8aMM0a3EHBhmBDCxrUiWqk=', 'BwcHBwcHBwcHBwcHBwcHBw=='); assert false, '2m disabled refused';
   exception when sqlstate 'P0001' then assert sqlerrm = 'member_disabled', '2m code ' || sqlerrm; end;
@@ -201,6 +201,24 @@ begin
           from public.register_sessions where id = 'e0000000-0000-4000-8000-0000000002a0'), '3j register open stored, close nulls';
   assert (select count(*) from public.audit_events where action = 'sync.operator_unverified' and entity_id = 'e0000000-0000-4000-8000-0000000002a0') = 2, '3k close logged twice (two fields)';
 end $$;
+
+-- 4. PIN hashes: hidden from the table for everyone; staff_list gives them to the owner only.
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000002a2","role":"authenticated"}', true);
+do $$ begin
+  begin perform pin_hash from public.business_members limit 1; assert false, '4a cashier cannot read hashes';
+  exception when insufficient_privilege then null; end;
+  assert (select count(*) from public.business_members where business_id = 'b0000000-0000-4000-8000-0000000002a0') >= 3, '4b cashier still reads the team';
+  begin perform * from public.staff_list('b0000000-0000-4000-8000-0000000002a0'); assert false, '4c cashier refused staff_list';
+  exception when sqlstate 'P0001' then assert sqlerrm = 'not_owner', '4c code ' || sqlerrm; end;
+end $$;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000002a1","role":"authenticated"}', true);
+do $$ begin
+  assert (select count(*) from public.staff_list('b0000000-0000-4000-8000-0000000002a0')) = 3, '4d owner lists staff';
+  assert (select role = 'owner' and pin_hash is not null and email = 'owner-a@staff.test' from public.staff_list('b0000000-0000-4000-8000-0000000002a0') limit 1), '4e owner first, with hash and email';
+  assert (select last_sale_at is not null from public.staff_list('b0000000-0000-4000-8000-0000000002a0') where display_name = 'Aisha'), '4f last till use from operator records';
+end $$;
+reset role;
 
 -- A non-member cannot call it.
 set local role authenticated;
