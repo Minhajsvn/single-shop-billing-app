@@ -15,7 +15,7 @@ type RouteInput = {
 /** Pages a signed-in user is sent past, straight to the overview. */
 const SIGNED_OUT_ONLY = new Set(["/", "/login", "/signup"]);
 /** Reachable without an account: the home and legal pages, sign-in, sign-up, password reset and the email-link callback. */
-const PUBLIC_PATHS = new Set(["/", "/terms", "/privacy", "/refunds", "/contact", "/login", "/signup", "/forgot-password", "/reset-password", "/auth/confirm"]);
+const PUBLIC_PATHS = new Set(["/", "/terms", "/privacy", "/refunds", "/contact", "/offline-pos", "/vat-invoice", "/close-day", "/returns", "/stock", "/guides/uae-e-invoicing-small-business", "/guides/uae-tax-invoice", "/login", "/signup", "/forgot-password", "/reset-password", "/auth/confirm"]);
 
 /**
  * Where to go after signing in: the ?next= path the proxy recorded, if it is a plain path on this
