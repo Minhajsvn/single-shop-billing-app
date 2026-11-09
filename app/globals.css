@@ -1534,3 +1534,9 @@ kbd { min-width: 22px; display: inline-grid; place-items: center; padding: 2px 6
 .staff-table .row-actions .button { min-height: 34px; padding: 0 10px; font-size: 13px; }
 .checkbox-field { display: flex; align-items: center; gap: 10px; grid-column: 1 / -1; font-weight: 500; }
 .checkbox-field input { width: 18px; height: 18px; accent-color: var(--accent); }
+
+/* Stage 2B: bank transfer and split payment */
+.payment-button.transfer, .payment-button.split { background: var(--surface-raised); }
+.split-dialog .modal-body { display: grid; gap: 12px; }
+.split-line { display: grid; grid-template-columns: 1fr auto; gap: 6px 10px; align-items: end; }
+.split-line .field-hint, .split-line .field:nth-child(n + 3) { grid-column: 1 / -1; margin: 0; }
