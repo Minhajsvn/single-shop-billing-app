@@ -177,4 +177,57 @@ end $$;
 reset role;
 update public.founding_offer set seat_cap = seat_cap - 1;
 
+-- 7. Staff revoke: frees the seat for the next payer; refused twice or for a non-founder; never reclaimed.
+do $$
+declare
+  staff constant uuid := '00000000-0000-4000-8000-000000001389'; -- owner of shop 1, standing in for platform staff
+  revoked_biz constant uuid := 'b5000000-0000-4000-8000-000000000002';
+  m public.founding_members;
+  biz uuid;
+begin
+  assert not public.founding_offer_open(), '7 full before';
+  perform public.admin_revoke_founding_seat(revoked_biz, staff, '  fraud check  ');
+  select * into m from public.founding_members where business_id = revoked_biz;
+  assert m.end_reason = 'revoked' and m.ended_at is not null and m.revoked_by = staff and m.revoke_note = 'fraud check', '7 revoked row';
+  assert (select count(*) from public.audit_events where business_id = revoked_biz and action = 'admin.revoke_founding_seat'
+          and actor_id = staff and summary->>'note' = 'fraud check') = 1, '7 audit row';
+  assert public.founding_offer_open(), '7 open after revoke';
+  assert public.entitlements_internal(revoked_biz)->'founder' = 'null'::jsonb, '7 revoked shop has no founder';
+
+  begin
+    perform public.admin_revoke_founding_seat(revoked_biz, staff, 'again');
+    assert false, '7 second revoke allowed';
+  exception when sqlstate 'P0001' then assert sqlerrm = 'not_a_founder', '7 second revoke code ' || sqlerrm;
+  end;
+  begin
+    perform public.admin_revoke_founding_seat('b5000000-0000-4000-8000-000000000005', staff, 'not one');
+    assert false, '7 non-founder revoke allowed';
+  exception when sqlstate 'P0001' then assert sqlerrm = 'not_a_founder', '7 non-founder code ' || sqlerrm;
+  end;
+  begin
+    perform public.admin_revoke_founding_seat('b5000000-0000-4000-8000-0000000000ff', staff, 'gone');
+    assert false, '7 missing shop allowed';
+  exception when sqlstate 'P0001' then assert sqlerrm = 'shop_not_found', '7 missing shop code ' || sqlerrm;
+  end;
+  begin
+    perform public.admin_revoke_founding_seat('b5000000-0000-4000-8000-000000000003', staff, '   ');
+    assert false, '7 empty note allowed';
+  exception when sqlstate 'P0001' then assert sqlerrm = 'note_required', '7 note code ' || sqlerrm;
+  end;
+
+  -- The revoked shop pays again: no new record.
+  assert pg_temp.f50_event('evt_f50_2_paid_again', 'invoice_paid', revoked_biz, 'sub_f50_2', 'active', 20) = 'applied', '7 paid again';
+  assert (select count(*) from public.founding_members where business_id = revoked_biz) = 1, '7 never reclaimed';
+
+  -- The next new payer takes the freed seat 2.
+  biz := pg_temp.f50_shop(6);
+  perform pg_temp.f50_end_trial(biz);
+  assert pg_temp.f50_event('evt_f50_6_paid', 'checkout_completed', biz, 'sub_f50_6', 'active', 1) = 'applied', '7 shop 6';
+  assert (select seat_no from public.founding_members where business_id = biz) = 2, '7 shop 6 gets seat 2';
+
+  -- Revoking a cancelled founder is allowed and frees its seat.
+  perform public.admin_revoke_founding_seat('b5000000-0000-4000-8000-000000000001', staff, 'cleanup');
+  assert public.founding_offer_open(), '7 cancelled seat freed';
+end $$;
+
 rollback;

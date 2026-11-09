@@ -352,3 +352,40 @@ $$;
 
 revoke execute on function public.founding_offer_open() from public;
 grant execute on function public.founding_offer_open() to anon, authenticated, service_role;
+
+-- Staff take a founding seat back (fraud, abuse). The seat number is free for the next payer; the shop never claims
+-- again. Locks the offer row like a claim, so a revoke and a claim never interleave. Service role only; the staff
+-- check lives in the app and this function trusts p_actor.
+create function public.admin_revoke_founding_seat(p_business uuid, p_actor uuid, p_note text)
+returns void language plpgsql security definer set search_path = public, extensions, pg_temp
+as $$
+declare
+  clean_note text := public.admin_clean_note(p_note);
+  founder public.founding_members;
+begin
+  if not exists (select 1 from public.businesses where id = p_business) then
+    raise exception using errcode = 'P0001', message = 'shop_not_found';
+  end if;
+
+  perform 1 from public.founding_offer for update;
+
+  select * into founder from public.founding_members
+  where business_id = p_business and end_reason is distinct from 'revoked' for update;
+  if not found then
+    raise exception using errcode = 'P0001', message = 'not_a_founder';
+  end if;
+
+  update public.founding_members
+  set ended_at = now(), end_reason = 'revoked', revoked_by = p_actor, revoke_note = clean_note
+  where id = founder.id;
+
+  insert into public.audit_events (business_id, actor_id, action, entity_type, entity_id, summary)
+  values (p_business, p_actor, 'admin.revoke_founding_seat', 'founding_member', founder.id, jsonb_build_object(
+    'before', jsonb_build_object('seatNo', founder.seat_no, 'endsAt', founder.ends_at, 'endReason', founder.end_reason),
+    'after', jsonb_build_object('endReason', 'revoked'),
+    'note', clean_note));
+end
+$$;
+
+revoke execute on function public.admin_revoke_founding_seat(uuid, uuid, text) from public, anon, authenticated;
+grant execute on function public.admin_revoke_founding_seat(uuid, uuid, text) to service_role;
