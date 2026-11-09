@@ -59,6 +59,7 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!api|_next/static|_next/image|favicon.ico|manifest.webmanifest|sw.js|icon.svg|apple-touch-icon.png|icon-192.png|icon-512.png).*)",
+    // Crawler files and the home page's media are public and skip the auth check.
+    "/((?!api|_next/static|_next/image|favicon.ico|manifest.webmanifest|sw.js|icon.svg|apple-touch-icon.png|icon-192.png|icon-512.png|robots.txt|sitemap.xml|opengraph-image|media/).*)",
   ],
 };

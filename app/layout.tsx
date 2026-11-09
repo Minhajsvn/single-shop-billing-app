@@ -2,14 +2,16 @@ import type { Metadata } from "next";
 import { Inter, Space_Grotesk } from "next/font/google";
 import { ThemeWatcher } from "@/components/theme-choice";
 import { THEME_SCRIPT } from "@/lib/ui/theme";
+import { SITE_URL } from "@/lib/site-info";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"], display: "swap", variable: "--font-inter" });
 const spaceGrotesk = Space_Grotesk({ subsets: ["latin"], display: "swap", variable: "--font-space-grotesk" });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
   title: "billo",
-  description: "Single-shop sales, billing, stock, and cash register.",
+  description: "POS and billing software for UAE shops: sales, VAT invoices, stock and the cash register.",
   manifest: "/manifest.webmanifest",
   icons: {
     icon: [
