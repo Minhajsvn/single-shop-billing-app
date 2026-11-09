@@ -22,3 +22,6 @@ Thumbs.db
 # TypeScript
 *.tsbuildinfo
 next-env.d.ts
+
+# design-skill working files
+.taste-skill/
