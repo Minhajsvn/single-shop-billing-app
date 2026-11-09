@@ -1540,3 +1540,5 @@ kbd { min-width: 22px; display: inline-grid; place-items: center; padding: 2px 6
 .split-dialog .modal-body { display: grid; gap: 12px; }
 .split-line { display: grid; grid-template-columns: 1fr auto; gap: 6px 10px; align-items: end; }
 .split-line .field-hint, .split-line .field:nth-child(n + 3) { grid-column: 1 / -1; margin: 0; }
+.payback { display: grid; gap: 10px; border: 0; margin: 12px 0 0; padding: 12px 0 0; border-top: 1px solid var(--border-glass); }
+.payback legend { font-weight: 600; font-size: 14px; padding: 0; margin-bottom: 6px; }
