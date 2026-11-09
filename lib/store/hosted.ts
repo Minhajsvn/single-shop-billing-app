@@ -1,7 +1,7 @@
 import { withTaxCategories } from "./product-sync.ts";
 import { READ_ONLY_ENTITLEMENTS, type Entitlements } from "../billing/entitlements.ts";
 import type { DemoState, SyncOperation } from "../domain.ts";
-import type { BusinessProfile, MemberRole, TillDevice } from "../snapshot/types.ts";
+import type { BusinessProfile, LockSettings, MemberRole, StaffMember, TillDevice } from "../snapshot/types.ts";
 
 export type EntitlementCache = { entitlements: Entitlements; expiresAt: string };
 
@@ -11,6 +11,9 @@ export type HostedContext = {
   entitlementCache: EntitlementCache | null;
   /** The signed-in member's role; absent in caches written before Stage 1F. */
   role?: MemberRole | null;
+  /** Stage 2A: PIN lock settings and (owner sessions only) the staff list; cached so the lock works offline. */
+  lockSettings?: LockSettings;
+  staff?: StaffMember[];
   lastRefreshedAt: string | null;
 };
 

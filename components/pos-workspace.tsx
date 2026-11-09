@@ -15,6 +15,8 @@ import { findByCode } from "@/lib/checkout/lookup";
 import { saleBlockReason, staleRegister } from "@/lib/checkout/register-status";
 import { cartTotals, formatItemCount } from "@/lib/checkout/pricing";
 import { isOwnerView } from "@/lib/access/cashier";
+import { useEffectiveRole } from "@/components/staff/use-operator";
+import { useApproval } from "@/components/staff/approval-dialog";
 import { completeSale, type CheckoutLine, useDemoStore, useShopContext } from "@/lib/demo-store";
 import { formatAED, type Product, type Sale } from "@/lib/domain";
 import { EmptyState } from "@/components/ui/list-parts";
@@ -23,7 +25,9 @@ type CartItem = CheckoutLine & { key: string };
 
 export function PosWorkspace() {
   const store = useDemoStore();
-  const { device, role } = useShopContext();
+  const { device } = useShopContext();
+  const role = useEffectiveRole();
+  const askApproval = useApproval();
   const [query, setQuery] = useState("");
   const [cart, setCart] = useState<CartItem[]>([]);
   const [customOpen, setCustomOpen] = useState(false);
@@ -148,7 +152,9 @@ export function PosWorkspace() {
     closeDialog(setDiscountFor);
   }
 
-  function changeQuantity(item: CartItem, delta: number) {
+  async function changeQuantity(item: CartItem, delta: number) {
+    // Stage 2A: a cashier needs a manager to lower a quantity (or remove the line by lowering it to nothing).
+    if (delta < 0 && (await askApproval({ kind: item.quantity + delta < 1 ? "remove-line" : "lower-quantity" })) === null) return;
     setCart((current) => current.flatMap((line) => {
       if (line.key !== item.key) return [line];
       const nextQuantity = line.quantity + delta;
@@ -179,10 +185,19 @@ export function PosWorkspace() {
     setPayment({ method });
   }
 
-  function completePayment(tenderedFils: number | null) {
+  async function removeLine(key: string) {
+    if ((await askApproval({ kind: "remove-line" })) === null) return;
+    setCart((current) => current.filter((line) => line.key !== key));
+    focusSearch();
+  }
+
+  async function completePayment(tenderedFils: number | null) {
     if (!payment) return;
+    // Stage 2A: a discount above the shop's limit needs a manager before the sale completes.
+    const approver = await askApproval({ kind: "discount", discountFils: totals.discountFils, listTotalFils: totals.grossFils + totals.discountFils });
+    if (approver === null) return;
     const lines = cart.map(({ productId, name, sku, quantity, unitGrossFils, listUnitGrossFils }) => ({ productId, name, sku, quantity, unitGrossFils, listUnitGrossFils }));
-    const result = completeSale(lines, payment.method, customerId);
+    const result = completeSale(lines, payment.method, customerId, approver);
     if (!result.ok) {
       setPayment({ ...payment, error: result.error });
       return;
@@ -267,7 +282,7 @@ export function PosWorkspace() {
 
         {completed ? <ReceiptPanel sale={completed.sale} tenderedFils={completed.tenderedFils} shop={receiptShop} onNewSale={startNewSale} /> : <aside className={`panel cart-panel ${sheetOpen ? "sheet-open" : ""}`}>
           <div className="panel-header"><div><div className="panel-title">Current cart</div><div className="panel-subtitle">{formatItemCount(cart)}</div></div><HeldCarts deviceId={device?.id ?? null} products={store.products} canHold={cart.length > 0} cartIsEmpty={!cart.length} onHold={heldLines} onHeld={() => { setCart([]); setCustomerId(undefined); focusSearch(); }} onResume={resumeHeld} />{cart.length > 0 && <button className="button" onClick={() => { setCart([]); focusSearch(); }}>Clear</button>}</div>
-          <div className="cart-lines" aria-live="polite" ref={cartLines}>{cart.length ? cart.map((item) => <div className={`cart-line ${flash?.key === item.key ? "flash" : ""}`} data-key={item.key} key={item.key}><div className="cart-line-top"><div><div className="product-name">{item.name}</div><div className="product-meta">{item.sku ?? "Custom non-stock item"}</div>{item.listUnitGrossFils ? <div className="product-meta discount-meta"><s>{formatAED(item.listUnitGrossFils)}</s> {formatAED(item.unitGrossFils)} each · −{formatAED((item.listUnitGrossFils - item.unitGrossFils) * item.quantity)}</div> : null}</div><button className="cart-remove" onClick={() => { setCart((current) => current.filter((line) => line.key !== item.key)); focusSearch(); }} aria-label={`Remove ${item.name}`}><Trash size={15} weight="bold" /></button></div><div className="cart-line-bottom"><div className="quantity-stepper"><button onClick={() => changeQuantity(item, -1)} aria-label={`Decrease ${item.name}`}><Minus size={13} weight="bold" /></button><span>{item.quantity}</span><button onClick={() => changeQuantity(item, 1)} aria-label={`Increase ${item.name}`}><Plus size={13} weight="bold" /></button></div><button className={`button discount-button ${item.listUnitGrossFils ? "on" : ""}`} type="button" onClick={() => setDiscountFor(item.key)} aria-label={`Discount ${item.name}`} title={item.listUnitGrossFils ? "Edit discount" : "Discount"}><Tag size={14} weight="bold" />{item.listUnitGrossFils ? "Edit" : "Discount"}</button><strong>{formatAED(item.unitGrossFils * item.quantity)}</strong></div></div>) : <div className="cart-empty"><ShoppingCart size={30} weight="duotone" /><p>Scan a barcode, tap a product, or press <kbd>/</kbd> to search.</p></div>}</div>
+          <div className="cart-lines" aria-live="polite" ref={cartLines}>{cart.length ? cart.map((item) => <div className={`cart-line ${flash?.key === item.key ? "flash" : ""}`} data-key={item.key} key={item.key}><div className="cart-line-top"><div><div className="product-name">{item.name}</div><div className="product-meta">{item.sku ?? "Custom non-stock item"}</div>{item.listUnitGrossFils ? <div className="product-meta discount-meta"><s>{formatAED(item.listUnitGrossFils)}</s> {formatAED(item.unitGrossFils)} each · −{formatAED((item.listUnitGrossFils - item.unitGrossFils) * item.quantity)}</div> : null}</div><button className="cart-remove" onClick={() => void removeLine(item.key)} aria-label={`Remove ${item.name}`}><Trash size={15} weight="bold" /></button></div><div className="cart-line-bottom"><div className="quantity-stepper"><button onClick={() => changeQuantity(item, -1)} aria-label={`Decrease ${item.name}`}><Minus size={13} weight="bold" /></button><span>{item.quantity}</span><button onClick={() => changeQuantity(item, 1)} aria-label={`Increase ${item.name}`}><Plus size={13} weight="bold" /></button></div><button className={`button discount-button ${item.listUnitGrossFils ? "on" : ""}`} type="button" onClick={() => setDiscountFor(item.key)} aria-label={`Discount ${item.name}`} title={item.listUnitGrossFils ? "Edit discount" : "Discount"}><Tag size={14} weight="bold" />{item.listUnitGrossFils ? "Edit" : "Discount"}</button><strong>{formatAED(item.unitGrossFils * item.quantity)}</strong></div></div>) : <div className="cart-empty"><ShoppingCart size={30} weight="duotone" /><p>Scan a barcode, tap a product, or press <kbd>/</kbd> to search.</p></div>}</div>
 
           <div className="checkout-block">
             <button className="customer-selector" onClick={() => setCustomerOpen(true)}><span className="customer-selector-icon">{selectedCustomer ? <IdentificationCard size={17} weight="fill" /> : <User size={17} weight="bold" />}</span><span><small>Invoice customer</small><strong>{selectedCustomer?.name ?? "Walk-in customer"}</strong></span><span className="customer-selector-action">Change</span></button>

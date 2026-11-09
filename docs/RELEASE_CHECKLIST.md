@@ -29,6 +29,18 @@
 - [ ] Database migrations are applied before promoting the application build.
 - [ ] Smoke test covers sign-in, register open, Cash sale, Card sale, print, report, and backup.
 
+## Stage 2A: staff roles and cashier PINs
+
+- [ ] Apply migrations in order before the app build: `202611080044_staff_pins`, `202611080045_staff_functions`,
+  `202611080046_sync_operator`, `202611080047_staff_list`, `202611080048_operator_sync_entity_id`.
+- [ ] `npm run test:sql` passes against staging (includes `supabase/tests/staff_pins_test.sql`).
+- [ ] The Supabase invite email template and redirect (`/auth/confirm?next=/reset-password`) work for staff invites.
+- [ ] Nothing changes for existing shops until an owner turns on the PIN lock in Settings → Staff (Pro only, owner PIN first).
+- [ ] Smoke test on a Pro shop: invite a cashier and a manager, set PINs, turn the lock on, sell as the cashier, approve a
+  refund and a register close with the manager's PIN, and check both names on the records.
+- [ ] Note for support: a PIN only says who is at the till; the shop's sign-in protects the data. Five wrong PINs block that
+  person on that till for five minutes.
+
 ## Rollback
 
 1. Keep the previous hosting deployment available.

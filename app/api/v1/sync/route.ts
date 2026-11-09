@@ -1,4 +1,5 @@
 import { requestSchema, rpcPayloadFor } from "@/lib/sync/request-schema";
+import { carriesOperator } from "@/lib/staff/operator-sync";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { activeMembership } from "@/lib/access/membership";
 
@@ -89,6 +90,11 @@ export async function POST(request: Request) {
     if (error) {
       results.push({ id: operation.id, status: "rejected", error: error.message });
     } else {
+      // Record the person behind the PIN. This never rejects the record: a failure only leaves the names empty.
+      if (carriesOperator(operation)) {
+        const named = await supabase.rpc("apply_operator_sync", { p_business_id: business.id, p_entity: operation.entity, p_entity_id: operation.entityId, p_payload: payload });
+        if (named.error) console.error("apply_operator_sync failed", operation.id, named.error.message);
+      }
       results.push({ id: operation.id, status: "accepted" });
     }
   }

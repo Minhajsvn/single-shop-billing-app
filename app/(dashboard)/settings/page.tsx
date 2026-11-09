@@ -14,6 +14,9 @@ import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { syncCatalogToSupabase } from "@/lib/supabase/catalog-sync";
 import { requestConfirm } from "@/lib/ui/confirm-store";
 import { toast } from "@/lib/ui/toast-store";
+import { StaffTab } from "@/components/staff/staff-tab";
+import { YourPinCard } from "@/components/staff/your-pin-card";
+import { useEffectiveRole } from "@/components/staff/use-operator";
 
 const TABS = [
   { tab: "business", label: "Business" },
@@ -22,8 +25,11 @@ const TABS = [
   { tab: "data", label: "Data" },
 ] as const;
 const BILLING_TAB = { tab: "billing", label: "Billing" } as const;
-type Tab = (typeof TABS)[number]["tab"] | "billing";
-const isTab = (value: string): value is Tab => value === "billing" || TABS.some((item) => item.tab === value);
+// Stage 2A: the owner's Staff tab sits after Tills.
+const STAFF_TAB = { tab: "staff", label: "Staff" } as const;
+type Tab = (typeof TABS)[number]["tab"] | "billing" | "staff";
+const isTab = (value: string): value is Tab => value === "billing" || value === "staff" || TABS.some((item) => item.tab === value);
+const OWNER_TABS = [TABS[0], TABS[1], STAFF_TAB, TABS[2], TABS[3], BILLING_TAB];
 
 const SETTINGS_KEY = "shop-ledger-demo-settings-v1";
 const defaults = {
@@ -37,14 +43,18 @@ const defaults = {
 
 export default function SettingsPage() {
   const store = useDemoStore();
-  const { mode, business, devices, device, entitlements, role } = useShopContext();
+  const { mode, business, devices, device, entitlements, role: sessionRole } = useShopContext();
+  // Stage 2A: with the PIN lock on, Settings follows the person behind the PIN.
+  const effectiveRole = useEffectiveRole();
+  const role = sessionRole === "owner" ? effectiveRole : sessionRole;
   const tillLimit = entitlements.limits.tills;
   const overTillLimit = tillLimit !== null && devices.filter((item) => item.status === "active").length > tillLimit;
   const [params, setParams] = useListParams({ tab: "business" });
   // A cashier's Settings is the Data tab only: Sync now and the outbox (owner decision 7).
   const ownerView = isOwnerView(role);
-  const tabs = role === "owner" ? [...TABS, BILLING_TAB] : ownerView ? TABS : TABS.filter((item) => item.tab === MEMBER_SETTINGS_TAB);
-  const tab: Tab = !ownerView ? MEMBER_SETTINGS_TAB : isTab(params.tab) && (params.tab !== "billing" || role === "owner") ? params.tab : "business";
+  const hostedOwner = mode === "hosted" && role === "owner";
+  const tabs = hostedOwner ? OWNER_TABS : role === "owner" ? [...TABS, BILLING_TAB] : ownerView ? TABS : TABS.filter((item) => item.tab === MEMBER_SETTINGS_TAB);
+  const tab: Tab = !ownerView ? MEMBER_SETTINGS_TAB : isTab(params.tab) && (params.tab !== "billing" || role === "owner") && (params.tab !== "staff" || hostedOwner) ? params.tab : "business";
   // On a phone the tab row scrolls; keep the open tab in view (Data sits past the edge at 375px).
   useEffect(() => {
     document.getElementById(`settings-tab-${tab}`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -242,6 +252,8 @@ export default function SettingsPage() {
             : <EmptyState compact icon={<CashRegister size={28} weight="duotone" />} title={hosted ? "No tills yet" : "One till: this browser"} hint={hosted ? "Register a till from the till picker." : "Tills are set up when you use a shop account."} />}
         </section> : null}
 
+        {tab === "staff" && hostedOwner ? <StaffTab /> : null}
+
         {tab === "billing" ? <BillingPanel overTillLimit={hosted && overTillLimit} onShowTills={() => setParams({ tab: "tills" })} /> : null}
 
         {tab === "tax" ? <form className="panel" onSubmit={submit}>
@@ -255,6 +267,7 @@ export default function SettingsPage() {
         </form> : null}
 
         {tab === "data" ? <>
+          {mode === "hosted" && sessionRole !== "owner" ? <YourPinCard /> : null}
           <section className="panel sync-diagnostics">
             <div className="panel-header"><div><div className="panel-title">Offline outbox</div><div className="panel-subtitle">Supported customer, sale, refund, register, and inventory changes sync automatically; other pending operations are retained</div></div><button className="button" type="button" onClick={() => void syncNow()} disabled={syncBusy || (!hosted && !store.syncOperations.some((item) => item.status === "pending" || item.status === "failed"))}><ArrowsClockwise size={15} weight="bold" />{syncBusy ? "Syncing…" : "Sync now"}</button></div>
             {syncMessage && <div className="backup-message" role="status">{syncMessage}</div>}

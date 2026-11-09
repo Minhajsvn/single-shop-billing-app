@@ -8,6 +8,7 @@ import { useOnline } from "@/components/offline-runtime";
 import { lookupInvoice } from "@/components/sales/use-invoice-lookup";
 import { useServerSales } from "@/components/sales/use-server-sales";
 import { isOwnerView } from "@/lib/access/cashier";
+import { useEffectiveRole } from "@/components/staff/use-operator";
 import { refundByInvoiceShown } from "@/lib/sales/invoice-lookup";
 import { EmptyState, Pager, Skeleton, SummaryStrip } from "@/components/ui/list-parts";
 import { useListParams } from "@/components/ui/use-list-params";
@@ -60,7 +61,8 @@ function RefundByInvoice({ sales }: { sales: Sale[] }) {
 
 export function SalesWorkspace() {
   const store = useDemoStore();
-  const { mode, role } = useShopContext();
+  const { mode } = useShopContext();
+  const role = useEffectiveRole();
   const ownerView = isOwnerView(role);
   const online = useOnline();
   const [params, setParams] = useListParams({ q: "", chip: "last30", page: "1" });

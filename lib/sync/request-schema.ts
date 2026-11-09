@@ -2,6 +2,9 @@ import { z } from "zod";
 
 /** The till that created an operation. Optional so operations queued before Stage 1B still sync. */
 const deviceIdSchema = z.string().uuid().optional();
+// Stage 2A: the person behind the PIN and any approving manager (business_members ids). Checked on the server.
+const memberIdSchema = z.string().uuid().optional();
+const actorFields = { operatorMemberId: memberIdSchema, approvedByMemberId: memberIdSchema };
 
 const customerSchema = z.object({
   id: z.string().uuid(),
@@ -48,6 +51,7 @@ const saleSchema = z.object({
   grossFils: z.number().int().positive(),
   customer: customerSnapshotSchema.optional(),
   status: z.literal("completed"),
+  ...actorFields,
 });
 
 const cashAdjustmentSchema = z.object({
@@ -55,6 +59,7 @@ const cashAdjustmentSchema = z.object({
   amountFils: z.number().int().refine((value) => value !== 0),
   reason: z.string().trim().min(1).max(300),
   createdAt: z.string().min(1),
+  ...actorFields,
 });
 
 const registerSnapshotSchema = z.object({
@@ -67,6 +72,10 @@ const registerSnapshotSchema = z.object({
   countedCashFils: z.number().int().nonnegative().optional(),
   expectedCashFils: z.number().int().optional(),
   varianceFils: z.number().int().optional(),
+  openedOperatorMemberId: memberIdSchema,
+  openedApprovedByMemberId: memberIdSchema,
+  closedOperatorMemberId: memberIdSchema,
+  closedApprovedByMemberId: memberIdSchema,
 });
 
 const creditNoteLineSchema = z.object({
@@ -93,6 +102,7 @@ const creditNoteSchema = z.object({
   netFils: z.number().int().nonnegative(),
   vatFils: z.number().int().nonnegative(),
   grossFils: z.number().int().positive(),
+  ...actorFields,
 });
 
 const stockProductSchema = z.object({
@@ -113,6 +123,7 @@ const stockMovementSchema = z.object({
   type: z.enum(["opening", "receipt", "correction-in", "correction-out", "import-count"]),
   reason: z.string().trim().min(1).max(300),
   createdAt: z.string().min(1),
+  ...actorFields,
 });
 
 const stockOperationSchema = z.object({

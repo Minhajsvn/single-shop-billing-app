@@ -20,6 +20,9 @@ export type StockMovement = {
   type: "opening" | "receipt" | "correction-in" | "correction-out" | "sale" | "return" | "import-count";
   reason: string;
   createdAt: string;
+  /** Stage 2A: the person behind the PIN, and the approving manager where one was needed. */
+  operatorMemberId?: string;
+  approvedByMemberId?: string;
 };
 
 export type PaymentMethod = "cash" | "card";
@@ -68,6 +71,9 @@ export type Sale = {
   /** The till that issued the invoice (hosted shops only). */
   deviceId?: string;
   status: "completed";
+  /** Stage 2A: the person behind the PIN, and the approving manager where one was needed. */
+  operatorMemberId?: string;
+  approvedByMemberId?: string;
 };
 
 export type CreditNoteLine = InvoiceLine & {
@@ -87,6 +93,9 @@ export type CreditNote = {
   grossFils: number;
   /** The till that issued the credit note (hosted shops only). */
   deviceId?: string;
+  /** Stage 2A: the person behind the PIN, and the approving manager where one was needed. */
+  operatorMemberId?: string;
+  approvedByMemberId?: string;
 };
 
 export type CustomerSyncPayload = { customer: Customer };
@@ -123,6 +132,9 @@ export type CashAdjustment = {
   amountFils: number;
   reason: string;
   createdAt: string;
+  /** Stage 2A: the person behind the PIN, and the approving manager where one was needed. */
+  operatorMemberId?: string;
+  approvedByMemberId?: string;
 };
 
 export type RegisterSession = {
@@ -135,6 +147,11 @@ export type RegisterSession = {
   countedCashFils?: number;
   expectedCashFils?: number;
   varianceFils?: number;
+  /** Stage 2A: who opened and closed the register on a PIN-locked till, and any approving manager. */
+  openedOperatorMemberId?: string;
+  openedApprovedByMemberId?: string;
+  closedOperatorMemberId?: string;
+  closedApprovedByMemberId?: string;
 };
 
 export type DemoState = {

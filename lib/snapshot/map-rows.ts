@@ -1,6 +1,23 @@
 import type { CustomerSnapshot, DemoState, InvoiceLine, Sale, StockMovement, SupplierSnapshot } from "../domain.ts";
 import type { CountryCode, CurrencyCode, TaxCategory } from "../fiscal/countries.ts";
-import type { ShopSnapshot, SnapshotRows } from "./types.ts";
+import { DEFAULT_LOCK_SETTINGS, type LockSettings, type ShopSnapshot, type SnapshotRows, type StaffMember } from "./types.ts";
+
+/** Stage 2A lock settings; off when the server sends none or the plan does not include staff_roles. */
+function mapLock(lock: SnapshotRows["lock"]): LockSettings {
+  if (!lock) return DEFAULT_LOCK_SETTINGS;
+  return { pinLockEnabled: lock.pin_lock_enabled && lock.lock_allowed, idleLockMinutes: Number(lock.idle_lock_minutes), managerDiscountPct: Number(lock.manager_discount_pct) };
+}
+
+function mapStaff(rows: SnapshotRows["staff"]): StaffMember[] {
+  return (rows ?? []).map((m) => ({
+    memberId: m.member_id,
+    displayName: m.display_name?.trim() || "Staff member",
+    role: m.role === "owner" || m.role === "manager" ? m.role : "cashier",
+    status: m.status === "active" ? "active" : "disabled",
+    pinHash: m.pin_hash,
+    pinSalt: m.pin_salt,
+  }));
+}
 
 const optional = (value: string | null) => value ?? undefined;
 
@@ -67,5 +84,7 @@ export function mapSnapshotRows(rows: SnapshotRows, generatedAt: string): ShopSn
     role: rows.role === "owner" || rows.role === "manager" || rows.role === "cashier" ? rows.role : null,
     state,
     generatedAt,
+    lockSettings: mapLock(rows.lock),
+    staff: mapStaff(rows.staff),
   };
 }

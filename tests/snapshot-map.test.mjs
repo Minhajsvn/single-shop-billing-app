@@ -109,3 +109,29 @@ test("import counts map to the client's import-count movement type", () => {
   const withCount = { ...rows, stockMovements: [{ id: "m2", product_id: "p1", type: "import_count", quantity_delta: -6, reason: "Spreadsheet import", created_at: "2026-10-18T07:00:00Z" }] };
   assert.equal(mapSnapshotRows(withCount, "x").state.stockMovements[0].type, "import-count");
 });
+
+test("Stage 2A: lock settings and staff map to camelCase; the lock is off when the plan does not allow it", () => {
+  const withStaff = {
+    ...rows,
+    lock: { pin_lock_enabled: true, idle_lock_minutes: 3, manager_discount_pct: 15, lock_allowed: true },
+    staff: [
+      { member_id: "m1", display_name: "Aisha", role: "cashier", status: "active", pin_hash: "h", pin_salt: "s" },
+      { member_id: "m2", display_name: null, role: "boss", status: "weird", pin_hash: null, pin_salt: null },
+    ],
+  };
+  const s = mapSnapshotRows(withStaff, "x");
+  assert.deepEqual(s.lockSettings, { pinLockEnabled: true, idleLockMinutes: 3, managerDiscountPct: 15 });
+  assert.deepEqual(s.staff, [
+    { memberId: "m1", displayName: "Aisha", role: "cashier", status: "active", pinHash: "h", pinSalt: "s" },
+    { memberId: "m2", displayName: "Staff member", role: "cashier", status: "disabled", pinHash: null, pinSalt: null },
+  ]);
+  const notAllowed = mapSnapshotRows({ ...withStaff, lock: { ...withStaff.lock, lock_allowed: false } }, "x");
+  assert.equal(notAllowed.lockSettings.pinLockEnabled, false);
+  assert.equal(notAllowed.lockSettings.idleLockMinutes, 3);
+});
+
+test("Stage 2A: an older server without lock or staff gives the lock off and no staff", () => {
+  const s = mapSnapshotRows(rows, "x");
+  assert.deepEqual(s.lockSettings, { pinLockEnabled: false, idleLockMinutes: 5, managerDiscountPct: 10 });
+  assert.deepEqual(s.staff, []);
+});
