@@ -69,3 +69,28 @@ test("parseRevokeFounder needs a note", () => {
 test("not_a_founder has plain words", () => {
   assert.equal(adminErrorMessage("not_a_founder"), "This shop is not a founding member.");
 });
+
+// Public offer flag.
+import { FOUNDING_OFFER_TEXT, foundingOfferOpen } from "../lib/billing/founding-offer.ts";
+
+const env = { url: "http://127.0.0.1:54321", key: "anon-key" };
+const reply = (status, body) => async () => new Response(body, { status, headers: { "content-type": "application/json" } });
+
+test("FOUNDING_OFFER_TEXT is the agreed copy", () => {
+  assert.equal(FOUNDING_OFFER_TEXT, "Founding 50: the first 50 shops to subscribe get Pro features for 12 months at the Starter price.");
+});
+
+test("foundingOfferOpen is true only for a 2xx body of exactly true", async () => {
+  let seen;
+  const ok = async (url, init) => { seen = { url, init }; return new Response("true", { status: 200 }); };
+  assert.equal(await foundingOfferOpen(ok, env), true);
+  assert.equal(seen.url, "http://127.0.0.1:54321/rest/v1/rpc/founding_offer_open");
+  assert.equal(seen.init.method, "POST");
+  assert.equal(seen.init.headers.apikey, "anon-key");
+  assert.equal(await foundingOfferOpen(reply(200, "false"), env), false);
+  assert.equal(await foundingOfferOpen(reply(200, "\"true\""), env), false);
+  assert.equal(await foundingOfferOpen(reply(500, "true"), env), false);
+  assert.equal(await foundingOfferOpen(async () => { throw new Error("offline"); }, env), false);
+  assert.equal(await foundingOfferOpen(ok, { url: undefined, key: "anon-key" }), false);
+  assert.equal(await foundingOfferOpen(ok, { url: env.url, key: undefined }), false);
+});
