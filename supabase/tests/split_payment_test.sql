@@ -86,6 +86,69 @@ do $$ begin
 end $$;
 reset role;
 
--- @task3
+-- 3. Sync with payments (Task 3). The owner's till syncs sales and a refund through the wrappers.
+create temp table sale_payload (name text primary key, body jsonb) on commit drop;
+insert into sale_payload values ('base', jsonb_build_object(
+  'deviceId', 'd0000000-0000-4000-8000-0000000003a0',
+  'sale', jsonb_build_object(
+    'invoiceNumber', 'P-0002', 'createdAt', now()::text, 'supplyDate', current_date::text, 'status', 'completed',
+    'netFils', 7352, 'vatFils', 368, 'grossFils', 7720,
+    'lines', jsonb_build_array(jsonb_build_object('id', gen_random_uuid(), 'name', 'Medjool Dates 1kg', 'quantity', 1,
+      'unitGrossFils', 7720, 'netFils', 7352, 'vatFils', 368, 'grossFils', 7720)))));
+grant all on sale_payload to authenticated;
+
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000003a1","role":"authenticated"}', true);
+do $$
+declare
+  base jsonb := (select body from sale_payload where name = 'base');
+  op uuid := gen_random_uuid();
+  ok_sale jsonb;
+begin
+  -- 3a cash + card split saved with its two rows.
+  ok_sale := jsonb_set(jsonb_set(jsonb_set(jsonb_set(base, '{sale,lines,0,id}', to_jsonb(gen_random_uuid()::text)), '{sale,invoiceNumber}', '"P-302"'), '{sale,id}', '"5a000000-0000-4000-8000-000000000302"'), '{sale,paymentMethod}', '"split"');
+  ok_sale := jsonb_set(ok_sale, '{sale,payments}', jsonb_build_array(
+    jsonb_build_object('id', gen_random_uuid(), 'method', 'cash', 'amountFils', 5000),
+    jsonb_build_object('id', gen_random_uuid(), 'method', 'card', 'amountFils', 2720)));
+  perform public.apply_sale_sync_with_payments(op, 'b0000000-0000-4000-8000-0000000003a0', '5a000000-0000-4000-8000-000000000302', ok_sale);
+  -- 3e the same operation again changes nothing.
+  perform public.apply_sale_sync_with_payments(op, 'b0000000-0000-4000-8000-0000000003a0', '5a000000-0000-4000-8000-000000000302', ok_sale);
+  assert (select count(*) from public.sale_payments where sale_id = '5a000000-0000-4000-8000-000000000302') = 2, '3a/3e two rows, saved once';
+  assert (select payment_method = 'split' from public.sales where id = '5a000000-0000-4000-8000-000000000302'), '3a summary split';
+
+  -- 3b parts not adding up: refused, nothing saved.
+  begin
+    perform public.apply_sale_sync_with_payments(gen_random_uuid(), 'b0000000-0000-4000-8000-0000000003a0', '5a000000-0000-4000-8000-000000000303',
+      jsonb_set(jsonb_set(jsonb_set(jsonb_set(jsonb_set(base, '{sale,lines,0,id}', to_jsonb(gen_random_uuid()::text)), '{sale,invoiceNumber}', '"P-303"'), '{sale,id}', '"5a000000-0000-4000-8000-000000000303"'), '{sale,paymentMethod}', '"split"'), '{sale,payments}',
+        jsonb_build_array(jsonb_build_object('id', gen_random_uuid(), 'method', 'cash', 'amountFils', 5000),
+                          jsonb_build_object('id', gen_random_uuid(), 'method', 'card', 'amountFils', 2700))));
+    assert false, '3b mismatch refused';
+  exception when sqlstate 'P0001' then assert sqlerrm = 'payments_mismatch', '3b code ' || sqlerrm; end;
+  assert not exists (select 1 from public.sales where id = '5a000000-0000-4000-8000-000000000303'), '3b no sale saved';
+
+  -- 3c summary says cash but there are two rows: refused.
+  begin
+    perform public.apply_sale_sync_with_payments(gen_random_uuid(), 'b0000000-0000-4000-8000-0000000003a0', '5a000000-0000-4000-8000-000000000304',
+      jsonb_set(jsonb_set(jsonb_set(jsonb_set(jsonb_set(base, '{sale,lines,0,id}', to_jsonb(gen_random_uuid()::text)), '{sale,invoiceNumber}', '"P-304"'), '{sale,id}', '"5a000000-0000-4000-8000-000000000304"'), '{sale,paymentMethod}', '"cash"'), '{sale,payments}',
+        jsonb_build_array(jsonb_build_object('id', gen_random_uuid(), 'method', 'cash', 'amountFils', 5000),
+                          jsonb_build_object('id', gen_random_uuid(), 'method', 'card', 'amountFils', 2720))));
+    assert false, '3c summary mismatch refused';
+  exception when sqlstate 'P0001' then assert sqlerrm = 'payments_mismatch', '3c code ' || sqlerrm; end;
+
+  -- 3d an older till: no payments, method transfer, gets one transfer row.
+  perform public.apply_sale_sync_with_payments(gen_random_uuid(), 'b0000000-0000-4000-8000-0000000003a0', '5a000000-0000-4000-8000-000000000305',
+    jsonb_set(jsonb_set(jsonb_set(jsonb_set(base, '{sale,lines,0,id}', to_jsonb(gen_random_uuid()::text)), '{sale,invoiceNumber}', '"P-305"'), '{sale,id}', '"5a000000-0000-4000-8000-000000000305"'), '{sale,paymentMethod}', '"transfer"'));
+  assert (select count(*) = 1 and min(method::text) = 'transfer' and sum(amount_fils) = 7720 from public.sale_payments where sale_id = '5a000000-0000-4000-8000-000000000305'), '3d one transfer row';
+end $$;
+reset role;
+
+do $$ begin
+  assert not exists (
+    select 1 from public.sales s where s.business_id = 'b0000000-0000-4000-8000-0000000003a0' and s.id <> '5a000000-0000-4000-8000-000000000301'
+      and s.gross_fils <> coalesce((select sum(p.amount_fils) from public.sale_payments p where p.sale_id = s.id), 0)
+  ), '3f synced sales are covered by their rows';
+end $$;
+
+-- @task3b
 
 rollback;
