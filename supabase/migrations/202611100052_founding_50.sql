@@ -1,6 +1,6 @@
 -- Founding 50 (docs/superpowers/specs/2026-11-09-founding-50-design.md): the first 50 shops to pay get Pro features
--- and limits for 12 months at the Starter price. A seat is claimed by the first event that leaves a shop active on
--- Starter, ends when the subscription is deleted, and only a staff revoke frees it. One record per shop, ever.
+-- and limits for 12 months at the Starter price. A seat is claimed by the shop's first real charge (never a renewal),
+-- ends when the subscription is deleted, and only a staff revoke frees it. One record per shop, ever.
 
 create table public.founding_offer (
   id boolean primary key default true check (id),
@@ -25,6 +25,12 @@ create table public.founding_members (
 
 -- A seat number belongs to one founder who has not been revoked; a revoked seat number may be reused.
 create unique index founding_members_seat_taken on public.founding_members (seat_no) where end_reason is distinct from 'revoked';
+
+-- When the shop was first charged (the first applied event the provider reported as active). Only that first charge
+-- can claim a seat. Shops that already pay, or once paid, count as charged, so the offer goes to new payers only.
+alter table public.subscriptions add column first_charged_at timestamptz;
+update public.subscriptions set first_charged_at = coalesce(last_event_at, updated_at)
+where status in ('active', 'past_due') or (status = 'canceled' and billing_subscription_id is not null);
 
 alter table public.founding_offer enable row level security;
 alter table public.founding_members enable row level security;
@@ -79,7 +85,7 @@ revoke execute on function public.claim_founding_seat(uuid, text) from public, a
 grant execute on function public.claim_founding_seat(uuid, text) to service_role;
 
 -- apply_billing_event: the body of 202610310043_razorpay_billing.sql with two additions: subscription_deleted ends an
--- open founder record, and an applied event that leaves the shop active on Starter claims a founding seat.
+-- open founder record, and the shop's first real charge (stamped in first_charged_at) claims a founding seat.
 create or replace function public.apply_billing_event(p_event jsonb)
 returns text language plpgsql security definer set search_path = public, extensions, pg_temp
 as $$
@@ -235,10 +241,16 @@ begin
 
   update public.subscriptions set last_event_at = v_created, updated_at = now()
   where business_id = sub.business_id;
-  -- Founding 50: the first event that leaves the shop active on Starter (a real charge) claims a seat.
-  if v_kind in ('checkout_completed', 'invoice_paid', 'subscription_changed')
-     and exists (select 1 from public.subscriptions s where s.business_id = sub.business_id and s.status = 'active' and s.plan_id = 'starter') then
-    perform public.claim_founding_seat(sub.business_id, v_id);
+  -- Founding 50: a real charge is an applied event the provider reports as active (Razorpay activated or charged). The
+  -- shop's first one is stamped, and only that one, leaving the shop active on Starter, claims a seat. Renewals, shops
+  -- that paid before this migration (backfilled) and a late trial-card checkout (status trialing) never claim.
+  if v_status = 'active' and v_kind in ('checkout_completed', 'invoice_paid', 'subscription_changed') then
+    update public.subscriptions set first_charged_at = coalesce(first_charged_at, v_created)
+    where business_id = sub.business_id;
+    if sub.first_charged_at is null
+       and exists (select 1 from public.subscriptions s where s.business_id = sub.business_id and s.status = 'active' and s.plan_id = 'starter') then
+      perform public.claim_founding_seat(sub.business_id, v_id);
+    end if;
   end if;
 
   return 'applied';

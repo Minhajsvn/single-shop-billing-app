@@ -103,6 +103,13 @@ export function founderText(f: AdminFounder | null, now: Date): string {
   return `#${f.seatNo} · until ${adminDateTime(f.endsAt)}`;
 }
 
+/** The badge text while the shop is an active founder (not ended, 12 months not up); null otherwise. */
+export function founderBadge(f: AdminFounder | null, now: Date): string | null {
+  if (!f || f.endReason) return null;
+  const end = new Date(f.endsAt).getTime();
+  return Number.isFinite(end) && end > now.getTime() ? `Founding member #${f.seatNo}` : null;
+}
+
 /** Owner first, then oldest first. Returns a new array. */
 export function sortMembers<T extends { isOwner: boolean; createdAt: string }>(members: T[]): T[] {
   return [...members].sort((a, b) =>

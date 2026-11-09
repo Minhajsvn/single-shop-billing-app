@@ -5,6 +5,13 @@ begin;
 -- Start from no founders so seat numbers are predictable (rolled back at the end).
 delete from public.founding_members;
 
+-- 0. The migration counts every shop that already pays (or paid) as charged, so none of them can claim a seat.
+do $$
+begin
+  assert not exists (select 1 from public.subscriptions where status in ('active', 'past_due') and first_charged_at is null),
+    '0 paying shops are backfilled as charged';
+end $$;
+
 -- A shop with its own owner. The business insert trigger gives it the usual Pro trial.
 create function pg_temp.f50_shop(n integer) returns uuid language plpgsql as $$
 declare
@@ -228,6 +235,32 @@ begin
   -- Revoking a cancelled founder is allowed and frees its seat.
   perform public.admin_revoke_founding_seat('b5000000-0000-4000-8000-000000000001', staff, 'cleanup');
   assert public.founding_offer_open(), '7 cancelled seat freed';
+end $$;
+
+-- 8. Only the first charge claims: a shop that paid while the offer was full does not take a freed seat at renewal.
+do $$
+declare
+  late_payer constant uuid := 'b5000000-0000-4000-8000-000000000005';
+begin
+  assert public.founding_offer_open(), '8 a seat is free';
+  assert (select first_charged_at is not null from public.subscriptions where business_id = late_payer), '8 first charge stamped while full';
+  assert pg_temp.f50_event('evt_f50_5_renewal', 'invoice_paid', late_payer, 'sub_f50_5', 'active', 30) = 'applied', '8 renewal';
+  assert not exists (select 1 from public.founding_members where business_id = late_payer), '8 renewal claims nothing';
+end $$;
+
+-- 9. A trial-card checkout that arrives after the trial ended makes the shop active but is no charge: no seat until
+--    the first charge succeeds.
+do $$
+declare
+  biz uuid := pg_temp.f50_shop(7);
+begin
+  perform pg_temp.f50_end_trial(biz);
+  assert pg_temp.f50_event('evt_f50_7_card', 'checkout_completed', biz, 'sub_f50_7', 'trialing', 1) = 'applied', '9 late card';
+  assert (select status = 'active' from public.subscriptions where business_id = biz), '9 shop active';
+  assert not exists (select 1 from public.founding_members where business_id = biz), '9 no seat without a charge';
+  assert (select first_charged_at is null from public.subscriptions where business_id = biz), '9 not charged yet';
+  assert pg_temp.f50_event('evt_f50_7_charged', 'invoice_paid', biz, 'sub_f50_7', 'active', 2) = 'applied', '9 charged';
+  assert exists (select 1 from public.founding_members where business_id = biz), '9 first charge claims';
 end $$;
 
 rollback;

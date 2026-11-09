@@ -124,9 +124,9 @@ export function billingSummary(e: Entitlements, now: Date): string {
 
 const FOUNDER_WARNING_DAYS = 30;
 
-/** The Billing tab's Founding 50 line while the shop is an active founder (and no grant decides the plan); else null. */
+/** The Billing tab's Founding 50 line while the shop is an active founder with full access (no grant); else null. */
 export function founderLine(e: Entitlements, now: Date): string | null {
-  if (!e.founder || isGranted(e, now)) return null;
+  if (!e.founder || e.access !== "full" || isGranted(e, now)) return null;
   const end = new Date(e.founder.endsAt).getTime();
   if (!Number.isFinite(end) || end <= now.getTime()) return null;
   const line = `Founding member #${e.founder.seatNo}: Pro features at the Starter price until ${dubaiDate(e.founder.endsAt, true)}.`;

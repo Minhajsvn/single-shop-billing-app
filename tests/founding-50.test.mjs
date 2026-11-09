@@ -94,3 +94,18 @@ test("foundingOfferOpen is true only for a 2xx body of exactly true", async () =
   assert.equal(await foundingOfferOpen(ok, { url: undefined, key: "anon-key" }), false);
   assert.equal(await foundingOfferOpen(ok, { url: env.url, key: undefined }), false);
 });
+
+// Review fixes.
+import { founderBadge } from "../lib/admin/shop-view.ts";
+
+test("founderLine is empty while the shop is read-only", () => {
+  assert.equal(founderLine(founder(inDays(200), { access: "read_only" }), now), null);
+});
+
+test("founderBadge shows only for an active founder", () => {
+  assert.equal(founderBadge(row(), now), "Founding member #3");
+  assert.equal(founderBadge(row({ endsAt: "2026-11-01T09:00:00Z" }), now), null);
+  assert.equal(founderBadge(row({ endedAt: "2026-11-05T08:00:00Z", endReason: "canceled" }), now), null);
+  assert.equal(founderBadge(row({ endedAt: "2026-11-06T08:00:00Z", endReason: "revoked", revokeNote: "x" }), now), null);
+  assert.equal(founderBadge(null, now), null);
+});

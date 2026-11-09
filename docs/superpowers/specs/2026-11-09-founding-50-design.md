@@ -42,7 +42,7 @@ Success:
 
 ## 4. Data model
 
-New migration `202611090049_founding_50.sql`.
+New migration `202611100052_founding_50.sql` (see §12 for the number).
 
 ```sql
 create table public.founding_offer (
@@ -81,8 +81,15 @@ A new function `public.claim_founding_seat(p_business uuid, p_event_id text)`, c
 `apply_billing_event` (in the same transaction, after the subscription update) when all of these are true:
 
 - the event was `applied` (not duplicate, stale, superseded or unknown);
-- `v_kind in ('checkout_completed', 'invoice_paid', 'subscription_changed')`;
+- it is a real charge: `v_status = 'active'` and `v_kind in ('checkout_completed', 'invoice_paid', 'subscription_changed')`
+  (Razorpay `subscription.activated` and `subscription.charged`);
+- it is the shop's first real charge: `subscriptions.first_charged_at` was null before the event (the event then stamps
+  it, whether or not a seat is free);
 - the shop's row is now `status = 'active'` and `plan_id = 'starter'`.
+
+`subscriptions.first_charged_at` (new column) is backfilled by the migration for every shop that is `active` or
+`past_due`, or `canceled` with a billing subscription id, so shops that already pay, or once paid, never claim. A
+renewal never claims, so a seat freed by a revoke goes to the next new shop that pays.
 
 `claim_founding_seat`:
 
@@ -98,10 +105,9 @@ A new function `public.claim_founding_seat(p_business uuid, p_event_id text)`, c
 `apply_billing_event` is rewritten with `create or replace` from the body in `202610310043_razorpay_billing.sql`; the
 only additions are the claim call and the end-on-cancel update in §6. Its return values do not change.
 
-Why "active + starter after an applied event" is "the first real payment": a trial checkout leaves the shop
-`trialing`; the zero-amount trial invoice is handled by the trial branch and leaves it `trialing`; the shop becomes
-`active` only through a successful charge (`invoice_paid`), a checkout after the trial has run out (charged at once),
-or Razorpay reporting the subscription `active` (which follows the first charge).
+Why the event's own status and not the shop's: a trial-card checkout (`status = 'trialing'`) that arrives after the
+trial has ended makes the shop `active` before any charge. Requiring `v_status = 'active'` means only an event the
+provider reports as a charge can claim, so a seat is never taken by a shop whose first charge then fails.
 
 ## 6. Ending the benefit
 
@@ -132,7 +138,7 @@ In `lib/billing/entitlements.ts` the zod schema gets
 `founder: z.object({ seatNo: z.number().int().positive(), endsAt: z.string() }).nullable().default(null)`, so cached
 entitlements written before this change still parse. `READ_ONLY_ENTITLEMENTS` gets `founder: null`.
 
-When the 12 months end, a founder over Starter's limits (2 tills, 5 users, unlimited products) is handled by the
+When the 12 months end, a founder above Starter's limits (1 till, 2 users, 5,000 products) is handled by the
 existing over-limit paths (choose active tills, member and product limits), the same as when a Pro trial ends.
 
 ## 8. Public offer flag
@@ -185,4 +191,9 @@ authenticated`. It returns only the boolean, never a count or shop data.
 ## 12. Rollout
 
 The migration is applied to production only on the owner's explicit go-ahead. Shops that are already paying when it
-ships do not get seats backdated; the first seat goes to the first payment after the migration runs.
+ships do not get seats, now or at renewal (they are backfilled as charged); the first seat goes to the first new shop
+whose first charge comes after the migration runs.
+
+The migration is `202611100052_founding_50.sql`, numbered after Stage 2B's `202611090049`–`202611090051` so the two
+branches never share a version. If this branch reaches production before 2B, 2B's earlier versions need
+`supabase db push --include-all`.

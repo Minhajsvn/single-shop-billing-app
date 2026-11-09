@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { NOTE_MAX, parseRevokeFounder } from "@/lib/admin/actions";
-import { adminDateTime, founderText, type AdminFounder } from "@/lib/admin/shop-view";
+import { adminDateTime, founderBadge, founderText, type AdminFounder } from "@/lib/admin/shop-view";
 import { requestConfirm } from "@/lib/ui/confirm-store";
 import { toast } from "@/lib/ui/toast-store";
 
@@ -21,6 +21,7 @@ export function FounderPanel({ shopId, founder }: Props) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const holdsSeat = founder !== null && founder.endReason !== "revoked";
+  const badge = founderBadge(founder, new Date());
 
   function toggle() {
     setOpen(!open);
@@ -35,7 +36,9 @@ export function FounderPanel({ shopId, founder }: Props) {
     if (!preview.ok) { setError(preview.error); return; }
     const ok = await requestConfirm({
       title: "Revoke this founding seat?",
-      body: "The shop loses Pro features and goes back to Starter limits now. The seat is freed for the next shop that pays. The shop can never be a founder again.",
+      body: badge
+        ? "The shop loses Pro features and goes back to Starter limits now. The seat is freed for the next new shop that pays. The shop can never be a founder again."
+        : "The founder benefit has already ended. Revoking frees the seat for the next new shop that pays. The shop can never be a founder again.",
       confirmLabel: "Revoke seat",
       destructive: true,
     });
@@ -67,7 +70,7 @@ export function FounderPanel({ shopId, founder }: Props) {
           <h2 className="panel-title" id="founder-title">Founding 50</h2>
           <div className="panel-subtitle">Pro features at the Starter price for 12 months</div>
         </div>
-        {holdsSeat && !founder.endReason ? <span className="badge blue">Founding member #{founder.seatNo}</span> : null}
+        {badge ? <span className="badge blue" suppressHydrationWarning>{badge}</span> : null}
       </div>
       <div className="panel-body admin-stack">
         {founder ? (
