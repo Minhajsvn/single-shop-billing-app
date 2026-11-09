@@ -25,8 +25,8 @@ const NOW = new Date("2026-10-20T10:00:00Z");
 
 // --- site info ----------------------------------------------------------------------------------
 
-test("hasPlaceholders: true for the shipped SITE_INFO; false when every field is filled; true when one field is empty", () => {
-  assert.equal(hasPlaceholders(SITE_INFO), true);
+test("hasPlaceholders: false for the shipped SITE_INFO (all details filled); false when every field is filled; true when one field is empty", () => {
+  assert.equal(hasPlaceholders(SITE_INFO), false);
   assert.equal(hasPlaceholders(FILLED), false);
   assert.equal(hasPlaceholders({ ...FILLED, phone: "" }), true);
   assert.equal(hasPlaceholders({ ...FILLED, email: "[SUPPORT EMAIL]" }), true);
@@ -40,8 +40,9 @@ test("billingProvider: all five set + filled info -> razorpay", () => {
 });
 
 test("billingProvider: all five set + placeholders -> none, also in production", () => {
-  assert.equal(billingProvider({ ...RAZORPAY_ENV, NODE_ENV: "production" }, SITE_INFO).kind, "none");
-  assert.equal(billingProvider({ ...RAZORPAY_ENV, NODE_ENV: "development" }, SITE_INFO).kind, "none");
+  const placeholders = { ...FILLED, email: "[SUPPORT EMAIL]" };
+  assert.equal(billingProvider({ ...RAZORPAY_ENV, NODE_ENV: "production" }, placeholders).kind, "none");
+  assert.equal(billingProvider({ ...RAZORPAY_ENV, NODE_ENV: "development" }, placeholders).kind, "none");
 });
 
 test("billingProvider: four of five -> none in development and production", () => {
