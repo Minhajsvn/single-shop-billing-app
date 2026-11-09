@@ -40,3 +40,32 @@ test("founderLine is empty when there is no active founder", () => {
   assert.equal(founderLine({ ...base, founder: null }, now), null);
   assert.equal(founderLine(founder(inDays(200), { grantPlanId: "pro", grantEndsAt: null }), now), null);
 });
+
+// Admin console.
+import { adminErrorMessage, parseRevokeFounder } from "../lib/admin/actions.ts";
+import { adminDateTime, founderText } from "../lib/admin/shop-view.ts";
+
+const row = (extra = {}) => ({
+  seatNo: 3, claimedAt: "2026-11-01T08:00:00Z", endsAt: "2027-11-01T08:00:00Z", endedAt: null, endReason: null, revokeNote: null, ...extra,
+});
+
+test("founderText describes each founder state", () => {
+  assert.equal(founderText(null, now), "No");
+  assert.equal(founderText(row(), now), `#3 · until ${adminDateTime("2027-11-01T08:00:00Z")}`);
+  assert.equal(founderText(row({ endsAt: "2026-11-01T09:00:00Z" }), now), `#3 · ended ${adminDateTime("2026-11-01T09:00:00Z")} (12 months up)`);
+  assert.equal(founderText(row({ endedAt: "2026-11-05T08:00:00Z", endReason: "canceled" }), now),
+    `#3 · ended ${adminDateTime("2026-11-05T08:00:00Z")} (cancelled)`);
+  assert.equal(founderText(row({ endedAt: "2026-11-06T08:00:00Z", endReason: "revoked", revokeNote: "fraud" }), now),
+    `#3 · revoked ${adminDateTime("2026-11-06T08:00:00Z")}: fraud`);
+  assert.equal(founderText(row({ endedAt: "2026-11-07T08:00:00Z", endReason: "upgraded" }), now),
+    `#3 · ended ${adminDateTime("2026-11-07T08:00:00Z")} (upgraded)`);
+});
+
+test("parseRevokeFounder needs a note", () => {
+  assert.deepEqual(parseRevokeFounder({}), { ok: false, error: adminErrorMessage("note_required") });
+  assert.deepEqual(parseRevokeFounder({ note: " fraud " }), { ok: true, note: "fraud" });
+});
+
+test("not_a_founder has plain words", () => {
+  assert.equal(adminErrorMessage("not_a_founder"), "This shop is not a founding member.");
+});
