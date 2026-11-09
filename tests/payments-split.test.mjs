@@ -44,3 +44,19 @@ test("summaryMethod, methodTotals and canSplit", () => {
   assert.equal(canSplit(["staff_roles"]), false);
   assert.equal(canSplit(["split_payment"]), true);
 });
+
+test("Stage 2B: the daily report splits totals by payment and the CSV keeps its old columns first", async () => {
+  const { buildDailyReport, dailyReportCsv } = await import("../lib/reporting.ts");
+  const day = "2026-11-09";
+  const mk = (id, paymentMethod, grossFils, payments) => ({ id, invoiceNumber: id, createdAt: `${day}T08:00:00Z`, supplyDate: day, paymentMethod, lines: [], netFils: grossFils, vatFils: 0, grossFils, status: "completed", payments });
+  const state = { products: [], stockMovements: [], customers: [], syncOperations: [], register: null, creditNotes: [],
+    sales: [mk("a", "split", 7720, [{ id: "1", method: "cash", amountFils: 5000 }, { id: "2", method: "transfer", amountFils: 2720 }]), mk("b", "card", 100)] };
+  const report = buildDailyReport(state, day);
+  assert.equal(report.cashFils, 5000);
+  assert.equal(report.cardFils, 100);
+  assert.equal(report.transferFils, 2720);
+  const [header, first] = dailyReportCsv(report).split("\r\n");
+  assert.ok(header.startsWith('"Document type","Document number","Issued (UTC)","Customer","Payment","Net AED","VAT AED","Gross AED"'));
+  assert.ok(header.endsWith('"Cash AED","Card AED","Transfer AED"'));
+  assert.ok(first.includes('"split"'));
+});

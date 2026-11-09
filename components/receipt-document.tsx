@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { useShopContext } from "@/lib/demo-store";
 import { formatAED, formatDateTime, type Sale } from "@/lib/domain";
+import { methodLabel, paymentParts } from "@/components/payments/method-badge";
+import { paymentsOf } from "@/lib/payments/split";
 
 export type ReceiptShop = { name: string; trn: string; address: string; phone: string; footer: string };
 
@@ -43,7 +45,7 @@ export function ReceiptDocument({ sale, shop }: { sale: Sale; shop: ReceiptShop 
   return (
     <article className="receipt-document">
       <header><h1>{shop.name}</h1><p>{shop.address}<br />{shop.phone}<br />TRN {shop.trn}</p><h2>Tax Invoice</h2></header>
-      <div className="receipt-meta"><div><span>Invoice</span><strong>{sale.invoiceNumber}</strong></div><div><span>Issued</span><strong>{formatDateTime(sale.createdAt)}</strong></div><div><span>Payment</span><strong>{sale.paymentMethod === "cash" ? "Cash" : "Card"}</strong></div></div>
+      <div className="receipt-meta"><div><span>Invoice</span><strong>{sale.invoiceNumber}</strong></div><div><span>Issued</span><strong>{formatDateTime(sale.createdAt)}</strong></div><div><span>Payment</span><strong>{sale.paymentMethod === "split" ? paymentParts(paymentsOf(sale)) : methodLabel(sale.paymentMethod)}{sale.paymentMethod === "transfer" && paymentsOf(sale)[0]?.reference ? ` · ${paymentsOf(sale)[0]!.reference}` : ""}</strong></div></div>
       <div className="receipt-lines">{sale.lines.map((item) => (
         <div className="receipt-line" key={item.id}>
           <div>

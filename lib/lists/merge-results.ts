@@ -1,4 +1,4 @@
-import type { PaymentMethod, Sale } from "../domain.ts";
+import type { Payment, PaymentMethod, Sale } from "../domain.ts";
 import { saleMatches } from "./search.ts";
 
 /** One row of a sales list, from the local store or from the server search. */
@@ -10,6 +10,8 @@ export type SaleRow = {
   supplyDate: string;
   createdAt: string;
   paymentMethod: PaymentMethod;
+  /** Stage 2B: the parts of a split, when this browser holds them. */
+  payments?: Payment[];
   grossFils: number;
   /** Not yet on the server (made offline or still syncing). */
   local?: true;
@@ -24,6 +26,7 @@ export function saleToRow(sale: Sale): SaleRow {
     supplyDate: sale.supplyDate,
     createdAt: sale.createdAt,
     paymentMethod: sale.paymentMethod,
+    ...(sale.payments ? { payments: sale.payments } : {}),
     grossFils: sale.grossFils,
   };
 }

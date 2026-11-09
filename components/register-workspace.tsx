@@ -108,6 +108,7 @@ export function RegisterWorkspace() {
         <div className="metric"><div className="metric-label">Opening cash</div><div className="metric-value">{formatAED(register.openingCashFils)}</div><div className="metric-note">Counted at opening</div></div>
         <div className="metric"><div className="metric-label">Cash sales</div><div className="metric-value">{formatAED(totals.cashSalesFils - totals.cashReturnsFils)}</div><div className="metric-note">{formatAED(totals.cashReturnsFils)} returned</div></div>
         <div className="metric"><div className="metric-label">Card sales</div><div className="metric-value">{formatAED(totals.cardSalesFils - totals.cardReturnsFils)}</div><div className="metric-note">{formatAED(totals.cardReturnsFils)} returned</div></div>
+        <div className="metric"><div className="metric-label">Transfer sales</div><div className="metric-value">{formatAED(totals.transferSalesFils - totals.transferReturnsFils)}</div><div className="metric-note">{formatAED(totals.transferReturnsFils)} returned · not in the drawer</div></div>
         <div className="metric"><div className="metric-label">Expected cash</div><div className="metric-value">{formatAED(totals.expectedCashFils)}</div><div className="metric-note">Includes {formatAED(totals.adjustmentsFils)} adjustments</div></div>
       </section>
 

@@ -29,3 +29,17 @@ test("sales outside the register's open window are ignored", () => {
 test("no register means zero totals", () => {
   assert.equal(registerTotals({ ...base, register: null, sales: [], creditNotes: [] }, "dev-1").expectedCashFils, 0);
 });
+
+test("Stage 2B: totals come from payment rows; only cash counts toward the drawer", () => {
+  const split = { ...sale("s1", "dev-1", "split", 7720), payments: [{ id: "p1", method: "cash", amountFils: 5000 }, { id: "p2", method: "card", amountFils: 2720 }] };
+  const transfer = { ...sale("s2", "dev-1", "transfer", 1000), payments: [{ id: "p3", method: "transfer", amountFils: 1000 }] };
+  const refund = { ...note("n1", "dev-1", "split", 1500), payments: [{ id: "p4", method: "cash", amountFils: 1000 }, { id: "p5", method: "transfer", amountFils: 500 }] };
+  const old = sale("s3", "dev-1", "card", 300); // cached before 2B: no payments
+  const totals = registerTotals({ ...base, register: { ...register, adjustments: [] }, sales: [split, transfer, old], creditNotes: [refund] }, "dev-1");
+  assert.equal(totals.cashSalesFils, 5000);
+  assert.equal(totals.cardSalesFils, 2720 + 300);
+  assert.equal(totals.transferSalesFils, 1000);
+  assert.equal(totals.cashReturnsFils, 1000);
+  assert.equal(totals.transferReturnsFils, 500);
+  assert.equal(totals.expectedCashFils, 10000 + 5000 - 1000);
+});
