@@ -41,6 +41,19 @@
 - [ ] Note for support: a PIN only says who is at the till; the shop's sign-in protects the data. Five wrong PINs block that
   person on that till for five minutes.
 
+## Stage 2B: split payment and bank transfer
+
+- [ ] Apply migrations in order: `202611090049_payment_methods`, `202611090050_payment_rows`,
+  `202611090051_sync_with_payments`. They are safe before the app deploy: the current app keeps calling the old sync
+  functions, and 050 backfills one payment row for every existing sale and refund.
+- [ ] Deploy the 2B app only after 051 is applied: it calls `apply_sale_sync_with_payments` and
+  `apply_credit_note_sync_with_payments`.
+- [ ] After the backfill, check that every sale and credit note is covered:
+  `select count(*) from sales s where gross_fils <> (select coalesce(sum(amount_fils),0) from sale_payments where sale_id = s.id)` returns 0.
+- [ ] Smoke test on a Pro shop: a cash + card split with change, a bank transfer with a reference, a split refund, and
+  the register close showing only cash as expected; on a Starter shop, Split shows the Pro prompt and Bank transfer works.
+- [ ] Tell accountants about the three new CSV columns (Cash AED, Card AED, Transfer AED) after the existing ones.
+
 ## Rollback
 
 1. Keep the previous hosting deployment available.
