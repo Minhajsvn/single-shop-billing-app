@@ -18,6 +18,7 @@ import {
   type SyncOperation,
 } from "@/lib/domain";
 import { saleBlockReason } from "@/lib/checkout/register-status";
+import { summaryMethod, type PayMethod, type Payment } from "@/lib/payments/split";
 import { dubaiSupplyDate, nextCreditNoteNumber, nextInvoiceNumber } from "@/lib/invoice-numbers";
 import { clearOfflineCache, clearSyncedOutbox, loadOfflineCustomers, loadOfflineSnapshot, persistOfflineSnapshot } from "@/lib/offline-db";
 import { refundedQuantities, type InvoiceLookup } from "@/lib/sales/invoice-lookup";
@@ -721,7 +722,15 @@ function tillNumber() {
   return mode === "hosted" ? contextSnapshot.device?.tillNumber ?? null : 1;
 }
 
-export function completeSale(inputLines: CheckoutLine[], paymentMethod: PaymentMethod, customerId?: string, approvedByMemberId?: string): { ok: true; sale: Sale } | { ok: false; error: string } {
+/** Stage 2B: the rows to store — a ready list, or one row of `method` for the whole total. Null when they do not add up. */
+function paymentRows(pay: Payment[] | PayMethod, grossFils: number): Payment[] | null {
+  const rows = typeof pay === "string" ? [{ id: crypto.randomUUID(), method: pay, amountFils: grossFils }] : pay;
+  if (!rows.length || rows.some((row) => !Number.isInteger(row.amountFils) || row.amountFils <= 0)) return null;
+  if (new Set(rows.map((row) => row.method)).size !== rows.length) return null;
+  return rows.reduce((sum, row) => sum + row.amountFils, 0) === grossFils ? rows : null;
+}
+
+export function completeSale(inputLines: CheckoutLine[], pay: Payment[] | PayMethod, customerId?: string, approvedByMemberId?: string): { ok: true; sale: Sale } | { ok: false; error: string } {
   const till = tillNumber();
   if (till === null) return { ok: false, error: "Choose which till this browser is before selling." };
   // Re-checked here, not only at render: a sale started before Dubai midnight must not land on yesterday's register.
@@ -747,8 +756,11 @@ export function completeSale(inputLines: CheckoutLine[], paymentMethod: PaymentM
     return { ...item, id: crypto.randomUUID(), ...totals };
   });
   const business = mode === "hosted" ? contextSnapshot.business : null;
+  const saleGross = lines.reduce((sum, item) => sum + item.grossFils, 0);
+  const payments = paymentRows(pay, saleGross);
+  if (!payments) return { ok: false, error: "The payments do not add up to the total." };
   const sale: Sale = {
-    id: crypto.randomUUID(), invoiceNumber, createdAt: now.toISOString(), supplyDate: dubaiSupplyDate(now), paymentMethod, lines,
+    id: crypto.randomUUID(), invoiceNumber, createdAt: now.toISOString(), supplyDate: dubaiSupplyDate(now), paymentMethod: summaryMethod(payments), payments, lines,
     netFils: lines.reduce((sum, item) => sum + item.netFils, 0),
     vatFils: lines.reduce((sum, item) => sum + item.vatFils, 0),
     grossFils: lines.reduce((sum, item) => sum + item.grossFils, 0),
@@ -787,7 +799,7 @@ export function returnedQuantities(saleId: string) {
  * number (owner decision 8: any sale of the shop can be refunded from its receipt). The server's existing credit
  * notes for that sale count against what is left to return.
  */
-export function createCreditNote(saleId: string, requestedQuantities: Record<string, number>, found?: InvoiceLookup, approvedByMemberId?: string): { ok: true; creditNote: CreditNote } | { ok: false; error: string } {
+export function createCreditNote(saleId: string, requestedQuantities: Record<string, number>, found?: InvoiceLookup, approvedByMemberId?: string, payBack?: Payment[] | PayMethod): { ok: true; creditNote: CreditNote } | { ok: false; error: string } {
   const till = tillNumber();
   if (till === null) return { ok: false, error: "Choose which till this browser is before processing a refund." };
   if (!state.register || state.register.status !== "open") return { ok: false, error: "Open the register before processing a refund." };
@@ -810,8 +822,12 @@ export function createCreditNote(saleId: string, requestedQuantities: Record<str
     const totals = calculateVatInclusive(item.unitGrossFils * quantity);
     return { ...item, id: crypto.randomUUID(), originalLineId: item.id, quantity, ...totals };
   });
+  // Stage 2B: paid back by the cashier's mix; by default the sale's own method (cash when the sale was split).
+  const refundGross = lines.reduce((sum, item) => sum + item.grossFils, 0);
+  const payments = paymentRows(payBack ?? (sale.paymentMethod === "split" ? "cash" : sale.paymentMethod), refundGross);
+  if (!payments) return { ok: false, error: "The pay-back amounts do not add up to the refund." };
   const creditNote: CreditNote = {
-    id: crypto.randomUUID(), creditNoteNumber, saleId, invoiceNumber: sale.invoiceNumber, createdAt: now.toISOString(), paymentMethod: sale.paymentMethod, lines,
+    id: crypto.randomUUID(), creditNoteNumber, saleId, invoiceNumber: sale.invoiceNumber, createdAt: now.toISOString(), paymentMethod: summaryMethod(payments), payments, lines,
     netFils: lines.reduce((sum, item) => sum + item.netFils, 0), vatFils: lines.reduce((sum, item) => sum + item.vatFils, 0), grossFils: lines.reduce((sum, item) => sum + item.grossFils, 0),
     deviceId: mode === "hosted" ? contextSnapshot.device?.id : undefined,
     ...actorFields(lockedOperator(), approvedByMemberId),
