@@ -248,3 +248,107 @@ $$;
 revoke execute on function public.apply_billing_event(jsonb) from public, anon, authenticated;
 grant execute on function public.apply_billing_event(jsonb) to service_role;
 
+
+-- entitlements_internal: the body of 202610290040_plan_grants.sql. Changes: while no grant is in force and a founder
+-- record is active at at_time, features and limits come from the pro catalog row (planId stays the subscription's);
+-- overrides, the extra till and add-ons stack on top as before. The key founder is always returned.
+create or replace function public.entitlements_internal(target_business_id uuid, at_time timestamptz default now())
+returns jsonb language plpgsql stable security definer set search_path = public, extensions, pg_temp
+as $$
+declare
+  sub public.subscriptions;
+  plan public.plan_catalog;
+  grant_row public.plan_grants;
+  founder public.founding_members;
+  access_end timestamptz;
+  access text;
+  plan_id_out text;
+begin
+  select * into sub from public.subscriptions where business_id = target_business_id;
+  if not found then
+    return jsonb_build_object(
+      'planId', null, 'status', null, 'access', 'read_only', 'trialEndsAt', null, 'graceEndsAt', null,
+      'accessEndsAt', null, 'cancelAt', null, 'hasPaymentMethod', false, 'billingInterval', null, 'currentPeriodEnd', null,
+      'grantPlanId', null, 'grantEndsAt', null,
+      'founder', null,
+      'features', '[]'::jsonb,
+      'limits', jsonb_build_object('branches', 0, 'tills', 0, 'members', 0, 'products', 0)
+    );
+  end if;
+
+  select * into grant_row from public.plan_grants g
+  where g.business_id = target_business_id and g.revoked_at is null and g.starts_at <= at_time
+    and (g.ends_at is null or g.ends_at > at_time)
+  order by g.created_at desc limit 1;
+
+  if grant_row.id is not null then
+    select * into plan from public.plan_catalog where id = grant_row.plan_id;
+    plan_id_out := grant_row.plan_id;
+    access_end := grant_row.ends_at;
+    access := 'full';
+  else
+    select * into plan from public.plan_catalog where id = sub.plan_id;
+    plan_id_out := sub.plan_id;
+    access_end := public.access_ends_at(sub);
+    access := case when access_end is null or access_end > at_time then 'full' else 'read_only' end;
+  -- Founding 50: an active founder record (and no grant) gives the Pro plan's features and limits.
+  if grant_row.id is null then
+    select * into founder from public.founding_members f
+    where f.business_id = target_business_id and f.ended_at is null and f.claimed_at <= at_time and f.ends_at > at_time;
+    if founder.id is not null then
+      select * into plan from public.plan_catalog where id = 'pro';
+    end if;
+  end if;
+
+  end if;
+
+  return jsonb_build_object(
+    'planId', plan_id_out,
+    'status', sub.status,
+    'access', access,
+    'trialEndsAt', sub.trial_ends_at,
+    'graceEndsAt', sub.grace_ends_at,
+    -- Always a parseable instant or null: an already-ended (-infinity) access end is sent as the epoch.
+    'accessEndsAt', case when access_end is null or isfinite(access_end) then to_jsonb(access_end) else to_jsonb('1970-01-01T00:00:00Z'::text) end,
+    'cancelAt', sub.cancel_at,
+    'hasPaymentMethod', sub.has_payment_method,
+    'billingInterval', sub.billing_interval,
+    'currentPeriodEnd', sub.current_period_end,
+    'grantPlanId', grant_row.plan_id,
+    'grantEndsAt', grant_row.ends_at,
+    'founder', case when founder.id is null then 'null'::jsonb
+      else jsonb_build_object('seatNo', founder.seat_no, 'endsAt', founder.ends_at) end,
+    'features', to_jsonb(array(
+      select distinct feature from (
+        select unnest(plan.features) as feature
+        union all
+        select unnest(o.features) from public.entitlement_overrides o
+        where o.business_id = target_business_id and (o.expires_at is null or o.expires_at > at_time)
+      ) granted
+      order by feature
+    )),
+    'limits', jsonb_build_object(
+      'branches', coalesce((select o.max_branches from public.entitlement_overrides o where o.business_id = target_business_id and o.max_branches is not null and (o.expires_at is null or o.expires_at > at_time) order by o.created_at desc limit 1), plan.max_branches) + sub.addon_branches,
+      'tills', coalesce((select o.max_tills from public.entitlement_overrides o where o.business_id = target_business_id and o.kind = 'manual' and o.max_tills is not null and (o.expires_at is null or o.expires_at > at_time) order by o.created_at desc limit 1), plan.max_tills)
+        + case when exists (select 1 from public.entitlement_overrides o where o.business_id = target_business_id and o.kind = 'extra_till' and (o.expires_at is null or o.expires_at > at_time)) then 1 else 0 end
+        + sub.addon_tills,
+      'members', coalesce((select o.max_members from public.entitlement_overrides o where o.business_id = target_business_id and o.max_members is not null and (o.expires_at is null or o.expires_at > at_time) order by o.created_at desc limit 1), plan.max_members),
+      'products', coalesce((select o.max_products from public.entitlement_overrides o where o.business_id = target_business_id and o.max_products is not null and (o.expires_at is null or o.expires_at > at_time) order by o.created_at desc limit 1), plan.max_products)
+    )
+  );
+end
+$$;
+
+revoke execute on function public.entitlements_internal(uuid, timestamptz) from public, anon, authenticated;
+
+-- Whether a founding seat is free. Public (the home page and signup show the offer text while it is true); it returns
+-- only the boolean, never a count or shop data.
+create function public.founding_offer_open()
+returns boolean language sql stable security definer set search_path = public, extensions, pg_temp
+as $$
+  select (select count(*) from public.founding_members where end_reason is distinct from 'revoked') < o.seat_cap
+  from public.founding_offer o;
+$$;
+
+revoke execute on function public.founding_offer_open() from public;
+grant execute on function public.founding_offer_open() to anon, authenticated, service_role;

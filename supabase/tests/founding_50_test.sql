@@ -114,4 +114,67 @@ begin
   assert (select array_agg(seat_no order by seat_no) from public.founding_members) = array[1, 2, 3, 4], '4 seats 1..4';
 end $$;
 
+-- 5. Entitlements: a founder gets Pro features and limits on Starter billing.
+do $$
+declare
+  founder_biz constant uuid := 'b5000000-0000-4000-8000-000000000002';
+  plain_biz constant uuid := 'b5000000-0000-4000-8000-000000000005';
+  ended_biz constant uuid := 'b5000000-0000-4000-8000-000000000001';
+  e jsonb;
+  m public.founding_members;
+begin
+  select * into m from public.founding_members where business_id = founder_biz;
+  e := public.entitlements_internal(founder_biz);
+  assert e->>'planId' = 'starter', '5 plan stays starter';
+  assert e->'features' = to_jsonb(array(select unnest(features) as f from public.plan_catalog where id = 'pro' order by f)), '5 pro features ' || (e->'features')::text;
+  assert (e->'limits'->>'tills')::int = 2 and (e->'limits'->>'members')::int = 5 and e->'limits'->'products' = 'null'::jsonb, '5 pro limits ' || (e->'limits')::text;
+  assert (e->'founder'->>'seatNo')::int = 2 and (e->'founder'->>'endsAt')::timestamptz = m.ends_at, '5 founder key ' || coalesce((e->'founder')::text, 'missing');
+
+  e := public.entitlements_internal(plain_biz);
+  assert e->'features' = '[]'::jsonb and (e->'limits'->>'tills')::int = 1 and e->'founder' = 'null'::jsonb, '5 non-founder is starter ' || e::text;
+
+  e := public.entitlements_internal(founder_biz, m.ends_at + interval '1 second');
+  assert e->'features' = '[]'::jsonb and (e->'limits'->>'tills')::int = 1 and e->'founder' = 'null'::jsonb, '5 expired founder is starter';
+
+  e := public.entitlements_internal(ended_biz);
+  assert e->'founder' = 'null'::jsonb and e->'features' = '[]'::jsonb, '5 cancelled founder is starter';
+
+  update public.subscriptions set addon_tills = 1 where business_id = founder_biz;
+  assert (public.entitlements_internal(founder_biz)->'limits'->>'tills')::int = 3, '5 add-on stacks on founder';
+  update public.subscriptions set addon_tills = 0 where business_id = founder_biz;
+
+  insert into public.plan_grants (business_id, plan_id, granted_by, note)
+  values (founder_biz, 'business', (select owner_id from public.businesses where id = founder_biz), 'test grant');
+  e := public.entitlements_internal(founder_biz);
+  assert e->>'planId' = 'business' and e->'founder' = 'null'::jsonb, '5 grant hides founder ' || e::text;
+  delete from public.plan_grants where business_id = founder_biz;
+
+  assert public.entitlements_internal('b5000000-0000-4000-8000-0000000000ff')->'founder' = 'null'::jsonb, '5 no subscription has founder null';
+end $$;
+
+-- 6. The public flag flips at the cap; anon may call it but cannot read the tables.
+do $$
+begin
+  assert not public.founding_offer_open(), '6 full';
+  update public.founding_offer set seat_cap = seat_cap + 1;
+  assert public.founding_offer_open(), '6 open again';
+end $$;
+set local role anon;
+do $$
+begin
+  assert public.founding_offer_open(), '6 anon calls it';
+  begin
+    perform 1 from public.founding_members;
+    assert false, '6 anon read founding_members';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform 1 from public.founding_offer;
+    assert false, '6 anon read founding_offer';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+update public.founding_offer set seat_cap = seat_cap - 1;
+
 rollback;
