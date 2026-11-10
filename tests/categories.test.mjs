@@ -125,3 +125,13 @@ test("a pending category stays visible after a refresh; a synced one comes only 
   const synced = { ...empty, syncOperations: [{ ...local.syncOperations[0], status: "synced" }] };
   assert.deepEqual(mergeSnapshot(server, synced).categories, [drinks]);
 });
+
+test("filterByCategory: the chip filters, a search looks across every category, archived products never show", async () => {
+  const { filterByCategory } = await import("../lib/catalogue/categories.ts");
+  const p = (id, name, categoryId, active = true) => ({ id, name, sku: id.toUpperCase(), priceFils: 100, stock: 1, lowStockThreshold: 0, active, taxCategory: "standard", categoryId });
+  const products = [p("a", "Cola", "c1"), p("b", "Biscuits", null), p("c", "Cold brew", "c1", false), p("d", "Bubble gum", "c2")];
+  assert.deepEqual(filterByCategory(products, "c1", "").map((x) => x.id), ["a"]);
+  assert.deepEqual(filterByCategory(products, "all", "").map((x) => x.id), ["a", "b", "d"]);
+  assert.deepEqual(filterByCategory(products, "c1", "b").map((x) => x.id), ["b", "d"]);
+  assert.deepEqual(filterByCategory(products, "c2", "  ").map((x) => x.id), ["d"]);
+});

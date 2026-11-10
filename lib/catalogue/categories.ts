@@ -1,4 +1,4 @@
-import type { Category, SyncOperation } from "../domain.ts";
+import type { Category, Product, SyncOperation } from "../domain.ts";
 import { rejectionText } from "../sync/rejections.ts";
 
 export const CATEGORY_NAME_MAX = 40;
@@ -48,4 +48,14 @@ export function categorySyncProblems(ops: SyncOperation[]): Map<string, string> 
 /** A new category operation carries the whole category, so earlier unsent ones for it are dropped. */
 export function supersedeCategoryOperations(ops: SyncOperation[], categoryId: string): SyncOperation[] {
   return ops.filter((op) => op.entity !== "category" || op.entityId !== categoryId || op.status === "synced");
+}
+
+/**
+ * The till's product grid: active products in the chosen category ("all" for every one). A search looks across all
+ * categories, so a typed name or a scan is never hidden by the chip.
+ */
+export function filterByCategory(products: Product[], categoryId: string | "all", query: string): Product[] {
+  const term = query.trim().toLowerCase();
+  if (term) return products.filter((product) => product.active && [product.name, product.sku, product.barcode].some((value) => value?.toLowerCase().includes(term)));
+  return products.filter((product) => product.active && (categoryId === "all" || product.categoryId === categoryId));
 }
