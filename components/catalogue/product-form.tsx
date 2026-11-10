@@ -7,6 +7,7 @@ import { parsePriceCell } from "@/lib/catalogue/parse";
 import { formatAED, type Category, type Product } from "@/lib/domain";
 import type { TaxCategory } from "@/lib/fiscal/countries";
 import { isBelowCost, marginPct, parseCostInput, priceExVatFils } from "@/lib/profit/math";
+import type { LastDelivery } from "@/lib/purchasing/types";
 
 export type ProductFormValues = Pick<Product, "name" | "sku" | "barcode" | "priceFils" | "stock" | "lowStockThreshold" | "taxCategory" | "categoryId">;
 
@@ -22,15 +23,20 @@ const TAX_OPTIONS: { value: TaxCategory; label: string }[] = [
   { value: "exempt", label: "Exempt" },
 ];
 
+/** "9 Nov" from a YYYY-MM-DD date. */
+const lastDeliveryDate = (date: string) => new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", timeZone: "UTC" }).format(new Date(`${date}T12:00:00Z`));
+
 const asInput = (fils: number | null | undefined) => (fils === null || fils === undefined ? "" : (fils / 100).toFixed(2));
 
 /** Add and Edit product share this form. Stock is entered once (opening stock); afterwards it changes only through Adjust stock. */
-export function ProductForm({ mode, product, barcode, categories, cost, onSubmit, onSaveCost, onDone, onCancel, onAdjustStock }: {
+export function ProductForm({ mode, product, barcode, categories, cost, lastDelivery, onSubmit, onSaveCost, onDone, onCancel, onAdjustStock }: {
   mode: "add" | "edit";
   product?: Product;
   barcode?: string;
   categories: Category[];
   cost?: CostView;
+  /** Stage 2D: the latest delivery of this product that was not voided. */
+  lastDelivery?: LastDelivery;
   /** Saves the product; returns an error to show, or the saved product's id. */
   onSubmit: (values: ProductFormValues) => { error: string } | { productId: string };
   /** Sends a changed cost online; returns an error to show, or null. */
@@ -127,6 +133,7 @@ export function ProductForm({ mode, product, barcode, categories, cost, onSubmit
             <div className="field"><label htmlFor="cost">Cost (excl. VAT)</label>
               <input className="input" id="cost" inputMode="decimal" placeholder={costLoading && cost?.online ? "Loading…" : "e.g. 9.75"} value={costValue} readOnly={!cost?.canEdit} disabled={!costEditable && Boolean(cost?.canEdit)} onChange={(event) => setCostText(event.target.value)} />
               {!cost?.online ? <small>Cost needs a connection</small> : !cost.canEdit ? <small>Only the owner changes costs.</small> : null}
+              {lastDelivery ? <small>Last delivered: {lastDeliveryDate(lastDelivery.invoiceDate)} · {lastDelivery.supplierName} · {formatAED(lastDelivery.unitCostFils)} excl. VAT</small> : null}
             </div>
           ) : null}
           <div className="field"><label htmlFor="threshold">Low-stock threshold</label><input className="input" id="threshold" name="threshold" type="number" min="0" step="1" defaultValue={product?.lowStockThreshold ?? 5} required /></div>

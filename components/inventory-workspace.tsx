@@ -13,6 +13,9 @@ import { categoryName, categorySyncProblems, liveCategories } from "@/lib/catalo
 import { reconcilePendingOperations } from "@/lib/demo-store";
 import { costAccess } from "@/lib/profit/access";
 import { saveProductCost } from "@/lib/profit/client";
+import { lastDeliveries } from "@/lib/purchasing/client";
+import type { LastDelivery } from "@/lib/purchasing/types";
+import Link from "next/link";
 import { isBelowCost, marginPct, priceExVatFils } from "@/lib/profit/math";
 import { EmptyState, Pager, SummaryStrip } from "@/components/ui/list-parts";
 import { useListParams } from "@/components/ui/use-list-params";
@@ -70,6 +73,16 @@ export function InventoryWorkspace() {
   const online = useOnline();
   const { canSee: canSeeCost, canEdit: canEditCost } = costAccess({ mode, hasCostFeature: hasFeature("categories_margin"), sessionRole, effectiveRole });
   const productCosts = useProductCosts(canSeeCost && online);
+  // Stage 2D: the last delivery per product, for owner and manager on Pro (online, memory only).
+  const showDeliveries = canSeeCost && hasFeature("purchasing") && online;
+  const [deliveries, setDeliveries] = useState<Map<string, LastDelivery> | null>(null);
+  useEffect(() => {
+    if (!showDeliveries) return;
+    let live = true;
+    void lastDeliveries().then((result) => { if (live && result.ok) setDeliveries(result.deliveries); });
+    return () => { live = false; };
+  }, [showDeliveries]);
+  const [stockDirection, setStockDirection] = useState("in");
   const costs = productCosts.costs;
   const categoryProblems = useMemo(() => categorySyncProblems(syncOperations), [syncOperations]);
   const liveList = liveCategories(categories);
@@ -286,6 +299,7 @@ export function InventoryWorkspace() {
           product={products.find((product) => product.id === dialog.product.id) ?? dialog.product}
           categories={categories}
           cost={costView(dialog.product.id)}
+          lastDelivery={showDeliveries ? deliveries?.get(dialog.product.id) : undefined}
           onSubmit={(values) => saveEdit(dialog.product, values)}
           onSaveCost={saveCost}
           onDone={productSaved}
@@ -305,7 +319,7 @@ export function InventoryWorkspace() {
           <form className="modal" onSubmit={(event) => submitAdjustment(event, dialog.product)} aria-label="Adjust stock">
             <div className="modal-header"><div><div className="panel-title">Adjust stock</div><div className="panel-subtitle">{dialog.product.name} · {dialog.product.stock} currently available</div></div><button type="button" className="button icon-only" onClick={closeDialog} aria-label="Close"><X size={16} weight="bold" /></button></div>
             <div className="modal-body"><div className="form-grid">
-              <div className="field"><label htmlFor="direction">Movement</label><select className="select" id="direction" name="direction"><option value="in">Stock in</option><option value="out">Stock out</option></select></div>
+              <div className="field"><label htmlFor="direction">Movement</label><select className="select" id="direction" name="direction" value={stockDirection} onChange={(event) => setStockDirection(event.target.value)}><option value="in">Stock in</option><option value="out">Stock out</option></select>{stockDirection === "in" ? <small>For supplier deliveries, use {hasFeature("purchasing") ? <Link href="/purchases/new">Purchases → Record delivery</Link> : "Purchases → Record delivery"}.</small> : null}</div>
               <div className="field"><label htmlFor="quantity">Quantity</label><input className="input" id="quantity" name="quantity" type="number" min="1" step="1" required autoFocus /></div>
               <div className="field full-span"><label htmlFor="reason">Reason</label><textarea className="textarea" id="reason" name="reason" placeholder="Delivery received, damaged item, counting correction…" required /></div>
             </div>{error && <p className="form-error">{error}</p>}</div>
