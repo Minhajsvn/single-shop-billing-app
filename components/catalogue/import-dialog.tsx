@@ -9,6 +9,8 @@ import { guessMapping } from "@/lib/catalogue/columns";
 import { parseCsv, problemsToCsv } from "@/lib/catalogue/csv";
 import type { Cell, ColumnMapping, ImportField } from "@/lib/catalogue/types";
 import { reconcilePendingOperations, useShopContext } from "@/lib/demo-store";
+import { useEffectiveRole } from "@/components/staff/use-operator";
+import { costAccess } from "@/lib/profit/access";
 import { saveProductCost } from "@/lib/profit/client";
 import { formatAED } from "@/lib/domain";
 import { toast } from "@/lib/ui/toast-store";
@@ -71,8 +73,10 @@ export function ImportDialog({ onClose, onPrintLabels }: { onClose: () => void; 
   const { products, categories, applyImport, productLimit, syncOperations, syncProblems } = useDemoProducts();
   const { mode, role } = useShopContext();
   const { canWrite, hasFeature } = useEntitlement();
-  // Stage 2C: costs import only for the owner of a hosted Pro shop; elsewhere the column is skipped and said so.
-  const costAllowed = mode === "hosted" && role === "owner" && hasFeature("categories_margin");
+  // Stage 2C: costs import only for the owner (at the till and signed in) of a hosted Pro shop; elsewhere the column is
+  // skipped and said so.
+  const effectiveRole = useEffectiveRole();
+  const costAllowed = costAccess({ mode, hasCostFeature: hasFeature("categories_margin"), sessionRole: role, effectiveRole }).canEdit;
   const [step, setStep] = useState<Step>({ kind: "file" });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);

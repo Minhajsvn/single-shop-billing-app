@@ -11,6 +11,7 @@ import { useProductCosts } from "@/components/catalogue/use-product-costs";
 import { useOnline } from "@/components/offline-runtime";
 import { categoryName, categorySyncProblems, liveCategories } from "@/lib/catalogue/categories";
 import { reconcilePendingOperations } from "@/lib/demo-store";
+import { costAccess } from "@/lib/profit/access";
 import { saveProductCost } from "@/lib/profit/client";
 import { isBelowCost, marginPct, priceExVatFils } from "@/lib/profit/math";
 import { EmptyState, Pager, SummaryStrip } from "@/components/ui/list-parts";
@@ -67,8 +68,7 @@ export function InventoryWorkspace() {
   // Stage 2C: cost and margin for an owner or manager (the person at the till) on Pro, in a hosted shop. Only the
   // owner changes costs; a manager sees them read-only. Cashiers never see them.
   const online = useOnline();
-  const canSeeCost = mode === "hosted" && hasFeature("categories_margin") && (effectiveRole === "owner" || effectiveRole === "manager");
-  const canEditCost = canSeeCost && effectiveRole === "owner" && sessionRole === "owner";
+  const { canSee: canSeeCost, canEdit: canEditCost } = costAccess({ mode, hasCostFeature: hasFeature("categories_margin"), sessionRole, effectiveRole });
   const productCosts = useProductCosts(canSeeCost && online);
   const costs = productCosts.costs;
   const categoryProblems = useMemo(() => categorySyncProblems(syncOperations), [syncOperations]);
