@@ -71,6 +71,20 @@
 - [ ] Note for support: sales made before 2C have no cost and show in the "no cost" banner; profit counts synced sales
   only; a product's category is its current one, so moving a product moves its past sales too.
 
+## Stage 2D: suppliers and deliveries
+
+- [ ] Apply migrations in order: `202611110057_suppliers`, `202611110058_purchase_receipts`. Nothing existing changes, so
+  they are safe before the app deploy.
+- [ ] Deploy the 2D app after 058.
+- [ ] Smoke test on a Pro shop: add a supplier; record a delivery by scanning (a second scan adds 1); check stock and the
+  new average cost on Inventory and the margin on the Profit tab; the same supplier invoice again is refused; void the
+  delivery (stock goes back out, cost stays); a manager sees Purchases and Reports; a cashier has no Purchases; on
+  Starter, Purchases shows the Pro card.
+- [ ] Note for support: the average cost uses the stock the server knows, so sales still waiting in a till's outbox are
+  not counted; voiding a delivery never changes cost (set it by hand if needed); a void is refused once too much of the
+  delivery has been sold.
+- [ ] Tell accountants about the purchases CSV (Purchases → Download CSV): supplier TRN, invoice no., net, VAT, gross.
+
 ## Rollback
 
 1. Keep the previous hosting deployment available.
