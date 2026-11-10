@@ -62,7 +62,7 @@ export function buildDailyReport(state: DemoState, date: string) {
   };
 }
 
-function safeCsv(value: string | number) {
+export function safeCsv(value: string | number) {
   const raw = String(value);
   const protectedValue = /^[=+@-]/.test(raw) ? `'${raw}` : raw;
   return `"${protectedValue.replaceAll('"', '""')}"`;

@@ -1556,3 +1556,15 @@ kbd { min-width: 22px; display: inline-grid; place-items: center; padding: 2px 6
 .margin-readout.below { color: var(--red); }
 .category-chips { display: flex; gap: 6px; overflow-x: auto; padding: 0 0 8px; scrollbar-width: thin; }
 .category-chips .button { flex: none; }
+.report-tabs { margin: 0 0 16px; width: fit-content; }
+.profit-tab { display: grid; gap: 16px; }
+.profit-periods { flex-wrap: wrap; }
+.profit-day .input { width: auto; }
+.profit-bars { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.profit-bars li { display: grid; grid-template-columns: 48px 1fr auto; gap: 10px; align-items: center; font-size: 13px; font-variant-numeric: tabular-nums; }
+.profit-bar-track { height: 10px; border-radius: var(--r-full); background: var(--surface-sunken, rgba(0, 0, 0, .05)); overflow: hidden; }
+.profit-bar { display: block; height: 100%; border-radius: inherit; background: var(--green); }
+.profit-bar.negative { background: var(--red); }
+.locked-card .panel-body { display: flex; gap: 12px; align-items: flex-start; }
+.sort-button { all: unset; cursor: pointer; font: inherit; }
+.sort-button:focus-visible { outline: 2px solid var(--accent, currentColor); outline-offset: 2px; }
