@@ -1,11 +1,19 @@
 "use client";
 
-import { Archive, ArrowCounterClockwise, Barcode, DownloadSimple, FileArrowUp, MagnifyingGlass, PencilSimple, Plus, WarningCircle, X } from "@/components/icons";
+import { Archive, ArrowCounterClockwise, Barcode, DownloadSimple, FileArrowUp, MagnifyingGlass, PencilSimple, Plus, Tag, WarningCircle, X } from "@/components/icons";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { READ_ONLY_REASON, useEntitlement } from "@/components/billing/use-entitlement";
+import { CategoriesPanel } from "@/components/catalogue/categories-panel";
 import { ImportDialog } from "@/components/catalogue/import-dialog";
 import { LabelPrintDialog } from "@/components/catalogue/label-print-dialog";
 import { ProductForm, type ProductFormValues } from "@/components/catalogue/product-form";
+import { useProductCosts } from "@/components/catalogue/use-product-costs";
+import { useOnline } from "@/components/offline-runtime";
+import { categoryName, categorySyncProblems, liveCategories } from "@/lib/catalogue/categories";
+import { reconcilePendingOperations } from "@/lib/demo-store";
+import { costAccess } from "@/lib/profit/access";
+import { saveProductCost } from "@/lib/profit/client";
+import { isBelowCost, marginPct, priceExVatFils } from "@/lib/profit/math";
 import { EmptyState, Pager, SummaryStrip } from "@/components/ui/list-parts";
 import { useListParams } from "@/components/ui/use-list-params";
 import { canEditCatalogue } from "@/lib/access/cashier";
@@ -25,6 +33,7 @@ type Dialog =
   | { kind: "adjust"; product: Product }
   | { kind: "import" }
   | { kind: "labels"; productIds: string[] }
+  | { kind: "categories" }
   | null;
 type StatusFilter = "active" | "archived";
 
@@ -38,23 +47,32 @@ function downloadCsv(name: string, text: string) {
 }
 
 export function InventoryWorkspace() {
-  const { products, addProduct, updateProduct, setProductActive, adjustStock, syncProblems } = useDemoProducts();
-  const [params, setParams] = useListParams({ q: "", status: "active", page: "1" });
+  const { products, categories, syncOperations, addProduct, updateProduct, setProductActive, adjustStock, syncProblems } = useDemoProducts();
+  // Stage 2C: category = "" (all), "none" (Uncategorised) or a category id; filter = "no-cost" from the Profit tab's link.
+  const [params, setParams] = useListParams({ q: "", status: "active", page: "1", category: "", filter: "" });
   const query = params.q;
   const status: StatusFilter = params.status === "archived" ? "archived" : "active";
   const [dialog, setDialog] = useState<Dialog>(null);
   const [error, setError] = useState("");
   const [pageError, setPageError] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const { canWrite: planAllowsWrites } = useEntitlement();
+  const { canWrite: planAllowsWrites, hasFeature } = useEntitlement();
   // A cashier sees products and stock read-only: no add, edit, import, stock adjustment or archive (owner decision 7).
   // Stage 2A: a manager behind the PIN edits too, but only on the owner's signed-in till (the server takes catalogue
   // changes from owner sessions only), so a manager signed in on their own device stays read-only.
-  const sessionRole = useShopContext().role;
+  const { role: sessionRole, mode } = useShopContext();
   const effectiveRole = useEffectiveRole();
   const manage = (sessionRole === null || sessionRole === "owner") && canEditCatalogue(effectiveRole);
   const canWrite = planAllowsWrites && manage;
   const readOnlyTitle = planAllowsWrites ? undefined : READ_ONLY_REASON;
+  // Stage 2C: cost and margin for an owner or manager (the person at the till) on Pro, in a hosted shop. Only the
+  // owner changes costs; a manager sees them read-only. Cashiers never see them.
+  const online = useOnline();
+  const { canSee: canSeeCost, canEdit: canEditCost } = costAccess({ mode, hasCostFeature: hasFeature("categories_margin"), sessionRole, effectiveRole });
+  const productCosts = useProductCosts(canSeeCost && online);
+  const costs = productCosts.costs;
+  const categoryProblems = useMemo(() => categorySyncProblems(syncOperations), [syncOperations]);
+  const liveList = liveCategories(categories);
 
   // The POS links unknown scans to /inventory?barcode=…: open "Add product" once with that barcode filled in.
   useEffect(() => {
@@ -70,26 +88,44 @@ export function InventoryWorkspace() {
 
   const filtered = useMemo(() => {
     const term = query.trim().toLowerCase();
-    return products.filter((product) => product.active === (status === "active") && (!term || [product.name, product.sku, product.barcode].some((value) => value?.toLowerCase().includes(term))));
-  }, [products, query, status]);
+    const live = new Set(categories.filter((category) => !category.archived).map((category) => category.id));
+    const inCategory = (product: Product) => !params.category
+      || (params.category === "none" ? !product.categoryId || !live.has(product.categoryId) : product.categoryId === params.category);
+    const noCost = params.filter === "no-cost" && costs !== null;
+    return products.filter((product) => product.active === (status === "active") && inCategory(product)
+      && (!noCost || !costs.has(product.id))
+      && (!term || [product.name, product.sku, product.barcode].some((value) => value?.toLowerCase().includes(term))));
+  }, [products, categories, costs, params.category, params.filter, query, status]);
   // Pages of 50; archiving the last row of the last page steps back a page (paginate clamps).
   const paged = paginate(filtered, Number(params.page) || 1);
   const lowStock = products.filter((product) => product.active && product.stock <= product.lowStockThreshold).length;
 
   function saveNew(values: ProductFormValues) {
     const result = addProduct(values);
-    if (!result.ok) return result.error;
-    setDialog(null);
-    toast("Product saved");
-    return null;
+    return result.ok ? { productId: result.product.id } : { error: result.error };
   }
 
   function saveEdit(product: Product, values: ProductFormValues) {
-    const result = updateProduct(product.id, { name: values.name, sku: values.sku, barcode: values.barcode, priceFils: values.priceFils, lowStockThreshold: values.lowStockThreshold, taxCategory: values.taxCategory });
+    const result = updateProduct(product.id, { name: values.name, sku: values.sku, barcode: values.barcode, priceFils: values.priceFils, lowStockThreshold: values.lowStockThreshold, taxCategory: values.taxCategory, categoryId: values.categoryId });
+    return result.ok ? { productId: product.id } : { error: result.error };
+  }
+
+  /** Stage 2C: a changed cost goes online after the product is saved; sync runs first so a new product is there. */
+  async function saveCost(productId: string, costFils: number | null) {
+    const result = await saveProductCost(productId, costFils, { reconcile: reconcilePendingOperations });
     if (!result.ok) return result.error;
+    productCosts.set(productId, costFils);
+    return null;
+  }
+
+  function productSaved() {
     setDialog(null);
     toast("Product saved");
-    return null;
+  }
+
+  function costView(productId?: string) {
+    // A failed cost load (server unreachable) reads like being offline: "Cost needs a connection".
+    return { canSee: canSeeCost, canEdit: canEditCost, online: online && !productCosts.error, initialFils: costs === null ? undefined : productId ? costs.get(productId) ?? null : null };
   }
 
   async function archive(product: Product) {
@@ -106,7 +142,7 @@ export function InventoryWorkspace() {
   }
 
   function exportCatalogue() {
-    downloadCsv(`products-${dubaiSupplyDate(new Date())}.csv`, productsToCsv(products));
+    downloadCsv(`products-${dubaiSupplyDate(new Date())}.csv`, productsToCsv(products, categories));
     toast("Export ready");
   }
 
@@ -162,6 +198,7 @@ export function InventoryWorkspace() {
         <div className="page-actions">
           <button className="button" onClick={exportCatalogue} disabled={!products.length}><DownloadSimple size={15} weight="bold" /> Export</button>
           {manage ? <>
+            <button className="button" onClick={() => setDialog({ kind: "categories" })} disabled={!canWrite} title={readOnlyTitle}><Tag size={15} weight="bold" /> Categories</button>
             <button className="button" onClick={() => setDialog({ kind: "import" })} disabled={!canWrite} title={readOnlyTitle}><FileArrowUp size={15} weight="bold" /> Import</button>
             <button className="button primary" onClick={() => setDialog({ kind: "new" })} disabled={!canWrite} title={readOnlyTitle}><Plus size={15} weight="bold" /> Add product</button>
           </> : null}
@@ -171,6 +208,8 @@ export function InventoryWorkspace() {
       {attention ? <div className="notice error-notice" role="status"><WarningCircle size={18} weight="fill" /><span><strong>{attention} {attention === 1 ? "product needs" : "products need"} attention.</strong> The server did not accept {attention === 1 ? "it" : "them"}; edit the marked products to fix the problem shown.</span></div> : null}
       {!manage ? <p className="read-only-hint" role="note">The shop owner manages products and stock. Export, labels and search work here.</p>
         : canWrite ? null : <p className="read-only-hint" role="note">{READ_ONLY_REASON} Export, labels and search still work.</p>}
+      {categoryProblems.size ? <div className="notice error-notice" role="status"><WarningCircle size={18} weight="fill" /><span><strong>{categoryProblems.size} {categoryProblems.size === 1 ? "category needs" : "categories need"} attention.</strong> Open Categories to see the problem and rename or archive it.</span></div> : null}
+      {canSeeCost && productCosts.error ? <div className="notice" role="status"><WarningCircle size={18} weight="fill" /><span>Costs not loaded: {productCosts.error}</span></div> : null}
       {pageError ? <div className="notice error-notice" role="alert"><WarningCircle size={18} weight="fill" /><span>{pageError}</span></div> : null}
 
       <SummaryStrip label="Inventory summary" items={[{ label: "Products", value: products.filter((product) => product.active).length.toLocaleString("en-US") }, { label: "Low stock", value: lowStock.toLocaleString("en-US") }, { label: "Archived", value: products.filter((product) => !product.active).length.toLocaleString("en-US") }]} />
@@ -182,23 +221,38 @@ export function InventoryWorkspace() {
               <button type="button" role="radio" aria-checked={status === "active"} className={`button ${status === "active" ? "primary" : ""}`} onClick={() => setParams({ status: "active", page: "1" })}>Active</button>
               <button type="button" role="radio" aria-checked={status === "archived"} className={`button ${status === "archived" ? "primary" : ""}`} onClick={() => setParams({ status: "archived", page: "1" })}>Archived</button>
             </div>
+            {categories.length ? (
+              <select className="select category-filter" aria-label="Filter by category" value={params.category} onChange={(event) => setParams({ category: event.target.value, page: "1" })}>
+                <option value="">All categories</option>
+                {liveList.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+                <option value="none">Uncategorised</option>
+              </select>
+            ) : null}
+            {canSeeCost ? <button type="button" className={`button ${params.filter === "no-cost" ? "primary" : ""}`} aria-pressed={params.filter === "no-cost"} onClick={() => setParams({ filter: params.filter === "no-cost" ? "" : "no-cost", page: "1" })}>No cost</button> : null}
             <button type="button" className="button" disabled={!selectedVisible.length} onClick={() => setDialog({ kind: "labels", productIds: selectedVisible.map((product) => product.id) })}><Barcode size={15} weight="bold" /> Print labels ({selectedVisible.length})</button>
           </div>
         </div>
         {paged.items.length ? (
-          <div className="table-wrap stack-table inventory-table"><table><thead><tr><th className="select-column"><input type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Select all products on this page" /></th><th>Product</th><th>Status</th><th className="numeric">Stock</th><th className="numeric">Price incl. VAT</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>{paged.items.map((product) => {
+          <div className="table-wrap stack-table inventory-table"><table><thead><tr><th className="select-column"><input type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Select all products on this page" /></th><th>Product</th><th>Category</th><th>Status</th><th className="numeric">Stock</th><th className="numeric">Price incl. VAT</th>{canSeeCost ? <><th className="numeric">Cost excl. VAT</th><th className="numeric">Margin</th></> : null}<th><span className="sr-only">Actions</span></th></tr></thead><tbody>{paged.items.map((product) => {
             const low = product.stock <= product.lowStockThreshold;
             const problem = syncProblems.get(product.id);
+            const cost = costs?.get(product.id);
+            const margin = cost === undefined ? null : marginPct(priceExVatFils(product.priceFils, product.taxCategory), cost);
             return (
               <tr key={product.id}>
                 <td className="select-column"><input type="checkbox" checked={selected.has(product.id)} onChange={() => toggle(product.id)} aria-label={`Select ${product.name}`} /></td>
-                <td data-label="Product"><div className="product-name">{product.name}</div><div className="product-meta">{product.sku}{product.barcode ? ` · ${product.barcode}` : ""}{product.taxCategory !== "standard" ? ` · ${product.taxCategory === "zero" ? "Zero-rated" : "Exempt"}` : ""}</div></td>
+                <td data-label="Product"><div className="product-name">{product.name}</div><div className="product-meta">{product.sku}{product.barcode ? ` · ${product.barcode}` : ""}{product.taxCategory !== "standard" ? ` · ${product.taxCategory === "zero" ? "Zero-rated" : "Exempt"}` : ""}</div>{canSeeCost && isBelowCost(product, cost) ? <span className="badge red">Below cost</span> : null}</td>
+                <td data-label="Category">{categoryName(categories, product.categoryId)}</td>
                 <td data-label="Status">
                   {product.active ? <span className={`badge ${low ? "red" : "green"}`}>{low ? "Low stock" : "In stock"}</span> : <span className="badge yellow">Archived</span>}
                   {problem ? <div className="sync-problem"><span className="badge red" title={problem}>Not saved to the server</span><small>{problem}</small></div> : null}
                 </td>
                 <td data-label="Stock" className="numeric">{product.stock}</td>
                 <td data-label="Price incl. VAT" className="numeric">{formatAED(product.priceFils)}</td>
+                {canSeeCost ? <>
+                  <td data-label="Cost excl. VAT" className="numeric">{costs === null ? "—" : cost === undefined ? <span className="product-meta">No cost</span> : formatAED(cost)}</td>
+                  <td data-label="Margin" className="numeric">{margin === null ? "—" : `${margin.toFixed(1)}%`}</td>
+                </> : null}
                 <td className="numeric row-actions-cell"><div className="row-actions">
                   {manage ? <button className="button" onClick={() => setDialog({ kind: "edit", product })} disabled={!canWrite} title={readOnlyTitle} aria-label={`Edit ${product.name}`}><PencilSimple size={14} weight="bold" /> Edit</button> : null}
                   <button className="button" onClick={() => setDialog({ kind: "labels", productIds: [product.id] })} aria-label={`Print labels for ${product.name}`}><Barcode size={14} weight="bold" /> Labels</button>
@@ -215,22 +269,32 @@ export function InventoryWorkspace() {
         ) : status === "archived"
           ? <EmptyState icon={<Archive size={28} weight="duotone" />} title="No archived products" hint="Archived products are hidden from the till and listed here." />
           : products.length
-            ? <EmptyState icon={<Archive size={28} weight="duotone" />} title={`No products match "${query}"`} hint="Try a name, SKU or barcode." />
+            ? query.trim()
+              ? <EmptyState icon={<Archive size={28} weight="duotone" />} title={`No products match "${query}"`} hint="Try a name, SKU or barcode." />
+              : params.filter === "no-cost"
+                ? <EmptyState icon={<Archive size={28} weight="duotone" />} title="Every product here has a cost" hint="Profit now counts all of their sales." />
+                : <EmptyState icon={<Archive size={28} weight="duotone" />} title="No products in this category" hint="Choose another category or All categories." />
             : <EmptyState icon={<Archive size={28} weight="duotone" />} title="No products yet" hint={manage ? "Import a spreadsheet or add your first product." : "The shop owner adds the products."} action={canWrite ? <button className="button primary" onClick={() => setDialog({ kind: "new" })}>Add product</button> : undefined} />}
         <Pager {...paged} onPage={(next) => setParams({ page: String(next) })} />
       </section>
 
-      {dialog?.kind === "new" && canWrite && <ProductForm mode="add" barcode={dialog.barcode} onSubmit={saveNew} onCancel={closeDialog} />}
+      {dialog?.kind === "new" && canWrite && <ProductForm mode="add" barcode={dialog.barcode} categories={categories} cost={costView()} onSubmit={saveNew} onSaveCost={saveCost} onDone={productSaved} onCancel={closeDialog} />}
 
       {dialog?.kind === "edit" && canWrite && (
         <ProductForm
           mode="edit"
           product={products.find((product) => product.id === dialog.product.id) ?? dialog.product}
+          categories={categories}
+          cost={costView(dialog.product.id)}
           onSubmit={(values) => saveEdit(dialog.product, values)}
+          onSaveCost={saveCost}
+          onDone={productSaved}
           onCancel={closeDialog}
           onAdjustStock={() => setDialog({ kind: "adjust", product: dialog.product })}
         />
       )}
+
+      {dialog?.kind === "categories" && canWrite && <CategoriesPanel categories={categories} problems={categoryProblems} onClose={closeDialog} />}
 
       {dialog?.kind === "import" && canWrite && <ImportDialog onClose={closeDialog} onPrintLabels={(productIds) => setDialog({ kind: "labels", productIds })} />}
 

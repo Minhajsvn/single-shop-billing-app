@@ -1542,3 +1542,29 @@ kbd { min-width: 22px; display: inline-grid; place-items: center; padding: 2px 6
 .split-line .field-hint, .split-line .field:nth-child(n + 3) { grid-column: 1 / -1; margin: 0; }
 .payback { display: grid; gap: 10px; border: 0; margin: 12px 0 0; padding: 12px 0 0; border-top: 1px solid var(--border-glass); }
 .payback legend { font-weight: 600; font-size: 14px; padding: 0; margin-bottom: 6px; }
+
+/* Stage 2C: categories, cost and margin. */
+.category-add { display: flex; gap: 8px; }
+.category-add .input { flex: 1; min-width: 0; }
+.category-list { list-style: none; margin: 12px 0; padding: 0; display: grid; gap: 6px; }
+.category-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; border: 1px solid var(--border-glass); border-radius: var(--r-md, 8px); }
+.category-name { display: grid; gap: 2px; font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.category-actions, .category-rename { display: flex; flex-wrap: wrap; gap: 6px; }
+.category-rename .input { flex: 1; min-width: 160px; }
+.category-filter { width: auto; max-width: 220px; }
+.margin-readout { display: inline-flex; align-items: center; gap: 8px; }
+.margin-readout.below { color: var(--red); }
+.category-chips { display: flex; gap: 6px; overflow-x: auto; padding: 0 0 8px; scrollbar-width: thin; }
+.category-chips .button { flex: none; }
+.report-tabs { margin: 0 0 16px; width: fit-content; }
+.profit-tab { display: grid; gap: 16px; }
+.profit-periods { flex-wrap: wrap; }
+.profit-day .input { width: auto; }
+.profit-bars { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.profit-bars li { display: grid; grid-template-columns: 48px 1fr auto; gap: 10px; align-items: center; font-size: 13px; font-variant-numeric: tabular-nums; }
+.profit-bar-track { height: 10px; border-radius: var(--r-full); background: var(--surface-sunken, rgba(0, 0, 0, .05)); overflow: hidden; }
+.profit-bar { display: block; height: 100%; border-radius: inherit; background: var(--green); }
+.profit-bar.negative { background: var(--red); }
+.locked-card .panel-body { display: flex; gap: 12px; align-items: flex-start; }
+.sort-button { all: unset; cursor: pointer; font: inherit; }
+.sort-button:focus-visible { outline: 2px solid var(--accent, currentColor); outline-offset: 2px; }

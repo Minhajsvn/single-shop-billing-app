@@ -7,6 +7,7 @@ import {
   ArrowLeft01Icon,
   ArrowReloadHorizontalIcon,
   ArrowTurnBackwardIcon,
+  ArrowDown01Icon,
   ArrowUp01Icon,
   BarCode01Icon,
   Calendar03Icon,
@@ -82,6 +83,7 @@ export const ArrowsClockwise = make(RefreshIcon);
 export const Barcode = make(BarCode01Icon);
 export const CalendarBlank = make(Calendar03Icon);
 export const CaretUp = make(ArrowUp01Icon);
+export const CaretDown = make(ArrowDown01Icon);
 export const CashRegister = make(CashierIcon);
 export const ChartBar = make(ChartHistogramIcon);
 export const CheckCircle = make(CheckmarkCircle02Icon);

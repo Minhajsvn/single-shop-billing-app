@@ -23,6 +23,7 @@ import { useApproval } from "@/components/staff/approval-dialog";
 import { completeSale, type CheckoutLine, useDemoStore, useShopContext } from "@/lib/demo-store";
 import { formatAED, type Product, type Sale } from "@/lib/domain";
 import { EmptyState } from "@/components/ui/list-parts";
+import { filterByCategory, liveCategories } from "@/lib/catalogue/categories";
 
 type CartItem = CheckoutLine & { key: string };
 
@@ -62,10 +63,11 @@ export function PosWorkspace() {
     return () => window.clearTimeout(timer);
   }, [flash]);
 
-  const availableProducts = useMemo(() => {
-    const term = query.trim().toLowerCase();
-    return store.products.filter((product) => product.active && (!term || [product.name, product.sku, product.barcode].some((value) => value?.toLowerCase().includes(term))));
-  }, [query, store.products]);
+  // Stage 2C: category chips filter the grid; a search or scan looks across every category.
+  const chips = useMemo(() => liveCategories(store.categories ?? []), [store.categories]);
+  const [chip, setChip] = useState<string>("all");
+  const activeChip = chip === "all" || chips.some((category) => category.id === chip) ? chip : "all";
+  const availableProducts = useMemo(() => filterByCategory(store.products, activeChip, query), [activeChip, query, store.products]);
 
   const totals = useMemo(() => cartTotals(cart), [cart]);
 
@@ -291,6 +293,13 @@ export function PosWorkspace() {
         <section className="panel catalog-panel">
           <div className="panel-body"><div className="toolbar"><form className="search" onSubmit={scan} role="search"><MagnifyingGlass size={17} weight="bold" /><input ref={searchInput} className="input" value={query} onChange={(event) => { setQuery(event.target.value); setUnknownCode(null); }} placeholder="Search name, SKU, or scan barcode" autoFocus aria-label="Search products" aria-keyshortcuts="/" /></form><button className="button" onClick={() => setCustomOpen(true)}><Plus size={15} weight="bold" /> Custom item</button></div></div>
           {unknownCode ? <div className="notice error-notice scan-notice" role="alert"><span>No product with code <strong>{unknownCode}</strong>.{isOwnerView(role) ? null : " Ask the shop owner to add it."}</span>{isOwnerView(role) ? <Link className="button" href={`/inventory?barcode=${encodeURIComponent(unknownCode)}`} onClick={holdBeforeAddingProduct}><Plus size={15} weight="bold" /> {cart.length ? "Hold sale & add product" : "Add product"}</Link> : null}</div> : null}
+          {chips.length ? (
+            <div className="category-chips" role="radiogroup" aria-label="Show category">
+              {[{ id: "all", name: "All" }, ...chips].map((category) => (
+                <button key={category.id} type="button" role="radio" aria-checked={activeChip === category.id} className={`button ${activeChip === category.id ? "primary" : ""}`} onClick={() => { setChip(category.id); searchInput.current?.focus(); }}>{category.name}</button>
+              ))}
+            </div>
+          ) : null}
           <div className="product-grid">{availableProducts.map((product) => {
             const inCart = cart.find((item) => item.productId === product.id)?.quantity ?? 0;
             const soldOut = product.stock <= inCart;

@@ -19,12 +19,14 @@ test("toCsv starts with a BOM, uses CRLF and quotes only when needed", () => {
 });
 
 test("productsToCsv writes the export layout with Excel-safe barcodes", () => {
-  const csv = productsToCsv([water, { ...water, id: "x", name: "Old", sku: "OLD", barcode: undefined, active: false, taxCategory: "zero", priceFils: 500 }]);
+  // Stage 2C: Category is the last column; an archived or unknown category exports blank.
+  const categories = [{ id: "c1", name: "Drinks", sortOrder: 0, archived: false }, { id: "c2", name: "Gone", sortOrder: 1, archived: true }];
+  const csv = productsToCsv([{ ...water, categoryId: "c1" }, { ...water, id: "x", name: "Old", sku: "OLD", barcode: undefined, active: false, taxCategory: "zero", priceFils: 500, categoryId: "c2" }], categories);
   const [head, first, second] = parseCsv(csv);
-  assert.deepEqual(head, ["Name", "SKU", "Barcode", "Price (AED)", "Stock", "Low-stock threshold", "VAT category", "Status"]);
+  assert.deepEqual(head, ["Name", "SKU", "Barcode", "Price (AED)", "Stock", "Low-stock threshold", "VAT category", "Status", "Category"]);
   assert.ok(csv.includes('"=""6291100211014"""'));
-  assert.deepEqual(first, ["Water", "WAT-6", '="6291100211014"', "28.50", "10", "5", "Standard", "Active"]);
-  assert.deepEqual(second, ["Old", "OLD", "", "5.00", "10", "5", "Zero-rated", "Archived"]);
+  assert.deepEqual(first, ["Water", "WAT-6", '="6291100211014"', "28.50", "10", "5", "Standard", "Active", "Drinks"]);
+  assert.deepEqual(second, ["Old", "OLD", "", "5.00", "10", "5", "Zero-rated", "Archived", ""]);
 });
 
 test("SKUs Excel would turn into numbers or dates are written as text; ordinary SKUs are not", () => {

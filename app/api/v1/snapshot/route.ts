@@ -45,10 +45,11 @@ export async function GET(request: Request) {
     const owner = membership.role === "owner";
     const since = owner ? new Date(Date.now() - HISTORY_DAYS * 86_400_000).toISOString() : ALL_TIME;
 
-    const [business, devices, products, customers, sales, creditNotes, stockMovements, register, staff, entitlements] = await Promise.all([
+    const [business, devices, products, categories, customers, sales, creditNotes, stockMovements, register, staff, entitlements] = await Promise.all([
       supabase.from("businesses").select("id, legal_name, trn, address, phone, invoice_prefix, receipt_footer, country, currency, pin_lock_enabled, idle_lock_minutes, manager_discount_pct").eq("id", businessId).single(),
       supabase.from("devices").select("id, name, till_number, branch_id, status, branch:branches(name)").eq("business_id", businessId),
-      fetchAll((from, to) => supabase.from("products").select("id, name, sku, barcode, price_fils, stock_quantity, low_stock_threshold, status, tax_category").eq("business_id", businessId).order("name").order("id").range(from, to)),
+      fetchAll((from, to) => supabase.from("products").select("id, name, sku, barcode, price_fils, stock_quantity, low_stock_threshold, status, tax_category, category_id").eq("business_id", businessId).order("name").order("id").range(from, to)),
+      fetchAll((from, to) => supabase.from("product_categories").select("id, name, sort_order, archived_at").eq("business_id", businessId).order("sort_order").order("id").range(from, to)),
       fetchAll((from, to) => supabase.from("customers").select("id, name, phone, email, address, trn, created_at, updated_at").eq("business_id", businessId).order("created_at", { ascending: false }).order("id").range(from, to)),
       fetchAll((from, to) => supabase.from("sales").select("id, device_id, invoice_number, created_at, supply_date, payment_method, net_fils, vat_fils, gross_fils, status, customer_snapshot, supplier_snapshot, sale_payments(id, method, amount_fils, reference), sale_items!sale_items_sale_id_fkey(id, product_id, description, sku, quantity, unit_gross_fils, list_unit_gross_fils, net_fils, vat_fils, gross_fils)").eq("business_id", businessId).gte("created_at", since).order("created_at", { ascending: false }).order("id").range(from, to)),
       fetchAll((from, to) => supabase.from("credit_notes").select("id, device_id, credit_note_number, sale_id, payment_method, created_at, sales!credit_notes_sale_id_fkey(invoice_number), net_fils, vat_fils, gross_fils, credit_note_payments(id, method, amount_fils, reference), credit_note_items!credit_note_items_credit_note_id_fkey(id, sale_item_id, product_id, description, sku, quantity, unit_gross_fils, net_fils, vat_fils, gross_fils)").eq("business_id", businessId).gte("created_at", since).order("created_at", { ascending: false }).order("id").range(from, to)),
@@ -63,7 +64,7 @@ export async function GET(request: Request) {
       supabase.rpc("business_entitlements", { target_business_id: businessId }),
     ]);
 
-    const failed = [business, devices, products, customers, sales, creditNotes, stockMovements, register, staff].find((result) => result.error);
+    const failed = [business, devices, products, categories, customers, sales, creditNotes, stockMovements, register, staff].find((result) => result.error);
     if (failed?.error) return Response.json({ error: failed.error.message }, { status: 502 });
 
     const shop = business.data as Record<string, unknown>;
@@ -75,7 +76,7 @@ export async function GET(request: Request) {
       lockAllowed = false;
     }
     const rows = {
-      role: membership.role, business: business.data, devices: devices.data ?? [], products: products.data ?? [], customers: customers.data ?? [],
+      role: membership.role, business: business.data, devices: devices.data ?? [], products: products.data ?? [], categories: categories.data ?? [], customers: customers.data ?? [],
       sales: sales.data ?? [], creditNotes: creditNotes.data ?? [], stockMovements: stockMovements.data ?? [], register: register.data ?? null,
       lock: { pin_lock_enabled: shop.pin_lock_enabled === true, idle_lock_minutes: Number(shop.idle_lock_minutes ?? 5), manager_discount_pct: Number(shop.manager_discount_pct ?? 10), lock_allowed: lockAllowed },
       staff: staff.data ?? [],

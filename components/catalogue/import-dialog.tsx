@@ -8,7 +8,10 @@ import { planImport, type ImportPlan, type PlannedCreate } from "@/lib/catalogue
 import { guessMapping } from "@/lib/catalogue/columns";
 import { parseCsv, problemsToCsv } from "@/lib/catalogue/csv";
 import type { Cell, ColumnMapping, ImportField } from "@/lib/catalogue/types";
-import { useShopContext } from "@/lib/demo-store";
+import { reconcilePendingOperations, useShopContext } from "@/lib/demo-store";
+import { useEffectiveRole } from "@/components/staff/use-operator";
+import { costAccess } from "@/lib/profit/access";
+import { saveProductCost } from "@/lib/profit/client";
 import { formatAED } from "@/lib/domain";
 import { toast } from "@/lib/ui/toast-store";
 
@@ -20,6 +23,8 @@ const FIELDS: { field: ImportField; label: string; required?: boolean }[] = [
   { field: "stock", label: "Stock" },
   { field: "lowStock", label: "Low-stock threshold" },
   { field: "taxCategory", label: "VAT category" },
+  { field: "category", label: "Category" },
+  { field: "cost", label: "Cost excl. VAT (AED, Pro)" },
 ];
 const VISIBLE_ROWS = 100;
 const products_ = (count: number) => `${count.toLocaleString("en-US")} ${count === 1 ? "product" : "products"}`;
@@ -28,7 +33,7 @@ type Step =
   | { kind: "file" }
   | { kind: "map"; rows: Cell[][]; offset: number; fileName: string; mapping: ColumnMapping }
   | { kind: "preview"; rows: Cell[][]; offset: number; fileName: string; mapping: ColumnMapping; plan: ImportPlan; skipped: Set<number> }
-  | { kind: "done"; createdIds: string[]; updatedIds: string[]; operationIds: string[] };
+  | { kind: "done"; createdIds: string[]; updatedIds: string[]; operationIds: string[]; costNote?: string };
 
 const cellText = (cell: Cell) => cell === null || cell === undefined ? "" : cell instanceof Date ? cell.toISOString().slice(0, 10) : String(cell);
 const isBlankRow = (row: Cell[]) => row.every((cell) => cellText(cell).trim() === "");
@@ -46,6 +51,7 @@ function download(name: string, text: string) {
 function shiftRows(plan: ImportPlan, offset: number): ImportPlan {
   if (!offset) return plan;
   return {
+    ...plan,
     creates: plan.creates.map((row) => ({ ...row, rowNumber: row.rowNumber + offset })),
     updates: plan.updates.map((row) => ({ ...row, rowNumber: row.rowNumber + offset })),
     problems: plan.problems.map((row) => ({ ...row, rowNumber: row.rowNumber + offset })),
@@ -64,9 +70,13 @@ function Group({ title, count, children }: { title: string; count: number; child
 }
 
 export function ImportDialog({ onClose, onPrintLabels }: { onClose: () => void; onPrintLabels: (productIds: string[]) => void }) {
-  const { products, applyImport, productLimit, syncOperations, syncProblems } = useDemoProducts();
-  const { mode } = useShopContext();
-  const { canWrite } = useEntitlement();
+  const { products, categories, applyImport, productLimit, syncOperations, syncProblems } = useDemoProducts();
+  const { mode, role } = useShopContext();
+  const { canWrite, hasFeature } = useEntitlement();
+  // Stage 2C: costs import only for the owner (at the till and signed in) of a hosted Pro shop; elsewhere the column is
+  // skipped and said so.
+  const effectiveRole = useEffectiveRole();
+  const costAllowed = costAccess({ mode, hasCostFeature: hasFeature("categories_margin"), sessionRole: role, effectiveRole }).canEdit;
   const [step, setStep] = useState<Step>({ kind: "file" });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -106,7 +116,7 @@ export function ImportDialog({ onClose, onPrintLabels }: { onClose: () => void; 
   }
 
   function preview(current: Extract<Step, { kind: "map" }>) {
-    const result = planImport(current.rows, current.mapping, products, { productLimit: productLimit(), newId: () => crypto.randomUUID() });
+    const result = planImport(current.rows, current.mapping, products, { productLimit: productLimit(), newId: () => crypto.randomUUID(), categories, costAllowed });
     if (!result.ok) {
       setError(result.error);
       return;
@@ -115,11 +125,22 @@ export function ImportDialog({ onClose, onPrintLabels }: { onClose: () => void; 
     setStep({ ...current, kind: "preview", plan: shiftRows(result.plan, current.offset), skipped: new Set() });
   }
 
-  function confirm(current: Extract<Step, { kind: "preview" }>) {
+  async function confirm(current: Extract<Step, { kind: "preview" }>) {
     const plan = { ...current.plan, creates: current.plan.creates.filter((row) => !current.skipped.has(row.rowNumber)) };
-    const result = applyImport(plan);
-    setStep({ kind: "done", ...result });
+    const { costs, ...result } = applyImport(plan);
+    setStep({ kind: "done", ...result, ...(costs.length ? { costNote: `Saving costs for ${products_(costs.length)}…` } : {}) });
     toast(`Import finished: ${products_(result.createdIds.length + result.updatedIds.length)}`);
+    if (!costs.length) return;
+    // Costs go online one by one after the products sync (saveProductCost syncs first).
+    let saved = 0;
+    let firstError = "";
+    for (const [index, item] of costs.entries()) {
+      const outcome = await saveProductCost(item.productId, item.costFils, index === 0 ? { reconcile: reconcilePendingOperations } : {});
+      if (outcome.ok) saved += 1;
+      else if (!firstError) firstError = outcome.error;
+    }
+    const costNote = firstError ? `Costs saved for ${products_(saved)}. ${costs.length - saved} not saved: ${firstError}` : `Costs saved for ${products_(saved)}.`;
+    setStep((now) => (now.kind === "done" ? { ...now, costNote } : now));
   }
 
   const header = (
@@ -195,6 +216,8 @@ export function ImportDialog({ onClose, onPrintLabels }: { onClose: () => void; 
           <div className={plan.problems.length ? "has-problems" : ""}><strong>{plan.problems.length.toLocaleString("en-US")}</strong><span>Problems</span></div>
         </div>
         {unchanged ? <p className="field-hint">{unchanged.toLocaleString("en-US")} rows match existing products and change nothing.</p> : null}
+        {plan.newCategories.length ? <p className="field-hint">New categories: {plan.newCategories.join(", ")}</p> : null}
+        {plan.costSkipped ? <p className="field-hint">Cost is a Pro feature and was skipped</p> : null}
         <Group title="New products" count={fresh.length}>
           {fresh.slice(0, VISIBLE_ROWS).map((row) => <div className="import-row" key={row.rowNumber}><span>Row {row.rowNumber}</span><strong>{row.product.name}</strong><span>{formatAED(row.product.priceFils)} · stock {row.product.stock}</span></div>)}
         </Group>
@@ -236,6 +259,7 @@ export function ImportDialog({ onClose, onPrintLabels }: { onClose: () => void; 
           <>
             <p>Synced: {(step.operationIds.length - remaining).toLocaleString("en-US")} of {step.operationIds.length.toLocaleString("en-US")} changes{remaining && !attention ? " · syncing in the background, you can keep working" : ""}.</p>
             <progress max={Math.max(step.operationIds.length, 1)} value={step.operationIds.length - remaining} />
+            {step.costNote ? <p role="status">{step.costNote}</p> : null}
             {attention ? <p className="form-error">Needs attention: {products_(attention)} {attention === 1 ? "was" : "were"} not saved to the server. {attention === 1 ? "It is" : "They are"} marked on the Inventory page.</p> : null}
           </>
         ) : null}

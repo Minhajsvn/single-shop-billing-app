@@ -4,7 +4,10 @@ import { MethodBadge } from "@/components/payments/method-badge";
 import { CalendarBlank, DownloadSimple, Printer, Receipt } from "@/components/icons";
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { useDemoStore } from "@/lib/demo-store";
+import { useEntitlement } from "@/components/billing/use-entitlement";
+import { ProfitTab } from "@/components/reports/profit-tab";
+import { useEffectiveRole } from "@/components/staff/use-operator";
+import { useDemoStore, useShopContext } from "@/lib/demo-store";
 import { formatAED, formatDateTime } from "@/lib/domain";
 import { printDocument } from "@/lib/print";
 import { buildDailyReport, dailyReportCsv, uaeBusinessDate } from "@/lib/reporting";
@@ -20,6 +23,12 @@ export function ReportsWorkspace() {
   const [exported, setExported] = useState(false);
   const report = useMemo(() => buildDailyReport(store, date), [store, date]);
   const paymentTotal = Math.max(1, report.cashFils + report.cardFils + report.transferFils);
+  // Stage 2C: the Profit tab, for an owner or manager (the person at the till) in a hosted shop; Starter sees it locked.
+  const { mode } = useShopContext();
+  const effectiveRole = useEffectiveRole();
+  const { hasFeature } = useEntitlement();
+  const showProfit = mode === "hosted" && (effectiveRole === "owner" || effectiveRole === "manager");
+  const [tab, setTab] = useState<"daily" | "profit">("daily");
 
   function downloadCsv() {
     const blob = new Blob(["\uFEFF", dailyReportCsv(report)], { type: "text/csv;charset=utf-8" });
@@ -39,8 +48,22 @@ export function ReportsWorkspace() {
     printDocument("daily-report");
   }
 
+  const tabs = showProfit ? (
+    <div className="segmented report-tabs no-print" role="tablist" aria-label="Report">
+      <button type="button" role="tab" aria-selected={tab === "daily"} className={`button ${tab === "daily" ? "primary" : ""}`} onClick={() => setTab("daily")}>Daily</button>
+      <button type="button" role="tab" aria-selected={tab === "profit"} className={`button ${tab === "profit" ? "primary" : ""}`} onClick={() => setTab("profit")}>Profit</button>
+    </div>
+  ) : null;
+
+  if (showProfit && tab === "profit") return <>
+    <div className="page-heading no-print"><div><div className="eyebrow">Gross profit</div><h1 className="page-title">Reports</h1><p className="page-copy">Profit and margin by day, category and product, from the cost each sale was recorded with.</p></div></div>
+    {tabs}
+    <ProfitTab allowed={hasFeature("categories_margin")} syncOperations={store.syncOperations} />
+  </>;
+
   return <>
     <div className="page-heading no-print"><div><div className="eyebrow">Daily reconciliation</div><h1 className="page-title">Reports</h1><p className="page-copy">One Dubai business day across invoices, VAT, payment methods, returns, and the register.</p></div><div className="report-actions"><label className="date-control"><CalendarBlank size={16} weight="bold" /><span className="sr-only">Business date</span><input type="date" value={date} onInput={(event) => setDate(event.currentTarget.value)} /></label><button className="button" onClick={downloadCsv}><DownloadSimple size={16} weight="bold" /> Export CSV</button><button className="button primary" onClick={printReport}><Printer size={16} weight="bold" /> Print report</button>{exported && <span className="badge green" role="status">CSV downloaded</span>}</div></div>
+    {tabs}
 
     <article className="daily-report-document">
       <header className="report-print-header"><div><span>billo</span><strong>Daily sales report</strong></div><div><span>Business date</span><strong>{reportDateLabel(date)}</strong></div></header>

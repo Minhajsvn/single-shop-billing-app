@@ -4,6 +4,7 @@ import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { shouldAutoSync } from "@/lib/sync/auto-sync";
 import { isSyncing, reconcilePendingOperations, subscribeSyncing, useDemoStore, useShopContext } from "@/lib/demo-store";
 import { productSyncProblems } from "@/lib/store/product-sync";
+import { categorySyncProblems } from "@/lib/catalogue/categories";
 import { syncStatus } from "@/lib/sync/status-text";
 
 function subscribeOnline(listener: () => void) {
@@ -33,10 +34,11 @@ export function useSyncStatusText() {
   return useMemo(() => {
     const pending = store.syncOperations.filter((operation) => operation.status === "pending").length;
     const productProblems = productSyncProblems(store.syncOperations).size;
-    const otherFailed = store.syncOperations.filter((operation) => operation.status === "failed" && operation.entity !== "product" && operation.entity !== "stock").length;
-    const status = syncStatus({ mode, online, pending, needAttention: productProblems + otherFailed, syncing });
-    // Refused products are explained on Inventory; anything else under Settings → Data.
-    return { ...status, href: productProblems ? "/inventory" : "/settings?tab=data" };
+    const categoryProblems = categorySyncProblems(store.syncOperations).size;
+    const otherFailed = store.syncOperations.filter((operation) => operation.status === "failed" && operation.entity !== "product" && operation.entity !== "stock" && operation.entity !== "category").length;
+    const status = syncStatus({ mode, online, pending, needAttention: productProblems + categoryProblems + otherFailed, syncing });
+    // Refused products and categories are explained on Inventory; anything else under Settings → Data.
+    return { ...status, href: productProblems || categoryProblems ? "/inventory" : "/settings?tab=data" };
   }, [mode, online, store.syncOperations, syncing]);
 }
 
