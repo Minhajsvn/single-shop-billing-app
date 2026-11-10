@@ -59,8 +59,9 @@ export function mapSnapshotRows(rows: SnapshotRows, generatedAt: string): ShopSn
   const invoiceBySale = new Map(rows.sales.map((sale) => [sale.id, sale.invoice_number]));
   const state: DemoState = {
     products: rows.products.map((p) => ({
-      id: p.id, name: p.name, sku: p.sku, barcode: optional(p.barcode), priceFils: Number(p.price_fils), stock: p.stock_quantity, lowStockThreshold: p.low_stock_threshold, active: p.status === "active", taxCategory: taxCategory(p.tax_category),
+      id: p.id, name: p.name, sku: p.sku, barcode: optional(p.barcode), priceFils: Number(p.price_fils), stock: p.stock_quantity, lowStockThreshold: p.low_stock_threshold, active: p.status === "active", taxCategory: taxCategory(p.tax_category), categoryId: p.category_id ?? null,
     })),
+    categories: (rows.categories ?? []).map((c) => ({ id: c.id, name: c.name, sortOrder: Number(c.sort_order), archived: c.archived_at !== null })),
     customers: rows.customers.map((c) => ({
       id: c.id, name: c.name, phone: c.phone, email: optional(c.email), address: optional(c.address), trn: optional(c.trn), createdAt: c.created_at, updatedAt: c.updated_at,
     })),

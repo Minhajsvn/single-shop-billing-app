@@ -18,7 +18,7 @@ export function mergeSnapshot(server: DemoState, local: DemoState): DemoState {
   // back without that invoice number; the browser's own copy still has it.
   const localInvoice = new Map(local.creditNotes.map((note) => [note.id, note.invoiceNumber]));
   const creditNotes = server.creditNotes.map((note) => note.invoiceNumber || !localInvoice.get(note.id) ? note : { ...note, invoiceNumber: localInvoice.get(note.id)! });
-  const merged: DemoState = { ...server, creditNotes, syncOperations: kept };
+  const merged: DemoState = { ...server, categories: server.categories ?? [], creditNotes, syncOperations: kept };
   const steps = new Map<string, StockStep[]>();
   const addStep = (productId: string | undefined, step: StockStep) => {
     if (productId) steps.set(productId, [...(steps.get(productId) ?? []), step]);
@@ -41,6 +41,12 @@ export function mergeSnapshot(server: DemoState, local: DemoState): DemoState {
       merged.products = merged.products.some((product) => product.id === record.id)
         ? merged.products.map((product) => product.id === record.id ? { ...record, stock: product.stock } : product)
         : [{ ...record, stock: 0 }, ...merged.products];
+    } else if (operation.entity === "category" && "category" in payload) {
+      // Stage 2C: pending or refused category changes stay visible in this browser.
+      const record = payload.category;
+      merged.categories = merged.categories.some((category) => category.id === record.id)
+        ? merged.categories.map((category) => category.id === record.id ? record : category)
+        : [record, ...merged.categories];
     } else if (operation.entity === "stock" && "movement" in payload && !merged.stockMovements.some((movement) => movement.id === payload.movement.id)) {
       merged.stockMovements = [payload.movement, ...merged.stockMovements];
       if (payload.product && !merged.products.some((product) => product.id === payload.product!.id)) merged.products = [{ ...payload.product, stock: 0 }, ...merged.products];

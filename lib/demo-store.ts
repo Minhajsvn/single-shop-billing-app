@@ -6,6 +6,7 @@ import { clearStoredDeviceId, getStoredDeviceId } from "@/lib/device";
 import {
   calculateVatInclusive,
   initialProducts,
+  type Category,
   type CreditNote,
   type Customer,
   type DemoState,
@@ -45,6 +46,7 @@ import {
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import type { ChecklistFlags } from "@/lib/onboarding/checklist";
 import type { ImportPlan } from "@/lib/catalogue/classify";
+import { liveCategories, normalizeCategories, supersedeCategoryOperations, validCategoryName } from "@/lib/catalogue/categories";
 import { heldStockOperations, stampSequence, supersedeProductOperations, syncOrder, withTaxCategories } from "@/lib/store/product-sync";
 import { useSyncExternalStore } from "react";
 
@@ -84,6 +86,7 @@ function seededSale(id: string, invoiceNumber: string, createdAt: string, paymen
 
 const initialState: DemoState = {
   products: initialProducts,
+  categories: [],
   stockMovements: [],
   sales: [
     seededSale("sale-001", "SL-260830-0010", "2026-08-30T07:54:00.000Z", "cash", [line("prd-005", "Premium Date Box", "DAT-PRM", 1, 6800)]),
@@ -217,6 +220,7 @@ function save(next: DemoState) {
 function normalizeState(saved: Partial<DemoState>): DemoState {
   return {
     products: withTaxCategories(saved.products ?? initialState.products),
+    categories: normalizeCategories(saved.categories),
     stockMovements: saved.stockMovements ?? [],
     sales: saved.sales ?? initialState.sales,
     customers: saved.customers ?? initialCustomers,
@@ -543,7 +547,7 @@ function enqueueInOrder(next: DemoState, items: QueuedItem[]): DemoState {
 }
 
 function productRecord(product: Product): ProductRecord {
-  return { id: product.id, name: product.name, sku: product.sku, barcode: product.barcode, priceFils: product.priceFils, lowStockThreshold: product.lowStockThreshold, active: product.active, taxCategory: product.taxCategory };
+  return { id: product.id, name: product.name, sku: product.sku, barcode: product.barcode, priceFils: product.priceFils, lowStockThreshold: product.lowStockThreshold, active: product.active, taxCategory: product.taxCategory, categoryId: product.categoryId ?? null };
 }
 
 function productItem(product: Product): QueuedItem {
@@ -578,7 +582,7 @@ export function addProduct(input: Omit<Product, "id" | "active">): { ok: true; p
   return { ok: true, product };
 }
 
-export type ProductPatch = Partial<Pick<Product, "name" | "sku" | "barcode" | "priceFils" | "lowStockThreshold" | "taxCategory">>;
+export type ProductPatch = Partial<Pick<Product, "name" | "sku" | "barcode" | "priceFils" | "lowStockThreshold" | "taxCategory" | "categoryId">>;
 
 export function updateProduct(id: string, patch: ProductPatch): { ok: true } | { ok: false; error: string } {
   const current = state.products.find((product) => product.id === id);
@@ -603,6 +607,62 @@ export function setProductActive(id: string, active: boolean): { ok: true } | { 
   const next = { ...state, products: state.products.map((product) => product.id === id ? updated : product), syncOperations: supersedeProductOperations(state.syncOperations, id) };
   save(enqueueInOrder(next, [productItem(updated)]));
   return { ok: true };
+}
+
+// Stage 2C: categories. Owner only (the server refuses anyone else); each change travels as a category operation.
+function queueCategory(next: DemoState, category: Category): DemoState {
+  return enqueueInOrder({ ...next, syncOperations: supersedeCategoryOperations(next.syncOperations, category.id) }, [{ entity: "category", entityId: category.id, payload: { category } }]);
+}
+
+export function addCategory(name: string): { ok: true; category: Category } | { ok: false; error: string } {
+  const problem = validCategoryName(name, state.categories);
+  if (problem) return { ok: false, error: problem };
+  const sortOrder = state.categories.reduce((max, category) => Math.max(max, category.sortOrder + 1), 0);
+  const category: Category = { id: crypto.randomUUID(), name: name.trim(), sortOrder, archived: false };
+  save(queueCategory({ ...state, categories: [...state.categories, category] }, category));
+  return { ok: true, category };
+}
+
+function changeCategory(id: string, change: (category: Category) => Category): { ok: true } | { ok: false; error: string } {
+  const current = state.categories.find((category) => category.id === id);
+  if (!current) return { ok: false, error: "This category no longer exists." };
+  const updated = change(current);
+  if (!updated.archived) {
+    const problem = validCategoryName(updated.name, state.categories, id);
+    if (problem) return { ok: false, error: problem };
+  }
+  const clean = { ...updated, name: updated.name.trim() };
+  save(queueCategory({ ...state, categories: state.categories.map((category) => category.id === id ? clean : category) }, clean));
+  return { ok: true };
+}
+
+export function renameCategory(id: string, name: string) {
+  return changeCategory(id, (category) => ({ ...category, name }));
+}
+
+export function setCategoryArchived(id: string, archived: boolean) {
+  return changeCategory(id, (category) => ({ ...category, archived }));
+}
+
+/** Swaps a live category with its neighbour in the owner's order; live categories are re-numbered 0..n. */
+export function moveCategory(id: string, direction: -1 | 1): { ok: true } | { ok: false; error: string } {
+  const live = liveCategories(state.categories);
+  const index = live.findIndex((category) => category.id === id);
+  const target = index + direction;
+  if (index < 0 || target < 0 || target >= live.length) return { ok: true };
+  const order = [...live];
+  [order[index], order[target]] = [order[target], order[index]];
+  const renumbered = order.map((category, position) => ({ ...category, sortOrder: position }));
+  const changed = renumbered.filter((category) => live.find((item) => item.id === category.id)?.sortOrder !== category.sortOrder);
+  let next: DemoState = { ...state, categories: state.categories.map((category) => renumbered.find((item) => item.id === category.id) ?? category) };
+  for (const category of changed) next = queueCategory(next, category);
+  save(next);
+  return { ok: true };
+}
+
+/** Active products in a category (the archive confirmation shows this count). */
+export function productsInCategory(id: string): number {
+  return state.products.filter((product) => product.active && product.categoryId === id).length;
 }
 
 const IMPORT_REASON = "Spreadsheet import";
@@ -920,7 +980,8 @@ async function syncPendingOperations(): Promise<ReconcileResult> {
     (operation.entity === "credit-note" && Boolean(operation.payload && "creditNote" in operation.payload)) ||
     (operation.entity === "register" && Boolean(operation.payload && "action" in operation.payload)) ||
     (operation.entity === "stock" && Boolean(operation.payload && "movement" in operation.payload)) ||
-    (operation.entity === "product" && Boolean(operation.payload && "product" in operation.payload && !("movement" in operation.payload)))
+    (operation.entity === "product" && Boolean(operation.payload && "product" in operation.payload && !("movement" in operation.payload))) ||
+    (operation.entity === "category" && Boolean(operation.payload && "category" in operation.payload))
   ) && !held.has(operation.id)));
   if (!syncable.length) {
     return { status: "blocked", pendingCount: pending.length, message: "Hosted sync currently supports customer, sale, refund, register, and inventory changes only; other pending operations were kept safely." };

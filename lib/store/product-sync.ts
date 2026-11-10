@@ -41,6 +41,7 @@ function referencedProducts(op: SyncOperation): string[] {
  * refund of that product. Product operations never change stock, so moving them earlier is safe, while
  * stock counts and sales keep their own order (a count then a sale must end at count − sale on the server).
  * After an owner fixes a refused product, the fix therefore reaches the server before its earlier opening stock.
+ * Stage 2C: a category operation likewise moves ahead of the first unsynced product operation that uses it.
  */
 export function syncOrder(ops: SyncOperation[]): SyncOperation[] {
   const earliestNeed = new Map<string, string>();
@@ -51,10 +52,26 @@ export function syncOrder(ops: SyncOperation[]): SyncOperation[] {
       if (!current || op.createdAt < current) earliestNeed.set(productId, op.createdAt);
     }
   }
-  const key = (op: SyncOperation) => {
-    if (op.entity !== "product") return { at: op.createdAt, rank: 0 };
+  const productKey = (op: SyncOperation) => {
     const need = earliestNeed.get(op.entityId);
     return need && need < op.createdAt ? { at: need, rank: -1 } : { at: op.createdAt, rank: 0 };
+  };
+  const categoryNeed = new Map<string, string>();
+  for (const op of ops) {
+    if (op.status === "synced" || op.entity !== "product" || !op.payload || !("product" in op.payload)) continue;
+    const categoryId = op.payload.product?.categoryId;
+    if (!categoryId) continue;
+    const at = productKey(op).at;
+    const current = categoryNeed.get(categoryId);
+    if (!current || at < current) categoryNeed.set(categoryId, at);
+  }
+  const key = (op: SyncOperation) => {
+    if (op.entity === "product") return productKey(op);
+    if (op.entity === "category") {
+      const need = categoryNeed.get(op.entityId);
+      return need && need <= op.createdAt ? { at: need, rank: -2 } : { at: op.createdAt, rank: 0 };
+    }
+    return { at: op.createdAt, rank: 0 };
   };
   return [...ops].sort((left, right) => {
     const a = key(left);

@@ -160,6 +160,8 @@ const productRecordSchema = z.object({
   lowStockThreshold: z.number().int().nonnegative(),
   active: z.boolean(),
   taxCategory: z.enum(["standard", "zero", "exempt"]),
+  // Stage 2C: absent on older tills (the server keeps the category); null clears it.
+  categoryId: z.string().uuid().nullable().optional(),
 });
 
 const productOperationSchema = z.object({
@@ -168,6 +170,16 @@ const productOperationSchema = z.object({
   entityId: z.string().uuid(),
   createdAt: z.string().min(1),
   payload: z.object({ product: productRecordSchema, deviceId: deviceIdSchema }),
+});
+const categoryOperationSchema = z.object({
+  id: z.string().uuid(),
+  entity: z.literal("category"),
+  entityId: z.string().uuid(),
+  createdAt: z.string().min(1),
+  payload: z.object({
+    category: z.object({ id: z.string().uuid(), name: z.string().trim().min(1).max(40), sortOrder: z.number().int(), archived: z.boolean() }),
+    deviceId: deviceIdSchema,
+  }),
 });
 const customerOperationSchema = z.object({
   id: z.string().uuid(),
@@ -210,7 +222,7 @@ const creditNoteOperationSchema = z.object({
 });
 
 export const requestSchema = z.object({
-  operations: z.array(z.union([customerOperationSchema, saleOperationSchema, registerOperationSchema, creditNoteOperationSchema, stockOperationSchema, productOperationSchema])).min(1).max(50),
+  operations: z.array(z.union([customerOperationSchema, saleOperationSchema, registerOperationSchema, creditNoteOperationSchema, stockOperationSchema, productOperationSchema, categoryOperationSchema])).min(1).max(50),
 });
 
 export type SyncRequest = z.infer<typeof requestSchema>;

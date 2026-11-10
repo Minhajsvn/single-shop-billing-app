@@ -11,7 +11,12 @@ export type Product = {
   active: boolean;
   /** Stored only (Stage 1D): checkout, invoices and reports still charge standard VAT on every product. */
   taxCategory: TaxCategory;
+  /** Stage 2C: the product's category; null or absent when it has none. */
+  categoryId?: string | null;
 };
+
+/** Stage 2C: one flat list per shop. Archived categories keep their products but read "Uncategorised". */
+export type Category = { id: string; name: string; sortOrder: number; archived: boolean };
 
 export type StockMovement = {
   id: string;
@@ -115,6 +120,7 @@ export type CreditNoteSyncPayload = { creditNote: CreditNote };
 /** The product without stock: stock only ever changes through stock movements, sales and refunds. */
 export type ProductRecord = Omit<Product, "stock">;
 export type ProductSyncPayload = { product: ProductRecord };
+export type CategorySyncPayload = { category: Category };
 /**
  * product: a full copy, sent only by operations queued before Stage 1D (newer clients queue a product operation first).
  * countedStock: the stock an import counted; the server sets stock to it and records the difference.
@@ -122,11 +128,11 @@ export type ProductSyncPayload = { product: ProductRecord };
 export type StockSyncPayload = { movement: StockMovement; product?: Product; countedStock?: number };
 /** The till that created the operation; the server books the work to this device. Absent on operations queued before Stage 1B. */
 export type DeviceTag = { deviceId?: string };
-export type SyncPayload = (CustomerSyncPayload | SaleSyncPayload | RegisterSyncPayload | CreditNoteSyncPayload | StockSyncPayload | ProductSyncPayload) & DeviceTag;
+export type SyncPayload = (CustomerSyncPayload | SaleSyncPayload | RegisterSyncPayload | CreditNoteSyncPayload | StockSyncPayload | ProductSyncPayload | CategorySyncPayload) & DeviceTag;
 
 export type SyncOperation = {
   id: string;
-  entity: "sale" | "credit-note" | "customer" | "register" | "stock" | "product";
+  entity: "sale" | "credit-note" | "customer" | "register" | "stock" | "product" | "category";
   entityId: string;
   createdAt: string;
   status: "pending" | "synced" | "failed";
@@ -163,6 +169,7 @@ export type RegisterSession = {
 
 export type DemoState = {
   products: Product[];
+  categories: Category[];
   stockMovements: StockMovement[];
   sales: Sale[];
   customers: Customer[];

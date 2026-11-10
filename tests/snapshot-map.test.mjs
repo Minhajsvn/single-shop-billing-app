@@ -59,7 +59,7 @@ test("tills carry their branch name, or Main branch when the snapshot has none",
 
 test("maps products, customers and sales with lines and supplier", () => {
   const { state } = mapSnapshotRows(rows, "x");
-  assert.deepEqual(state.products[0], { id: "p1", name: "Coffee", sku: "COF", barcode: undefined, priceFils: 2850, stock: 4, lowStockThreshold: 5, active: true, taxCategory: "zero" });
+  assert.deepEqual(state.products[0], { id: "p1", name: "Coffee", sku: "COF", barcode: undefined, priceFils: 2850, stock: 4, lowStockThreshold: 5, active: true, taxCategory: "zero", categoryId: null });
   assert.equal(state.customers[0].email, undefined);
   assert.equal(state.sales[0].lines[0].productId, "p1");
   assert.equal(state.sales[0].supplier?.name, "Smoke LLC");
