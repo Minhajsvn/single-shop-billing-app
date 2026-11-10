@@ -10,6 +10,7 @@ export function useDemoProducts() {
   const syncProblems = useMemo(() => productSyncProblems(store.syncOperations), [store.syncOperations]);
   return {
     products: store.products,
+    categories: store.categories ?? [],
     movements: store.stockMovements,
     syncOperations: store.syncOperations,
     syncProblems,

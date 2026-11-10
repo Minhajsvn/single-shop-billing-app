@@ -49,3 +49,18 @@ test("periodRange: this month and last month", () => {
 test("history window is 90 days", () => {
   assert.equal(MAX_HISTORY_DAYS, 90);
 });
+
+test("parseCostInput: blank clears, AED amounts with up to 2 decimals from 0 to 1,000,000", async () => {
+  const { parseCostInput } = await import("../lib/profit/math.ts");
+  const bad = { ok: false, reason: "Cost must be a number from 0 to 1,000,000." };
+  assert.deepEqual(parseCostInput(""), { ok: true, value: null });
+  assert.deepEqual(parseCostInput("  "), { ok: true, value: null });
+  assert.deepEqual(parseCostInput("12.5"), { ok: true, value: 1250 });
+  assert.deepEqual(parseCostInput("0"), { ok: true, value: 0 });
+  assert.deepEqual(parseCostInput("AED 1,000,000"), { ok: true, value: 100000000 });
+  assert.deepEqual(parseCostInput(15), { ok: true, value: 1500 });
+  assert.deepEqual(parseCostInput("1000000.01"), bad);
+  assert.deepEqual(parseCostInput("-1"), bad);
+  assert.deepEqual(parseCostInput("abc"), bad);
+  assert.deepEqual(parseCostInput("1.234"), bad);
+});

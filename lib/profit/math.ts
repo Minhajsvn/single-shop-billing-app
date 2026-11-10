@@ -52,3 +52,21 @@ export function periodRange(key: PeriodKey, now: Date): { from: string; to: stri
   const lastPrevious = shift(firstThisMonth, -1);
   return { from: `${lastPrevious.slice(0, 7)}-01`, to: lastPrevious };
 }
+
+export const COST_MAX_FILS = 100_000_000;
+const COST_PROBLEM = "Cost must be a number from 0 to 1,000,000.";
+
+/** A typed or imported cost (AED excl. VAT) in fils. Blank means "no cost" (null). */
+export function parseCostInput(cell: string | number | null | undefined): { ok: true; value: number | null } | { ok: false; reason: string } {
+  if (cell === null || cell === undefined) return { ok: true, value: null };
+  if (typeof cell === "number") {
+    const fils = Math.round(cell * 100);
+    return Number.isFinite(cell) && cell >= 0 && Math.abs(cell * 100 - fils) < 1e-6 && fils <= COST_MAX_FILS ? { ok: true, value: fils } : { ok: false, reason: COST_PROBLEM };
+  }
+  const raw = cell.trim().replace(/^AED\s*/i, "").replace(/\s*AED$/i, "");
+  if (!raw) return { ok: true, value: null };
+  if (!/^\d{1,3}(,\d{3})+(\.\d{1,2})?$|^\d+(\.\d{1,2})?$/.test(raw)) return { ok: false, reason: COST_PROBLEM };
+  const [whole, decimals = ""] = raw.replace(/,/g, "").split(".");
+  const fils = Number(whole) * 100 + Number(decimals.padEnd(2, "0"));
+  return fils <= COST_MAX_FILS ? { ok: true, value: fils } : { ok: false, reason: COST_PROBLEM };
+}
