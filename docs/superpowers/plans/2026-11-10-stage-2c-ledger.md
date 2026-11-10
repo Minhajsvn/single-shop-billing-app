@@ -57,3 +57,13 @@ Task 11: Ruling: CSV import with category/cost was not driven in the browser (th
 - Found and fixed a 2B bug (migration 056): closing a register that held split cash was refused; after 056 the stuck close synced.
 - Unrelated: a React "uncontrolled input to be controlled" warning appeared once during the session; it does not reproduce from the 2C product form or categories panel.
 Task 11: complete (commits 01db108..35c6a95, tests: npm test 454/454, npm run test:sql 6 PASS, lint, build)
+
+## Final review
+
+Final review: self-review (no subagent) — the fresh-reviewer Agent call was blocked twice because a context-mode hook rewrites its input and auto mode cannot check it; per the skill it was not retried.
+Final: fixed CSV import let a manager behind the PIN on the owner's till import costs (spec: managers read-only) — profit-access.test.mjs RED→GREEN (costAccess shared by Inventory and Import), suite 458/458.
+Final: minor (deferred): the Profit tab's period is computed when the period is chosen; a tab left open past midnight keeps yesterday's "Today" until another period is picked.
+Final: minor (deferred): a manager behind the PIN on the owner's till can manage categories (consistent with the 2A rule that a PIN manager edits the catalogue on the owner's till; the spec says "owner").
+Final: minor (deferred): "Costs not loaded: Something went wrong. Try again." when the server is unreachable but the browser reports online; the cost field then says "Cost needs a connection".
+Final: minor (deferred): the margin preview nets every product at 5% (checkout's rule today); update priceExVatFils when per-category VAT ships.
+Final: minor (deferred): a React "uncontrolled to controlled input" warning seen once in the session, not reproducible from 2C screens.
