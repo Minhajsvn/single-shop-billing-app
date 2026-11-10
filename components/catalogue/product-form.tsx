@@ -125,7 +125,7 @@ export function ProductForm({ mode, product, barcode, categories, cost, onSubmit
           <div className="field"><label htmlFor="categoryId">Category</label><select className="select" id="categoryId" name="categoryId" defaultValue={product?.categoryId ?? ""}><option value="">No category</option>{options.map((category) => <option key={category.id} value={category.id}>{category.archived ? `${category.name} (archived)` : category.name}</option>)}</select></div>
           {showCost ? (
             <div className="field"><label htmlFor="cost">Cost (excl. VAT)</label>
-              <input className="input" id="cost" inputMode="decimal" placeholder={costLoading ? "Loading…" : "e.g. 9.75"} value={costValue} readOnly={!cost?.canEdit} disabled={!costEditable && Boolean(cost?.canEdit)} onChange={(event) => setCostText(event.target.value)} />
+              <input className="input" id="cost" inputMode="decimal" placeholder={costLoading && cost?.online ? "Loading…" : "e.g. 9.75"} value={costValue} readOnly={!cost?.canEdit} disabled={!costEditable && Boolean(cost?.canEdit)} onChange={(event) => setCostText(event.target.value)} />
               {!cost?.online ? <small>Cost needs a connection</small> : !cost.canEdit ? <small>Only the owner changes costs.</small> : null}
             </div>
           ) : null}

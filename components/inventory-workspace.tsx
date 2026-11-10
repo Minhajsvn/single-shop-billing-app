@@ -124,7 +124,8 @@ export function InventoryWorkspace() {
   }
 
   function costView(productId?: string) {
-    return { canSee: canSeeCost, canEdit: canEditCost, online, initialFils: costs === null ? undefined : productId ? costs.get(productId) ?? null : null };
+    // A failed cost load (server unreachable) reads like being offline: "Cost needs a connection".
+    return { canSee: canSeeCost, canEdit: canEditCost, online: online && !productCosts.error, initialFils: costs === null ? undefined : productId ? costs.get(productId) ?? null : null };
   }
 
   async function archive(product: Product) {
@@ -268,7 +269,11 @@ export function InventoryWorkspace() {
         ) : status === "archived"
           ? <EmptyState icon={<Archive size={28} weight="duotone" />} title="No archived products" hint="Archived products are hidden from the till and listed here." />
           : products.length
-            ? <EmptyState icon={<Archive size={28} weight="duotone" />} title={`No products match "${query}"`} hint="Try a name, SKU or barcode." />
+            ? query.trim()
+              ? <EmptyState icon={<Archive size={28} weight="duotone" />} title={`No products match "${query}"`} hint="Try a name, SKU or barcode." />
+              : params.filter === "no-cost"
+                ? <EmptyState icon={<Archive size={28} weight="duotone" />} title="Every product here has a cost" hint="Profit now counts all of their sales." />
+                : <EmptyState icon={<Archive size={28} weight="duotone" />} title="No products in this category" hint="Choose another category or All categories." />
             : <EmptyState icon={<Archive size={28} weight="duotone" />} title="No products yet" hint={manage ? "Import a spreadsheet or add your first product." : "The shop owner adds the products."} action={canWrite ? <button className="button primary" onClick={() => setDialog({ kind: "new" })}>Add product</button> : undefined} />}
         <Pager {...paged} onPage={(next) => setParams({ page: String(next) })} />
       </section>
