@@ -19,8 +19,13 @@ test("canUsePage: a cashier is kept to the selling pages and the Data tab of Set
   assert.equal(canUsePage("cashier", "/salesreport"), false);
 });
 
-test("canUsePage: a manager has the cashier's pages; an owner (and the sample shop) has every page", () => {
-  assert.equal(canUsePage("manager", "/reports"), false);
+test("canUsePage: a manager has the cashier's pages plus Purchases and Reports (Stage 2D); an owner (and the sample shop) has every page", () => {
+  assert.equal(canUsePage("manager", "/reports"), true);
+  assert.equal(canUsePage("manager", "/purchases"), true);
+  assert.equal(canUsePage("manager", "/purchases/new"), true);
+  assert.equal(canUsePage("manager", "/settings", "billing"), false);
+  assert.equal(canUsePage("cashier", "/purchases"), false);
+  assert.equal(canUsePage("cashier", "/purchases/new"), false);
   for (const [path, tab] of [["/reports", null], ["/settings", "billing"], ["/settings", "business"], ["/settings", "data"], ["/sale", null], ["/inventory", null]]) {
     assert.equal(canUsePage("owner", path, tab), true, `${path} ${tab}`);
   }
@@ -41,8 +46,13 @@ test("navLinksFor: the cashier's exact links", () => {
 });
 
 test("navLinksFor: the owner keeps Reports and all of Settings", () => {
-  assert.deepEqual(navLinksFor("owner").map((link) => link.href), ["/overview", "/sale", "/sales", "/inventory", "/customers", "/register", "/reports", "/settings"]);
+  assert.deepEqual(navLinksFor("owner").map((link) => link.href), ["/overview", "/sale", "/sales", "/inventory", "/purchases", "/customers", "/register", "/reports", "/settings"]);
   assert.deepEqual(navLinksFor(null).map((link) => link.href), navLinksFor("owner").map((link) => link.href));
+});
+
+test("navLinksFor: a manager gets Purchases and Reports, and only the Data tab of Settings", () => {
+  assert.deepEqual(navLinksFor("manager").map((link) => link.href), ["/overview", "/sale", "/sales", "/inventory", "/purchases", "/customers", "/register", "/reports", "/settings?tab=data"]);
+  assert.equal(navLinksFor("manager").find((link) => link.href === "/purchases")?.label, "Purchases");
 });
 
 const line = { id: "l1", productId: "p1", name: "Coffee", sku: "COF", quantity: 1, unitGrossFils: 2850, netFils: 2714, vatFils: 136, grossFils: 2850 };

@@ -16,6 +16,14 @@ const SELLING_LINKS: NavLink[] = [
 
 /** Pages a cashier (or manager) may open: selling, today's sales, read-only stock, customers, the register. */
 const MEMBER_PAGES = ["/overview", "/sale", "/sales", "/inventory", "/customers", "/register"];
+/** Stage 2D: a manager also records deliveries and sees the reports (the server checks each call). */
+const MANAGER_PAGES = ["/purchases", "/reports"];
+const PURCHASES_LINK: NavLink = { href: "/purchases", label: "Purchases" };
+
+/** The selling links with Purchases after Inventory. */
+function withPurchases(links: NavLink[]): NavLink[] {
+  return links.flatMap((link) => (link.href === "/inventory" ? [link, PURCHASES_LINK] : [link]));
+}
 /** The one Settings tab a cashier uses: Sync now and the outbox. */
 export const MEMBER_SETTINGS_TAB = "data";
 
@@ -35,12 +43,14 @@ const under = (pathname: string, base: string) => pathname === base || pathname.
 export function canUsePage(role: Role, pathname: string, tab?: string | null): boolean {
   if (isOwnerView(role)) return true;
   if (under(pathname, "/settings")) return tab == null || tab === "" || tab === MEMBER_SETTINGS_TAB;
+  if (role === "manager" && MANAGER_PAGES.some((base) => under(pathname, base))) return true;
   return MEMBER_PAGES.some((base) => under(pathname, base));
 }
 
 /** The navigation for this role, in sidebar order (Settings last). */
 export function navLinksFor(role: Role): NavLink[] {
-  return isOwnerView(role)
-    ? [...SELLING_LINKS, { href: "/reports", label: "Reports" }, { href: "/settings", label: "Settings" }]
-    : [...SELLING_LINKS, { href: `/settings?tab=${MEMBER_SETTINGS_TAB}`, label: "Settings" }];
+  const memberSettings = { href: `/settings?tab=${MEMBER_SETTINGS_TAB}`, label: "Settings" };
+  if (isOwnerView(role)) return [...withPurchases(SELLING_LINKS), { href: "/reports", label: "Reports" }, { href: "/settings", label: "Settings" }];
+  if (role === "manager") return [...withPurchases(SELLING_LINKS), { href: "/reports", label: "Reports" }, memberSettings];
+  return [...SELLING_LINKS, memberSettings];
 }

@@ -13,6 +13,7 @@ import {
   Calendar03Icon,
   Cancel01Icon,
   CashierIcon,
+  DeliveryTruck01Icon,
   ChartHistogramIcon,
   CheckListIcon,
   CheckmarkCircle02Icon,
@@ -84,6 +85,7 @@ export const Barcode = make(BarCode01Icon);
 export const CalendarBlank = make(Calendar03Icon);
 export const CaretUp = make(ArrowUp01Icon);
 export const CaretDown = make(ArrowDown01Icon);
+export const Truck = make(DeliveryTruck01Icon);
 export const CashRegister = make(CashierIcon);
 export const ChartBar = make(ChartHistogramIcon);
 export const CheckCircle = make(CheckmarkCircle02Icon);
