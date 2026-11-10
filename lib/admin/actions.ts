@@ -24,6 +24,7 @@ const MESSAGES: Record<string, string> = {
   flag_already_seen: "This flag was already marked looked at.",
   plan_not_found: "Choose a plan.",
   no_grant: "This shop has no granted plan.",
+  not_a_founder: "This shop is not a founding member.",
   billing_subscription_live: "This shop pays through Razorpay. Cancel that subscription first.",
   role_not_allowed: "Choose cashier or manager.",
   already_member: "This person is already a member of this shop.",
@@ -139,6 +140,11 @@ export function parseGrantPlan(body: unknown, now: Date): { ok: true; planId: Pl
 
 /** `{ note }` for revoking a granted plan. */
 export function parseRevokeGrant(body: unknown): { ok: true; note: string } | Fail {
+  return parseEndExtraTill(body);
+}
+
+/** `{ note }` for taking back a Founding 50 seat. */
+export function parseRevokeFounder(body: unknown): { ok: true; note: string } | Fail {
   return parseEndExtraTill(body);
 }
 

@@ -21,6 +21,8 @@ const entitlementsSchema = z.object({
   /** Stage 1I: a plan provided by platform staff; defaults so older caches still parse. */
   grantPlanId: z.enum(PLAN_IDS).nullable().default(null),
   grantEndsAt: z.string().nullable().default(null),
+  /** Founding 50: Pro features and limits at the Starter price until endsAt; defaults so older caches still parse. */
+  founder: z.object({ seatNo: z.number().int().positive(), endsAt: z.string() }).nullable().default(null),
   features: z.array(z.enum(FEATURE_KEYS)),
   limits: z.object({ branches: limit, tills: limit, members: limit, products: limit }),
 });
@@ -29,7 +31,7 @@ export type Entitlements = z.infer<typeof entitlementsSchema>;
 
 export const READ_ONLY_ENTITLEMENTS: Entitlements = {
   planId: null, status: null, access: "read_only", trialEndsAt: null, graceEndsAt: null,
-  accessEndsAt: null, cancelAt: null, hasPaymentMethod: false, billingInterval: null, currentPeriodEnd: null, grantPlanId: null, grantEndsAt: null, features: [],
+  accessEndsAt: null, cancelAt: null, hasPaymentMethod: false, billingInterval: null, currentPeriodEnd: null, grantPlanId: null, grantEndsAt: null, founder: null, features: [],
   limits: { branches: 0, tills: 0, members: 0, products: 0 },
 };
 

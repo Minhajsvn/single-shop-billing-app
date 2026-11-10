@@ -85,6 +85,31 @@ export function grantEndingSoon(endsAt: string | null, now: Date): boolean {
   return Number.isFinite(end) && end - now.getTime() <= GRANT_SOON_MS;
 }
 
+/** A shop's Founding 50 record as the admin console shows it. */
+export type AdminFounder = {
+  seatNo: number; claimedAt: string; endsAt: string; endedAt: string | null;
+  endReason: "canceled" | "revoked" | "upgraded" | null; revokeNote: string | null;
+};
+
+const FOUNDER_ENDED: Record<"canceled" | "upgraded", string> = { canceled: "cancelled", upgraded: "upgraded" };
+
+/** "No", "#3 · until …", "#3 · ended … (cancelled)", "#3 · revoked …: note" and so on. */
+export function founderText(f: AdminFounder | null, now: Date): string {
+  if (!f) return "No";
+  if (f.endReason === "revoked") return `#${f.seatNo} · revoked ${adminDateTime(f.endedAt)}${f.revokeNote ? `: ${f.revokeNote}` : ""}`;
+  if (f.endReason) return `#${f.seatNo} · ended ${adminDateTime(f.endedAt)} (${FOUNDER_ENDED[f.endReason]})`;
+  const end = new Date(f.endsAt).getTime();
+  if (Number.isFinite(end) && end <= now.getTime()) return `#${f.seatNo} · ended ${adminDateTime(f.endsAt)} (12 months up)`;
+  return `#${f.seatNo} · until ${adminDateTime(f.endsAt)}`;
+}
+
+/** The badge text while the shop is an active founder (not ended, 12 months not up); null otherwise. */
+export function founderBadge(f: AdminFounder | null, now: Date): string | null {
+  if (!f || f.endReason) return null;
+  const end = new Date(f.endsAt).getTime();
+  return Number.isFinite(end) && end > now.getTime() ? `Founding member #${f.seatNo}` : null;
+}
+
 /** Owner first, then oldest first. Returns a new array. */
 export function sortMembers<T extends { isOwner: boolean; createdAt: string }>(members: T[]): T[] {
   return [...members].sort((a, b) =>

@@ -4,7 +4,7 @@ import { CreditCard } from "@/components/icons";
 import { useEffect, useRef, useState } from "react";
 import { fixesInPortal } from "@/components/billing/lifecycle-banner";
 import { useEntitlement } from "@/components/billing/use-entitlement";
-import { billingSummary, dubaiDate, isGranted, priceLine } from "@/lib/billing/lifecycle-view";
+import { billingSummary, dubaiDate, founderLine, isGranted, priceLine } from "@/lib/billing/lifecycle-view";
 import { loadRazorpayCheckout, openRazorpayCheckout } from "@/lib/billing/razorpay-checkout";
 import { refreshEntitlements, refreshSnapshot, useShopContext } from "@/lib/demo-store";
 import { requestConfirm } from "@/lib/ui/confirm-store";
@@ -162,6 +162,7 @@ export function BillingPanel({ overTillLimit, onShowTills }: { overTillLimit: bo
   const unavailable = !hosted || kind === "none";
   const hasCard = fixesInPortal(e);
   const granted = isGranted(e, now);
+  const founder = founderLine(e, now);
   const canCancel = hasCard && !e.cancelAt && (e.status === "active" || e.status === "past_due" || (e.status === "trialing" && e.hasPaymentMethod));
 
   return (
@@ -174,6 +175,7 @@ export function BillingPanel({ overTillLimit, onShowTills }: { overTillLimit: bo
         {unavailable ? <p>{NOT_SET_UP}</p> : (
           <>
             <p style={{ margin: 0, fontWeight: 600 }}>{billingSummary(e, now)}</p>
+            {founder ? <p style={{ margin: 0 }}>{founder}</p> : null}
             {granted ? null : (<>
             <div role="group" aria-label="Billing period" style={{ display: "flex", gap: 8 }}>
               <button type="button" className={`button ${interval === "month" ? "primary" : ""}`} aria-pressed={interval === "month"} onClick={() => setInterval("month")}>Monthly</button>

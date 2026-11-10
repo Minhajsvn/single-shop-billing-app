@@ -159,6 +159,7 @@
 /* Pricing: plan names select one live figure */
 .lp-pricing { display: grid; gap: 40px; }
 .plans { display: grid; grid-template-columns: 6fr 6fr; gap: 48px; align-items: start; }
+.plan-founding { grid-column: 1 / -1; margin: 0; padding: 14px 18px; border-radius: var(--lp-radius); background: var(--lp-tone); border-left: 3px solid var(--accent-text); font-size: 17px; line-height: 1.5; font-weight: 600; }
 .plan-names { display: grid; justify-items: start; }
 .plan-name {
   position: relative; background: none; border: 0; padding: 0 0 0 .55em; font-family: var(--ff-display); font-weight: 600;

@@ -6,6 +6,7 @@ import { LiveTill } from "@/components/public/landing/live-till";
 import { PlanPicker } from "@/components/public/landing/plan-picker";
 import { SyncRows } from "@/components/public/landing/sync-rows";
 import { TourButton } from "@/components/public/landing/tour-button";
+import { foundingOfferOpen } from "@/lib/billing/founding-offer";
 import { PLANS, TRIAL_DAYS } from "@/lib/billing/plans";
 import { SITE_URL } from "@/lib/site-info";
 import "./landing.css";
@@ -72,7 +73,11 @@ const jsonLd = {
   ],
 };
 
-export default function HomePage() {
+// The Founding 50 text follows founding_offer_open(); the page is rebuilt at most hourly (FOUNDING_OFFER_REVALIDATE).
+export const revalidate = 3600;
+
+export default async function HomePage() {
+  const foundingOpen = await foundingOfferOpen();
   return (
     <div className="landing">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, "\u003c") }} />
@@ -182,7 +187,7 @@ export default function HomePage() {
 
       <section className="lp-section lp-pricing" aria-labelledby="pricing-title" data-reveal>
         <h2 id="pricing-title" className="lp-h2">One simple price</h2>
-        <PlanPicker />
+        <PlanPicker foundingOpen={foundingOpen} />
       </section>
 
       <section className="lp-section lp-faq" aria-labelledby="faq-title">

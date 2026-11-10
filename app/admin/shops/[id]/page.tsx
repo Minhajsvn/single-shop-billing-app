@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { BillingCheck } from "@/components/admin/billing-check";
 import { CopyText } from "@/components/admin/copy-text";
+import { FounderPanel } from "@/components/admin/founder-panel";
 import { GrantPanel } from "@/components/admin/grant-panel";
 import { MembersPanel } from "@/components/admin/members-panel";
 import { NeedsLookBadge } from "@/components/admin/needs-look-badge";
@@ -10,7 +11,7 @@ import { StatusPill } from "@/components/admin/status-pill";
 import { flagFieldLabel, flagValueText } from "@/lib/billing/billing-check";
 import { requireStaff } from "@/lib/admin/require-staff";
 import { getShop } from "@/lib/admin/shops";
-import { adminDateTime, tillsLine } from "@/lib/admin/shop-view";
+import { adminDateTime, founderText, tillsLine } from "@/lib/admin/shop-view";
 import { PLANS, type PlanId } from "@/lib/billing/plans";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -48,6 +49,7 @@ const ACTION: Record<string, string> = {
   "admin.flag_seen": "Marked billing flag looked at",
   "admin.grant_plan": "Granted a plan",
   "admin.revoke_grant": "Revoked the granted plan",
+  "admin.revoke_founding_seat": "Revoked the founding member seat",
   "admin.add_member": "Added a user",
   "admin.set_member_role": "Changed a user's role",
   "admin.set_member_status": "Enabled or disabled a user",
@@ -99,6 +101,7 @@ export default async function AdminShopPage({ params }: { params: Promise<{ id: 
               ["Plan", plan],
               ["Status", shop.statusText],
               ["Granted plan", shop.grant ? `${grantPlan} · ${shop.grant.endsAt ? `until ${adminDateTime(shop.grant.endsAt)}` : "until revoked"}` : "None"],
+              ["Founding member", founderText(shop.founder, new Date())],
               ["Trial end", adminDateTime(s?.trialEndsAt ?? null)],
               ["Grace end", adminDateTime(s?.graceEndsAt ?? null)],
               ["Current period end", adminDateTime(s?.currentPeriodEnd ?? null)],
@@ -197,6 +200,7 @@ export default async function AdminShopPage({ params }: { params: Promise<{ id: 
             />
           </Section>
           <GrantPanel shopId={shop.id} grant={shop.grant} paysThroughProvider={paysThroughProvider} />
+          <FounderPanel shopId={shop.id} founder={shop.founder} />
           <MembersPanel shopId={shop.id} members={shop.members} membersAllowed={shop.membersAllowed} />
         </div>
       </div>

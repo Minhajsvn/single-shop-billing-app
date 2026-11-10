@@ -9,6 +9,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 import { BrandMark } from "@/components/brand-mark";
+import { FOUNDING_OFFER_TEXT } from "@/lib/billing/founding-offer";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -19,6 +20,8 @@ export default function SignupPage() {
   const [busy, setBusy] = useState(false);
   // The address the link went to; kept in memory, never in the URL.
   const [sentTo, setSentTo] = useState<string | null>(null);
+  // Founding 50: shown only once founding_offer_open() answers true; hidden on any error.
+  const [foundingOpen, setFoundingOpen] = useState(false);
 
   useEffect(() => {
     if (!isSupabaseConfigured()) return;
@@ -26,6 +29,11 @@ export default function SignupPage() {
       if (data.session) router.replace("/overview");
     });
   }, [router]);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured()) return;
+    void createClient().rpc("founding_offer_open").then(({ data, error }) => setFoundingOpen(!error && data === true), () => setFoundingOpen(false));
+  }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -80,6 +88,7 @@ export default function SignupPage() {
             <div className="eyebrow">New shop</div>
             <h1 id="signup-title">Start your free trial</h1>
             <p className="page-copy">14 days of Pro. No card needed.</p>
+            {foundingOpen ? <p className="notice" role="status">{FOUNDING_OFFER_TEXT}</p> : null}
             <form className="auth-form" onSubmit={submit} noValidate>
               <label className="field-label" htmlFor="name">Your name</label>
               <input className="input" id="name" value={name} onChange={(event) => setName(event.target.value)} required autoComplete="name" />

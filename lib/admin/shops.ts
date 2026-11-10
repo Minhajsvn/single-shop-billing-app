@@ -7,6 +7,7 @@ import type { PlanId } from "@/lib/billing/plans";
 import { parseEntitlements, READ_ONLY_ENTITLEMENTS, type Entitlements } from "@/lib/billing/entitlements";
 import {
   emailNeedle, grantEndingSoon, isShopId, matchingOwnerIds, overrideActive, pageWindow, searchFilter, searchTerm, shopStatusText, sortMembers,
+  type AdminFounder,
 } from "@/lib/admin/shop-view";
 
 export const SHOPS_PAGE_SIZE = 50;
@@ -60,6 +61,8 @@ export type AdminShop = AdminShopRow & {
   billingCheck: { lastCheckedAt: string | null; flags: AdminBillingFlag[] };
   /** The plan grant in force now, if any. */
   grant: AdminGrant | null;
+  /** The shop's Founding 50 record in any state; null when it never had a seat. */
+  founder: AdminFounder | null;
   /** Owner first, then oldest first. */
   members: AdminMember[];
   /** The shop's member limit; null = unlimited. */
@@ -150,7 +153,7 @@ async function needsLookCount(admin: AdminClient): Promise<number> {
 const OPEN_FLAGS = "admin_billing_flags(id)";
 const OPEN_FLAGS_INNER = "admin_billing_flags!inner(id)";
 
-export type ShopCounts = { shops: number; needsLook: number; trial: number; granted: number; paying: number };
+export type ShopCounts = { shops: number; needsLook: number; trial: number; granted: number; paying: number; founders: { taken: number; cap: number } };
 
 export type ShopList = { rows: AdminShopRow[]; total: number; page: number; pages: number; needsLookCount: number; counts: ShopCounts };
 
@@ -169,16 +172,21 @@ async function businessIds(read: (from: number, to: number) => PromiseLike<{ dat
 /** Platform-wide totals for the list header. A fixed number of reads, whatever the number of shops. */
 async function shopCounts(admin: AdminClient, needsLook: number): Promise<ShopCounts> {
   const nowIso = new Date().toISOString();
-  const [shops, paying, grantedIds, trialingIds] = await Promise.all([
+  const [shops, paying, grantedIds, trialingIds, foundersTaken, offer] = await Promise.all([
     admin.from("businesses").select("id", { count: "exact", head: true }),
     admin.from("subscriptions").select("business_id", { count: "exact", head: true })
       .not("billing_subscription_id", "is", null).in("status", ["active", "past_due"]),
     businessIds((from, to) => admin.from("plan_grants").select("business_id").is("revoked_at", null).lte("starts_at", nowIso)
       .or(`ends_at.is.null,ends_at.gt.${nowIso}`).order("id").range(from, to)),
     businessIds((from, to) => admin.from("subscriptions").select("business_id").eq("status", "trialing").order("business_id").range(from, to)),
+    // Seats taken: every founder record that was not revoked.
+    admin.from("founding_members").select("id", { count: "exact", head: true }).or("end_reason.is.null,end_reason.neq.revoked"),
+    admin.from("founding_offer").select("seat_cap").maybeSingle(),
   ]);
   if (shops.error) throw shops.error;
   if (paying.error) throw paying.error;
+  if (foundersTaken.error) throw foundersTaken.error;
+  if (offer.error) throw offer.error;
   const granted = new Set(grantedIds);
   return {
     shops: shops.count ?? 0,
@@ -186,6 +194,7 @@ async function shopCounts(admin: AdminClient, needsLook: number): Promise<ShopCo
     trial: trialingIds.filter((id) => !granted.has(id)).length,
     granted: granted.size,
     paying: paying.count ?? 0,
+    founders: { taken: foundersTaken.count ?? 0, cap: (offer.data?.seat_cap as number | undefined) ?? 0 },
   };
 }
 
@@ -247,7 +256,7 @@ export async function getShop(id: string): Promise<AdminShop | null> {
   if (!business) return null;
 
   const nowIso = now.toISOString();
-  const [sub, entitlements, devices, overrides, events, flags, lastCheck, grants, memberRows] = await Promise.all([
+  const [sub, entitlements, devices, overrides, events, flags, lastCheck, grants, memberRows, founderRow] = await Promise.all([
     admin.from("subscriptions").select("*").eq("business_id", id).maybeSingle(),
     entitlementsFor(admin, id),
     admin.from("devices").select("till_number, name, status, branch:branches(name)").eq("business_id", id).order("till_number"),
@@ -260,8 +269,10 @@ export async function getShop(id: string): Promise<AdminShop | null> {
     admin.from("plan_grants").select("plan_id, ends_at, granted_by, note, created_at").eq("business_id", id).is("revoked_at", null)
       .lte("starts_at", nowIso).or(`ends_at.is.null,ends_at.gt.${nowIso}`).order("created_at", { ascending: false }).limit(1),
     admin.from("business_members").select("id, user_id, role, status, created_at").eq("business_id", id),
+    admin.from("founding_members").select("seat_no, claimed_at, ends_at, ended_at, end_reason, revoke_note").eq("business_id", id).maybeSingle(),
   ]);
-  for (const result of [sub, devices, overrides, events, flags, lastCheck, grants, memberRows]) if (result.error) throw result.error;
+  for (const result of [sub, devices, overrides, events, flags, lastCheck, grants, memberRows, founderRow]) if (result.error) throw result.error;
+  const f = founderRow.data;
 
   const users = await usersById(admin, [
     business.owner_id,
@@ -317,6 +328,10 @@ export async function getShop(id: string): Promise<AdminShop | null> {
     grant: g ? {
       planId: g.plan_id as PlanId, endsAt: g.ends_at as string | null, grantedByEmail: users.get(g.granted_by as string)?.email ?? "",
       note: (g.note as string | null) ?? "", createdAt: g.created_at as string, endingSoon: grantEndingSoon(g.ends_at as string | null, now),
+    } : null,
+    founder: f ? {
+      seatNo: f.seat_no as number, claimedAt: f.claimed_at as string, endsAt: f.ends_at as string, endedAt: f.ended_at as string | null,
+      endReason: f.end_reason as AdminFounder["endReason"], revokeNote: f.revoke_note as string | null,
     } : null,
     members: sortMembers((memberRows.data ?? []).map((m) => ({
       id: m.id as string, userId: m.user_id as string, email: users.get(m.user_id as string)?.email ?? "",

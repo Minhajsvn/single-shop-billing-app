@@ -122,6 +122,17 @@ export function billingSummary(e: Entitlements, now: Date): string {
   return renews ? `${plan} · renews ${renews}` : plan;
 }
 
+const FOUNDER_WARNING_DAYS = 30;
+
+/** The Billing tab's Founding 50 line while the shop is an active founder with full access (no grant); else null. */
+export function founderLine(e: Entitlements, now: Date): string | null {
+  if (!e.founder || e.access !== "full" || isGranted(e, now)) return null;
+  const end = new Date(e.founder.endsAt).getTime();
+  if (!Number.isFinite(end) || end <= now.getTime()) return null;
+  const line = `Founding member #${e.founder.seatNo}: Pro features at the Starter price until ${dubaiDate(e.founder.endsAt, true)}.`;
+  return dubaiDaysLeft(e.founder.endsAt, now) <= FOUNDER_WARNING_DAYS ? `${line} After that, Starter limits apply.` : line;
+}
+
 /** The Starter price line, charged as is (no VAT line). */
 export function priceLine(interval: "month" | "year"): string {
   const starter = PLANS.starter;

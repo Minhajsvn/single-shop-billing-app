@@ -28,12 +28,13 @@ export default async function AdminShopsPage({ searchParams }: { searchParams: P
   const needsLook = one(params.look) === "1";
   const { rows, total, page, pages, needsLookCount, counts } = await listShops({ query, page: Number.parseInt(one(params.page), 10), needsLook });
 
-  const metrics: { label: string; value: number; note: string }[] = [
+  const metrics: { label: string; value: number | string; note: string }[] = [
     { label: "Shops", value: counts.shops, note: "All shops" },
     { label: "Needs a look", value: counts.needsLook, note: counts.needsLook === 1 ? "Shop with an open billing flag" : "Shops with an open billing flag" },
     { label: "On trial", value: counts.trial, note: "Trying Pro" },
     { label: "Granted", value: counts.granted, note: "Plan given by billo" },
     { label: "Paying", value: counts.paying, note: "Through Razorpay" },
+    { label: "Founding 50", value: `${counts.founders.taken} of ${counts.founders.cap}`, note: "Seats taken" },
   ];
 
   return (

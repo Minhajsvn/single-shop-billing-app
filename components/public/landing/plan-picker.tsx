@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { FOUNDING_OFFER_TEXT } from "@/lib/billing/founding-offer";
 import { PLANS, TRIAL_DAYS } from "@/lib/billing/plans";
 
 const aed = (minor: number) => (minor / 100).toLocaleString("en-US", { maximumFractionDigits: 2 });
@@ -33,12 +34,14 @@ const OPTIONS = [
   },
 ] as const;
 
-export function PlanPicker() {
+/** `foundingOpen`: a Founding 50 seat is free, so the offer text shows above the plans. */
+export function PlanPicker({ foundingOpen = false }: { foundingOpen?: boolean }) {
   const [selected, setSelected] = useState<(typeof OPTIONS)[number]["id"]>("yearly");
   const plan = OPTIONS.find((option) => option.id === selected) ?? OPTIONS[1];
 
   return (
     <div className="plans">
+      {foundingOpen ? <p className="plan-founding">{FOUNDING_OFFER_TEXT}</p> : null}
       <div className="plan-names" role="radiogroup" aria-label="Starter plan">
         {OPTIONS.map((option) => (
           <button
