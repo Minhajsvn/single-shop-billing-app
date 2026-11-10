@@ -34,3 +34,12 @@ Task 9: Ruling: offline was not driven in the browser — PurchasingGate uses na
 - `npm test` 471/471; `npm run test:sql` 7 PASS (incl. purchasing_test); lint clean; typecheck clean apart from the known fresh-checkout `PageProps` errors; `npm run build` passes.
 - Browser (worktree dev server on :3103, bundle checked to call only 127.0.0.1:54321 before sign-in; local Pro shop): owner added supplier "Al Noor Trading" with TRN; on Record delivery a SKU scanned twice became one line of quantity 2 with the cost prefilled (25.00); quantity 10 at 27.00 previewed "Cost 25.00 → 25.83", net 270.00, VAT 13.50, total 283.50; saved, server cost 25.83 matched; the same invoice ("inv-77") was refused with "This supplier invoice is already recorded on 2026-11-10."; Inventory showed stock 24, cost 25.83, margin 15.3% and "Last delivered: 10 Nov · Al Noor Trading · AED 27.00 excl. VAT"; voiding with a reason marked the delivery voided, DB shows stock back to 14 with receipt +10 and correction_out −10, cost left at 25.83. Manager (PIN): Purchases and Reports in the nav, list loads. Cashier (PIN): no Purchases link, /purchases redirects to Overview. Starter (temporarily): the Pro card.
 Task 9: complete (commits 8cd9e5f..2b8b9ae, tests: npm test 471/471, test:sql 7 PASS, lint, build)
+
+## Final review
+
+Final review: self-review (no subagent) — the fresh-reviewer Agent call was denied by the auto-mode classifier; per the skill it was not retried further.
+Final: minor (deferred): a sale syncing at the same moment as a delivery locks products in line order while the delivery locks in id order; Postgres would abort one on a deadlock (the sale retries from the outbox; the delivery shows "Something went wrong. Try again."). Rare; sort the sale's product locks if it is ever seen.
+Final: minor (deferred): if a save succeeded but the response was lost and the user then edits lines and saves again, the page shows the delivery that was first saved (same id), not the edits; void and record again to change it.
+Final: minor (deferred): the purchases CSV keeps voided deliveries (Voided = "Yes"); an accountant summing the column must skip those rows.
+Final: minor (deferred): the VAT field keeps a typed override when lines change afterwards; it does not recalculate until cleared.
+Final: minor (deferred): an invoice date in the future is accepted.
