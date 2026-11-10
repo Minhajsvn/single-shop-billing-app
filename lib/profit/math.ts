@@ -13,6 +13,7 @@ export type PeriodKey = "today" | "yesterday" | "this-week" | "this-month" | "la
  * (Stage 1D stores the VAT category only), so the category does not change the result yet; it is taken so callers
  * need not change when per-category VAT ships.
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- kept for per-category VAT (see above)
 export function priceExVatFils(priceFils: number, _taxCategory: TaxCategory): number {
   return calculateVatInclusive(priceFils).netFils;
 }
