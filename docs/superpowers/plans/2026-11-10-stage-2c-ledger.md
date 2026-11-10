@@ -56,3 +56,4 @@ Task 11: Ruling: CSV import with category/cost was not driven in the browser (th
 - Offline (local API gateway stopped): created category Premium, moved the product into it, sold one; after reconnecting and Sync now, category → product → sale were accepted in that order and the sale line was stamped with cost 2500.
 - Found and fixed a 2B bug (migration 056): closing a register that held split cash was refused; after 056 the stuck close synced.
 - Unrelated: a React "uncontrolled input to be controlled" warning appeared once during the session; it does not reproduce from the 2C product form or categories panel.
+Task 11: complete (commits 01db108..35c6a95, tests: npm test 454/454, npm run test:sql 6 PASS, lint, build)
