@@ -54,6 +54,23 @@
   the register close showing only cash as expected; on a Starter shop, Split shows the Pro prompt and Bank transfer works.
 - [ ] Tell accountants about the three new CSV columns (Cash AED, Card AED, Transfer AED) after the existing ones.
 
+## Stage 2C: categories and margin (and a 2B drawer fix)
+
+- [ ] Before applying 054, confirm no deployed code selects `*` from `products`, `sale_items` or `credit_note_items` as a
+  member: 054 hides the cost columns with column privileges, so such a query would fail.
+- [ ] Apply migrations in order: `202611100053_categories`, `202611100054_product_cost`, `202611100055_sync_cost_stamp`,
+  `202611100056_split_cash_drawer`. They are safe before the app deploy: the current app ignores the new columns and
+  calls the same sync function names; cost stamping starts once 055 is applied.
+- [ ] 056 fixes Stage 2B: the cash part of a split sale or refund now counts in the drawer (closing a register with
+  split cash was refused with `register_expected_cash_mismatch`). Apply it before or with the 2B app deploy. It also
+  backfills open registers; closed registers keep the figures they closed with.
+- [ ] Deploy the 2C app after 056.
+- [ ] Smoke test on a Pro shop: add categories, set a cost (owner), sell, and check the Profit tab; a manager sees costs
+  read-only; a PIN cashier sees no cost and no Profit tab; the till's category chips work offline; on Starter the
+  Profit tab shows the Pro card and costs are hidden.
+- [ ] Note for support: sales made before 2C have no cost and show in the "no cost" banner; profit counts synced sales
+  only; a product's category is its current one, so moving a product moves its past sales too.
+
 ## Rollback
 
 1. Keep the previous hosting deployment available.
