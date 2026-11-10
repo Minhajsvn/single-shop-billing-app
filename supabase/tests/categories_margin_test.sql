@@ -137,6 +137,114 @@ do $$ begin
 end $$;
 reset role;
 
--- @@COST@@
+-- 2. Cost hidden from cashiers (Task 2). Shop A is on its Pro trial; shop B is moved to Starter.
+update public.subscriptions set status = 'active', plan_id = 'starter', trial_ends_at = now() - interval '1 day'
+where business_id = 'b0000000-0000-4000-8000-0000000004b0';
+do $$ begin
+  assert coalesce(public.entitlements_internal('b0000000-0000-4000-8000-0000000004a0') -> 'features' ? 'categories_margin', false), '2-pre A has categories_margin';
+  assert not coalesce(public.entitlements_internal('b0000000-0000-4000-8000-0000000004b0') -> 'features' ? 'categories_margin', false), '2-pre B lacks it';
+end $$;
+
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000004a2","role":"authenticated"}', true);
+do $$ begin
+  begin
+    perform cost_fils from public.products limit 1;
+    assert false, '2a cashier cannot read products.cost_fils';
+  exception when insufficient_privilege then null; end;
+  begin
+    perform unit_cost_fils from public.sale_items limit 1;
+    assert false, '2b cashier cannot read sale_items.unit_cost_fils';
+  exception when insufficient_privilege then null; end;
+  begin
+    perform unit_cost_fils from public.credit_note_items limit 1;
+    assert false, '2c cashier cannot read credit_note_items.unit_cost_fils';
+  exception when insufficient_privilege then null; end;
+  -- The snapshot's own column lists still work.
+  perform id, name, sku, barcode, price_fils, stock_quantity, low_stock_threshold, status, tax_category, category_id from public.products;
+  perform s.id, i.id, i.product_id, i.description, i.sku, i.quantity, i.unit_gross_fils, i.list_unit_gross_fils, i.net_fils, i.vat_fils, i.gross_fils
+  from public.sales s join public.sale_items i on i.sale_id = s.id;
+  perform c.id, i.id, i.sale_item_id, i.product_id, i.description, i.sku, i.quantity, i.unit_gross_fils, i.net_fils, i.vat_fils, i.gross_fils
+  from public.credit_notes c join public.credit_note_items i on i.credit_note_id = c.id;
+  begin
+    perform public.product_costs('b0000000-0000-4000-8000-0000000004a0');
+    assert false, '2d cashier cannot list costs';
+  exception when insufficient_privilege then null; end;
+  begin
+    perform public.set_product_cost('b0000000-0000-4000-8000-0000000004a0', 'f0000000-0000-4000-8000-0000000004a1', 100);
+    assert false, '2e cashier cannot set costs';
+  exception when insufficient_privilege then null; end;
+end $$;
+
+-- The owner cannot write a cost straight into the table either; only set_product_cost does.
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000004a1","role":"authenticated"}', true);
+do $$ begin
+  begin
+    update public.products set cost_fils = 1 where id = 'f0000000-0000-4000-8000-0000000004a1';
+    assert false, '2f no direct cost write';
+  exception when insufficient_privilege then null; end;
+end $$;
+
+select public.set_product_cost('b0000000-0000-4000-8000-0000000004a0', 'f0000000-0000-4000-8000-0000000004a1', 1250);
+do $$ begin
+  assert (select cost_fils from public.product_costs('b0000000-0000-4000-8000-0000000004a0') where product_id = 'f0000000-0000-4000-8000-0000000004a1') = 1250, '2g owner sets and reads cost';
+  assert (select count(*) from public.product_costs('b0000000-0000-4000-8000-0000000004a0')) = 1, '2h only costed products listed';
+  begin
+    perform public.set_product_cost('b0000000-0000-4000-8000-0000000004a0', 'f0000000-0000-4000-8000-0000000004a1', -1);
+    assert false, '2i negative cost refused';
+  exception when raise_exception then assert sqlerrm = 'invalid_cost', '2i code: ' || sqlerrm; end;
+  begin
+    perform public.set_product_cost('b0000000-0000-4000-8000-0000000004a0', 'f0000000-0000-4000-8000-0000000004a1', 100000001);
+    assert false, '2j cost over AED 1,000,000 refused';
+  exception when raise_exception then assert sqlerrm = 'invalid_cost', '2j code: ' || sqlerrm; end;
+  begin
+    perform public.set_product_cost('b0000000-0000-4000-8000-0000000004a0', gen_random_uuid(), 100);
+    assert false, '2k unknown product refused';
+  exception when raise_exception then assert sqlerrm = 'product_not_found', '2k code: ' || sqlerrm; end;
+end $$;
+reset role;
+do $$ begin
+  assert exists (select 1 from public.audit_events where action = 'product.cost' and entity_id = 'f0000000-0000-4000-8000-0000000004a1'
+    and summary = '{"before":null,"after":1250}'::jsonb), '2l audit event with before and after';
+end $$;
+
+-- Null clears; set it back for later tests.
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000004a1","role":"authenticated"}', true);
+select public.set_product_cost('b0000000-0000-4000-8000-0000000004a0', 'f0000000-0000-4000-8000-0000000004a1', null);
+do $$ begin
+  assert (select count(*) from public.product_costs('b0000000-0000-4000-8000-0000000004a0')) = 0, '2m null clears cost';
+end $$;
+select public.set_product_cost('b0000000-0000-4000-8000-0000000004a0', 'f0000000-0000-4000-8000-0000000004a1', 1000);
+
+-- Manager reads, cannot set.
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000004a3","role":"authenticated"}', true);
+do $$ begin
+  assert (select cost_fils from public.product_costs('b0000000-0000-4000-8000-0000000004a0') where product_id = 'f0000000-0000-4000-8000-0000000004a1') = 1000, '2n manager reads costs';
+  begin
+    perform public.set_product_cost('b0000000-0000-4000-8000-0000000004a0', 'f0000000-0000-4000-8000-0000000004a1', 100);
+    assert false, '2o manager cannot set';
+  exception when insufficient_privilege then null; end;
+end $$;
+
+-- Owner B: another shop's product, and Starter.
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000004b1","role":"authenticated"}', true);
+do $$ begin
+  begin
+    perform public.product_costs('b0000000-0000-4000-8000-0000000004b0');
+    assert false, '2p starter cannot list costs';
+  exception when raise_exception then assert sqlerrm = 'feature_not_in_plan', '2p code: ' || sqlerrm; end;
+  begin
+    perform public.set_product_cost('b0000000-0000-4000-8000-0000000004b0', 'f0000000-0000-4000-8000-0000000004a1', 100);
+    assert false, '2q starter cannot set';
+  exception when raise_exception then assert sqlerrm = 'feature_not_in_plan', '2q code: ' || sqlerrm; end;
+  begin
+    perform public.product_costs('b0000000-0000-4000-8000-0000000004a0');
+    assert false, '2r owner of another shop refused';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+-- @@STAMP@@
 
 rollback;
