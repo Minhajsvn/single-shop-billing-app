@@ -1,6 +1,6 @@
 "use client";
 
-import { CreditCard, IdentificationCard, MagnifyingGlass, Minus, Money, Plus, ShoppingCart, Tag, Trash, User, X } from "@/components/icons";
+import { CreditCard, IdentificationCard, Receipt, MagnifyingGlass, Minus, Money, Plus, ShoppingCart, Tag, Trash, User, X } from "@/components/icons";
 import Link from "next/link";
 import { FormEvent, MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { RegisterStop } from "@/components/billing/register-stop";
@@ -8,6 +8,9 @@ import { useRegisterDecision } from "@/components/billing/use-entitlement";
 import { HeldCarts, parkCart } from "@/components/pos/held-carts";
 import { LineDiscountDialog } from "@/components/pos/line-discount-dialog";
 import { PaymentDialog } from "@/components/pos/payment-dialog";
+import { SplitDialog } from "@/components/pos/split-dialog";
+import { useEntitlement } from "@/components/billing/use-entitlement";
+import type { Payment } from "@/lib/payments/split";
 import { ReceiptPanel } from "@/components/pos/receipt-panel";
 import { useReceiptShop } from "@/components/receipt-document";
 import type { HeldCart } from "@/lib/checkout/held-carts";
@@ -34,7 +37,9 @@ export function PosWorkspace() {
   const [customerOpen, setCustomerOpen] = useState(false);
   const [customerId, setCustomerId] = useState<string>();
   const [error, setError] = useState("");
-  const [payment, setPayment] = useState<{ method: "cash" | "card"; error?: string } | null>(null);
+  const [payment, setPayment] = useState<{ method: "cash" | "card" | "transfer" | "split"; error?: string } | null>(null);
+  // Stage 2B: splitting one sale across methods is Pro.
+  const splitAllowed = useEntitlement().hasFeature("split_payment");
   const [unknownCode, setUnknownCode] = useState<string | null>(null);
   const [discountFor, setDiscountFor] = useState<string | null>(null);
   // Phones show the cart as a bottom sheet opened from the cart bar.
@@ -177,7 +182,8 @@ export function PosWorkspace() {
     setCustomOpen(false);
   }
 
-  function pay(method: "cash" | "card") {
+  function pay(method: "cash" | "card" | "transfer" | "split") {
+    if (method === "split" && !splitAllowed) return setError("Split payment is part of the Pro plan. See Settings, Billing.");
     // canSell is from the last render; an idle till may have crossed Dubai midnight since.
     const blocked = saleBlockReason(store.register, new Date());
     if (blocked) return setError(blocked);
@@ -191,13 +197,18 @@ export function PosWorkspace() {
     focusSearch();
   }
 
-  async function completePayment(tenderedFils: number | null) {
+  async function completePayment(tenderedFils: number | null, paid?: Payment[] | string) {
     if (!payment) return;
     // Stage 2A: a discount above the shop's limit needs a manager before the sale completes.
     const approver = await askApproval({ kind: "discount", discountFils: totals.discountFils, listTotalFils: totals.grossFils + totals.discountFils });
     if (approver === null) return;
     const lines = cart.map(({ productId, name, sku, quantity, unitGrossFils, listUnitGrossFils }) => ({ productId, name, sku, quantity, unitGrossFils, listUnitGrossFils }));
-    const result = completeSale(lines, payment.method, customerId, approver);
+    const pay = Array.isArray(paid)
+      ? paid
+      : payment.method === "transfer"
+        ? [{ id: crypto.randomUUID(), method: "transfer" as const, amountFils: totals.grossFils, ...(paid ? { reference: paid } : {}) }]
+        : (payment.method as "cash" | "card");
+    const result = completeSale(lines, pay, customerId, approver);
     if (!result.ok) {
       setPayment({ ...payment, error: result.error });
       return;
@@ -240,6 +251,14 @@ export function PosWorkspace() {
     if (!customOpen && !customerOpen && !payment && !completed && canSell && cart.length && event.key === "F3") {
       event.preventDefault();
       pay("card");
+    }
+    if (!customOpen && !customerOpen && !payment && !completed && canSell && cart.length && event.key === "F4") {
+      event.preventDefault();
+      pay("transfer");
+    }
+    if (!customOpen && !customerOpen && !payment && !completed && canSell && cart.length && event.key === "F6") {
+      event.preventDefault();
+      pay("split");
     }
   }
 
@@ -293,14 +312,15 @@ export function PosWorkspace() {
             {error && <p className="form-error checkout-error" role="alert">{error}</p>}
             {/* Beside the disabled buttons, so the reason sits where the cashier looks. */}
             <LockNotices className="pos-lock-cart" registerOpen={registerOpen} stale={stale} />
-            <div className="payment-grid"><button className="payment-button cash" disabled={!canSell || !cart.length} onClick={() => pay("cash")} aria-keyshortcuts="F2"><Money size={21} weight="fill" /><span>Cash · F2</span><small>Record drawer payment</small></button><button className="payment-button card" disabled={!canSell || !cart.length} onClick={() => pay("card")} aria-keyshortcuts="F3"><CreditCard size={21} weight="fill" /><span>Card · F3</span><small>External terminal paid</small></button></div>
+            <div className="payment-grid"><button className="payment-button cash" disabled={!canSell || !cart.length} onClick={() => pay("cash")} aria-keyshortcuts="F2"><Money size={21} weight="fill" /><span>Cash · F2</span><small>Record drawer payment</small></button><button className="payment-button card" disabled={!canSell || !cart.length} onClick={() => pay("card")} aria-keyshortcuts="F3"><CreditCard size={21} weight="fill" /><span>Card · F3</span><small>External terminal paid</small></button><button className="payment-button transfer" disabled={!canSell || !cart.length} onClick={() => pay("transfer")} aria-keyshortcuts="F4"><Receipt size={21} weight="fill" /><span>Transfer · F4</span><small>Bank transfer received</small></button><button className="payment-button split" disabled={!canSell || !cart.length} onClick={() => pay("split")} aria-keyshortcuts="F6" title={splitAllowed ? undefined : "Part of the Pro plan"}><Money size={21} weight="fill" /><span>Split · F6</span><small>{splitAllowed ? "Cash, card and transfer" : "Pro plan"}</small></button></div>
           </div>
         </aside>}
       </div>
 
       {discountLine && <LineDiscountDialog line={discountLine} onApply={(unit) => applyDiscount(discountLine.key, unit)} onRemove={() => removeDiscount(discountLine.key)} onCancel={() => closeDialog(setDiscountFor)} />}
       {!completed && <div className="pos-cart-bar"><button type="button" className="pos-cart-bar-summary" onClick={() => setSheetOpen((open) => !open)} aria-expanded={sheetOpen} aria-label="Show cart"><strong>{formatItemCount(cart)}</strong><span>{formatAED(totals.grossFils)}</span></button><button className="button primary" type="button" disabled={!canSell || !cart.length} onClick={() => pay("cash")}>Pay</button></div>}
-      {payment && <PaymentDialog method={payment.method} totalFils={totals.grossFils} error={payment.error} onCancel={() => closeDialog(setPayment)} onComplete={completePayment} />}
+      {payment && payment.method !== "split" && <PaymentDialog method={payment.method} totalFils={totals.grossFils} error={payment.error} onCancel={() => closeDialog(setPayment)} onComplete={(tendered, reference) => void completePayment(tendered, reference)} />}
+      {payment && payment.method === "split" && <SplitDialog totalFils={totals.grossFils} error={payment.error} onCancel={() => closeDialog(setPayment)} onComplete={(rows, cashReceived) => void completePayment(cashReceived, rows)} />}
       {customOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setCustomOpen(false); }}><form className="modal" onSubmit={addCustomLine}><div className="modal-header"><div><div className="panel-title">Custom item</div><div className="panel-subtitle">This line will not change inventory.</div></div><button type="button" className="button icon-only" onClick={() => setCustomOpen(false)} aria-label="Close"><X size={16} weight="bold" /></button></div><div className="modal-body"><div className="form-grid"><div className="field full-span"><label htmlFor="customName">Description</label><input className="input" id="customName" name="name" required autoFocus /></div><div className="field"><label htmlFor="customPrice">VAT-inclusive price (AED)</label><input className="input" id="customPrice" name="price" type="number" min="0.01" step="0.01" required /></div></div></div><div className="modal-footer"><button type="button" className="button" onClick={() => setCustomOpen(false)}>Cancel</button><button className="button primary" type="submit">Add to cart</button></div></form></div>}
       {customerOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setCustomerOpen(false); }}><div className="modal customer-picker"><div className="modal-header"><div><div className="panel-title">Choose invoice customer</div><div className="panel-subtitle">Business details are copied onto this invoice only.</div></div><button type="button" className="button icon-only" onClick={() => setCustomerOpen(false)} aria-label="Close"><X size={16} weight="bold" /></button></div><div className="customer-pick-list"><button className={`customer-pick ${!customerId ? "selected" : ""}`} onClick={() => { setCustomerId(undefined); setCustomerOpen(false); }}><span className="customer-avatar"><User size={16} weight="bold" /></span><span><strong>Walk-in customer</strong><small>Simplified tax invoice</small></span></button>{store.customers.map((customer) => <button className={`customer-pick ${customerId === customer.id ? "selected" : ""}`} key={customer.id} onClick={() => { setCustomerId(customer.id); setCustomerOpen(false); }}><span className="customer-avatar">{customer.name.slice(0, 2).toUpperCase()}</span><span><strong>{customer.name}</strong><small>{customer.trn ? `TRN ${customer.trn}` : customer.phone}</small></span></button>)}</div><div className="modal-footer"><Link className="button" href="/customers">Manage customers</Link></div></div></div>}
     </div>

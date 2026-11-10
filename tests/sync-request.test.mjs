@@ -67,3 +67,22 @@ test("an import-count needs countedStock; a stock operation may omit the product
   const slimReceipt = base("stock", movement("receipt").id, { movement: movement("receipt", { delta: 5 }) });
   assert.equal(requestSchema.safeParse({ operations: [slimReceipt] }).success, true);
 });
+
+test("Stage 2B: a split sale keeps its payments through validation; bad payments are refused", () => {
+  const sale = {
+    id: "a1000000-0000-4000-8000-000000000002", invoiceNumber: "SMK-1-261109-0001", status: "completed",
+    createdAt: "2026-11-09T08:00:00Z", supplyDate: "2026-11-09", paymentMethod: "split",
+    netFils: 7352, vatFils: 368, grossFils: 7720,
+    lines: [{ id: "a1000000-0000-4000-8000-0000000000a2", name: "Dates", quantity: 1, unitGrossFils: 7720, netFils: 7352, vatFils: 368, grossFils: 7720 }],
+    payments: [
+      { id: "a1000000-0000-4000-8000-0000000000b1", method: "cash", amountFils: 5000 },
+      { id: "a1000000-0000-4000-8000-0000000000b2", method: "transfer", amountFils: 2720, reference: "TT-123" },
+    ],
+  };
+  const [operation] = requestSchema.parse({ operations: [base("sale", sale.id, { sale, deviceId })] }).operations;
+  assert.deepEqual(rpcPayloadFor(operation).sale.payments, sale.payments);
+  const withPayment = (payment) => ({ operations: [base("sale", sale.id, { sale: { ...sale, payments: [payment] }, deviceId })] });
+  assert.equal(requestSchema.safeParse(withPayment({ id: "a1000000-0000-4000-8000-0000000000b3", method: "split", amountFils: 7720 })).success, false);
+  assert.equal(requestSchema.safeParse(withPayment({ id: "a1000000-0000-4000-8000-0000000000b3", method: "transfer", amountFils: 7720, reference: "x".repeat(61) })).success, false);
+  assert.equal(requestSchema.safeParse(withPayment({ id: "a1000000-0000-4000-8000-0000000000b3", method: "card", amountFils: 0 })).success, false);
+});

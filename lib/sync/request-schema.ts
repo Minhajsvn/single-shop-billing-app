@@ -5,6 +5,17 @@ const deviceIdSchema = z.string().uuid().optional();
 // Stage 2A: the person behind the PIN and any approving manager (business_members ids). Checked on the server.
 const memberIdSchema = z.string().uuid().optional();
 const actorFields = { operatorMemberId: memberIdSchema, approvedByMemberId: memberIdSchema };
+// Stage 2B: one row per method; the server checks they add up to the total (payments_mismatch).
+const paymentSchema = z.object({
+  id: z.string().uuid(),
+  method: z.enum(["cash", "card", "transfer"]),
+  amountFils: z.number().int().positive(),
+  reference: z.string().trim().max(60).optional(),
+});
+const paymentFields = {
+  paymentMethod: z.enum(["cash", "card", "transfer", "split"]),
+  payments: z.array(paymentSchema).min(1).max(3).optional(),
+};
 
 const customerSchema = z.object({
   id: z.string().uuid(),
@@ -44,7 +55,7 @@ const saleSchema = z.object({
   invoiceNumber: z.string().trim().min(1).max(80),
   createdAt: z.string().min(1),
   supplyDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  paymentMethod: z.enum(["cash", "card"]),
+  ...paymentFields,
   lines: z.array(saleLineSchema).min(1).max(100),
   netFils: z.number().int().nonnegative(),
   vatFils: z.number().int().nonnegative(),
@@ -97,7 +108,7 @@ const creditNoteSchema = z.object({
   saleId: z.string().uuid(),
   invoiceNumber: z.string().trim().min(1).max(80),
   createdAt: z.string().min(1),
-  paymentMethod: z.enum(["cash", "card"]),
+  ...paymentFields,
   lines: z.array(creditNoteLineSchema).min(1).max(100),
   netFils: z.number().int().nonnegative(),
   vatFils: z.number().int().nonnegative(),

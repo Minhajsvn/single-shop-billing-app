@@ -12,6 +12,8 @@ import { useRemoteSale } from "@/components/sales/use-remote-sale";
 import { isOwnerView } from "@/lib/access/cashier";
 import { useEffectiveRole } from "@/components/staff/use-operator";
 import { useApproval } from "@/components/staff/approval-dialog";
+import { PaybackFields, type PayBack } from "@/components/payments/payback-fields";
+import { canSplit, type PayMethod } from "@/lib/payments/split";
 import { createCreditNote, useDemoStore, useShopContext } from "@/lib/demo-store";
 import { refundedQuantities, remoteSaleRefundable, remoteSaleSource } from "@/lib/sales/invoice-lookup";
 import { formatAED, formatDateTime } from "@/lib/domain";
@@ -46,6 +48,9 @@ export function InvoiceDetailWorkspace({ id }: { id: string }) {
   const [returnOpen, setReturnOpen] = useState(false);
   const [returnQuantities, setReturnQuantities] = useState<Record<string, number>>({});
   const [returnError, setReturnError] = useState("");
+  // Stage 2B: how the refund is paid back; Pro can mix methods.
+  const [payBack, setPayBack] = useState<PayBack>({ ok: false, error: "Choose what is coming back." });
+  const splitAllowed = canSplit(useEntitlement().e.features);
   const { canWrite } = useEntitlement();
 
 
@@ -70,7 +75,8 @@ export function InvoiceDetailWorkspace({ id }: { id: string }) {
   async function createReturn() {
     const approver = await askApproval({ kind: "refund" });
     if (approver === null) return;
-    const result = createCreditNote(sale!.id, returnQuantities, found, approver);
+    if (!payBack.ok) return setReturnError(payBack.error);
+    const result = createCreditNote(sale!.id, returnQuantities, found, approver, payBack.pay);
     if (!result.ok) return setReturnError(result.error);
     setReturnOpen(false);
     setReturnQuantities({});
@@ -93,10 +99,10 @@ export function InvoiceDetailWorkspace({ id }: { id: string }) {
 
       <ReceiptDocument sale={sale} shop={shop} />
 
-      {returnOpen && canWrite && <div className="modal-backdrop no-print" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setReturnOpen(false); }}><div className="modal"><div className="modal-header"><div><div className="panel-title">Create credit note</div><div className="panel-subtitle">Refund via {sale.paymentMethod} and restore stock for inventory items.</div></div><button className="button icon-only" onClick={() => setReturnOpen(false)} aria-label="Close"><X size={16} weight="bold" /></button></div><div className="return-lines">{sale.lines.map((item) => {
+      {returnOpen && canWrite && <div className="modal-backdrop no-print" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setReturnOpen(false); }}><div className="modal"><div className="modal-header"><div><div className="panel-title">Create credit note</div><div className="panel-subtitle">Choose the items, then how the money goes back. Stock is restored for inventory items.</div></div><button className="button icon-only" onClick={() => setReturnOpen(false)} aria-label="Close"><X size={16} weight="bold" /></button></div><div className="return-lines">{sale.lines.map((item) => {
         const remaining = item.quantity - (returned.get(item.id) ?? 0);
         return <div className={`return-line ${remaining === 0 ? "disabled" : ""}`} key={item.id}><div><strong>{item.name}</strong><span>{remaining} of {item.quantity} available · {formatAED(item.unitGrossFils)} each</span></div><div className="field return-quantity"><label htmlFor={`return-${item.id}`}>Return qty</label><input className="input" id={`return-${item.id}`} type="number" min="0" max={remaining} value={returnQuantities[item.id] ?? 0} disabled={remaining === 0} onChange={(event) => setReturnQuantities((current) => ({ ...current, [item.id]: Number(event.target.value) }))} /></div></div>;
-      })}{returnError && <p className="form-error">{returnError}</p>}</div><div className="modal-footer"><button className="button" onClick={() => setReturnOpen(false)}>Cancel</button><button className="button primary" onClick={createReturn}>Issue credit note</button></div></div></div>}
+      })}<PaybackFields key={sale.lines.reduce((sum, item) => sum + item.unitGrossFils * Math.max(0, Math.floor(Number(returnQuantities[item.id] ?? 0))), 0)} totalFils={sale.lines.reduce((sum, item) => sum + item.unitGrossFils * Math.max(0, Math.floor(Number(returnQuantities[item.id] ?? 0))), 0)} defaultMethod={(sale.paymentMethod === "split" ? "cash" : sale.paymentMethod) as PayMethod} canSplit={splitAllowed} onChange={setPayBack} />{returnError && <p className="form-error">{returnError}</p>}</div><div className="modal-footer"><button className="button" onClick={() => setReturnOpen(false)}>Cancel</button><button className="button primary" onClick={createReturn}>Issue credit note</button></div></div></div>}
     </>
   );
 }

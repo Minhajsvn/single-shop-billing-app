@@ -6,13 +6,16 @@ import { useEffect, useRef } from "react";
 import { ReceiptDocument, type ReceiptShop } from "@/components/receipt-document";
 import { changeDue } from "@/lib/checkout/pricing";
 import { formatAED, type Sale } from "@/lib/domain";
+import { methodTotals, paymentsOf } from "@/lib/payments/split";
 import { printDocument } from "@/lib/print";
 
 /** Shown in place of the cart after a sale, so the cashier never leaves /sale. Enter starts the next sale. */
 export function ReceiptPanel({ sale, tenderedFils, shop, onNewSale }: { sale: Sale; tenderedFils: number | null; shop: ReceiptShop; onNewSale: () => void }) {
   const newSale = useRef<HTMLButtonElement>(null);
   useEffect(() => { newSale.current?.focus(); }, []);
-  const change = tenderedFils === null ? null : changeDue(sale.grossFils, tenderedFils);
+  // Stage 2B: on a split, change comes from the cash part only.
+  const cashPart = methodTotals(paymentsOf(sale)).cash;
+  const change = tenderedFils === null ? null : changeDue(cashPart, tenderedFils);
 
   return (
     <>

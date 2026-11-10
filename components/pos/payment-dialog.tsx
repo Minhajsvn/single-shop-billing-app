@@ -6,19 +6,21 @@ import { changeDue, parseMoneyInput, quickCashAmounts } from "@/lib/checkout/pri
 import { formatAED } from "@/lib/domain";
 
 type Props = {
-  method: "cash" | "card";
+  method: "cash" | "card" | "transfer";
   totalFils: number;
   error?: string;
   onCancel: () => void;
-  /** Cash: the amount received in fils. Card: null. */
-  onComplete: (tenderedFils: number | null) => void;
+  /** Cash: the amount received in fils. Card and transfer: null. Transfer also passes its optional reference. */
+  onComplete: (tenderedFils: number | null, reference?: string) => void;
 };
 
 const asInput = (fils: number) => (fils / 100).toFixed(2);
+const TITLE = { cash: "Cash payment", card: "Card payment", transfer: "Bank transfer" } as const;
 
 /** The step between the cart and the invoice: confirm cash received (with change due) or the card terminal approval. */
 export function PaymentDialog({ method, totalFils, error, onCancel, onComplete }: Props) {
   const [received, setReceived] = useState(asInput(totalFils));
+  const [reference, setReference] = useState("");
   const tenderedFils = parseMoneyInput(received);
   const change = tenderedFils === null ? null : changeDue(totalFils, tenderedFils);
   const cashProblem = method === "cash"
@@ -28,14 +30,15 @@ export function PaymentDialog({ method, totalFils, error, onCancel, onComplete }
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (method === "card") return onComplete(null);
+    if (method === "transfer") return onComplete(null, reference.trim().slice(0, 60) || undefined);
     if (!cashProblem && tenderedFils !== null) onComplete(tenderedFils);
   }
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }} onKeyDown={(event) => { if (event.key === "Escape") onCancel(); }}>
-      <form className="modal payment-dialog" onSubmit={submit} aria-label={method === "cash" ? "Cash payment" : "Card payment"}>
+      <form className="modal payment-dialog" onSubmit={submit} aria-label={TITLE[method]}>
         <div className="modal-header">
-          <div><div className="panel-title">{method === "cash" ? "Cash payment" : "Card payment"}</div><div className="panel-subtitle">Total due {formatAED(totalFils)}</div></div>
+          <div><div className="panel-title">{TITLE[method]}</div><div className="panel-subtitle">Total due {formatAED(totalFils)}</div></div>
           <button type="button" className="button icon-only" onClick={onCancel} aria-label="Close"><X size={16} weight="bold" /></button>
         </div>
         <div className="modal-body">
@@ -53,6 +56,11 @@ export function PaymentDialog({ method, totalFils, error, onCancel, onComplete }
               <div id="cash-feedback" aria-live="polite">
                 {cashProblem ? <p className="form-error">{cashProblem}</p> : <div className="change-due"><span>Change due</span><strong>{formatAED(change && change.ok ? change.changeFils : 0)}</strong></div>}
               </div>
+            </>
+          ) : method === "transfer" ? (
+            <>
+              <p className="page-copy">Confirm the bank transfer of {formatAED(totalFils)} has arrived.</p>
+              <div className="field"><label htmlFor="transfer-reference">Transfer reference (optional)</label><input className="input" id="transfer-reference" maxLength={60} value={reference} onChange={(event) => setReference(event.target.value)} autoFocus /></div>
             </>
           ) : (
             <p className="page-copy"><CreditCard size={18} weight="bold" /> Confirm the card terminal approved {formatAED(totalFils)}.</p>

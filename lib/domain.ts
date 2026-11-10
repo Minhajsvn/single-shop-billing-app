@@ -25,7 +25,10 @@ export type StockMovement = {
   approvedByMemberId?: string;
 };
 
-export type PaymentMethod = "cash" | "card";
+/** A document's summary method; "split" when it was paid (or refunded) by more than one method (Stage 2B). */
+export type PaymentMethod = "cash" | "card" | "transfer" | "split";
+export type { Payment } from "./payments/split.ts";
+import type { Payment } from "./payments/split.ts";
 
 export type Customer = {
   id: string;
@@ -71,6 +74,8 @@ export type Sale = {
   /** The till that issued the invoice (hosted shops only). */
   deviceId?: string;
   status: "completed";
+  /** Stage 2B: one row per method; absent on records made before 2B (use paymentsOf). */
+  payments?: Payment[];
   /** Stage 2A: the person behind the PIN, and the approving manager where one was needed. */
   operatorMemberId?: string;
   approvedByMemberId?: string;
@@ -93,6 +98,8 @@ export type CreditNote = {
   grossFils: number;
   /** The till that issued the credit note (hosted shops only). */
   deviceId?: string;
+  /** Stage 2B: how the refund was paid back, one row per method. */
+  payments?: Payment[];
   /** Stage 2A: the person behind the PIN, and the approving manager where one was needed. */
   operatorMemberId?: string;
   approvedByMemberId?: string;

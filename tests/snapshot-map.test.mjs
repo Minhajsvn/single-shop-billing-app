@@ -135,3 +135,17 @@ test("Stage 2A: an older server without lock or staff gives the lock off and no 
   assert.deepEqual(s.lockSettings, { pinLockEnabled: false, idleLockMinutes: 5, managerDiscountPct: 10 });
   assert.deepEqual(s.staff, []);
 });
+
+test("Stage 2B: sale and credit note payment rows map to camelCase payments; none stays undefined", () => {
+  const sale = { ...rows.sales[0], payment_method: "split", sale_payments: [
+    { id: "p1", method: "cash", amount_fils: 5000, reference: null },
+    { id: "p2", method: "transfer", amount_fils: 2720, reference: "TT-1" },
+  ] };
+  const s = mapSnapshotRows({ ...rows, sales: [sale] }, "x");
+  assert.equal(s.state.sales[0].paymentMethod, "split");
+  assert.deepEqual(s.state.sales[0].payments, [
+    { id: "p1", method: "cash", amountFils: 5000 },
+    { id: "p2", method: "transfer", amountFils: 2720, reference: "TT-1" },
+  ]);
+  assert.equal(mapSnapshotRows(rows, "x").state.sales[0].payments, undefined);
+});

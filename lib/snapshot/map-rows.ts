@@ -1,4 +1,4 @@
-import type { CustomerSnapshot, DemoState, InvoiceLine, Sale, StockMovement, SupplierSnapshot } from "../domain.ts";
+import type { CustomerSnapshot, DemoState, InvoiceLine, Payment, PaymentMethod, Sale, StockMovement, SupplierSnapshot } from "../domain.ts";
 import type { CountryCode, CurrencyCode, TaxCategory } from "../fiscal/countries.ts";
 import { DEFAULT_LOCK_SETTINGS, type LockSettings, type ShopSnapshot, type SnapshotRows, type StaffMember } from "./types.ts";
 
@@ -21,6 +21,16 @@ function mapStaff(rows: SnapshotRows["staff"]): StaffMember[] {
 
 const optional = (value: string | null) => value ?? undefined;
 
+/** Stage 2B payment rows; undefined when the server sent none (older server or record). */
+function mapPayments(rows: { id: string; method: string; amount_fils: number; reference: string | null }[] | undefined): Payment[] | undefined {
+  if (!rows?.length) return undefined;
+  return rows.map((p) => ({ id: p.id, method: p.method === "card" || p.method === "transfer" ? p.method : "cash", amountFils: Number(p.amount_fils), ...(p.reference ? { reference: p.reference } : {}) }));
+}
+
+function summary(value: string): PaymentMethod {
+  return value === "card" || value === "transfer" || value === "split" ? value : "cash";
+}
+
 function mapLine(row: SnapshotRows["sales"][number]["sale_items"][number]): InvoiceLine {
   return {
     id: row.id, productId: optional(row.product_id), name: row.description, sku: optional(row.sku), quantity: row.quantity,
@@ -37,7 +47,7 @@ function taxCategory(value: string | null | undefined): TaxCategory {
 /** One sale row (with its items) as the app's Sale; also used for old sales fetched one at a time. */
 export function mapSaleRow(s: SnapshotRows["sales"][number]): Sale {
   return {
-    id: s.id, deviceId: s.device_id, invoiceNumber: s.invoice_number, createdAt: s.created_at, supplyDate: s.supply_date, paymentMethod: s.payment_method,
+    id: s.id, deviceId: s.device_id, invoiceNumber: s.invoice_number, createdAt: s.created_at, supplyDate: s.supply_date, paymentMethod: summary(s.payment_method), payments: mapPayments(s.sale_payments),
     lines: s.sale_items.map(mapLine), netFils: Number(s.net_fils), vatFils: Number(s.vat_fils), grossFils: Number(s.gross_fils),
     customer: (s.customer_snapshot ?? undefined) as CustomerSnapshot | undefined,
     supplier: (s.supplier_snapshot ?? undefined) as SupplierSnapshot | undefined,
@@ -56,7 +66,7 @@ export function mapSnapshotRows(rows: SnapshotRows, generatedAt: string): ShopSn
     })),
     sales: rows.sales.map(mapSaleRow),
     creditNotes: rows.creditNotes.map((n) => ({
-      id: n.id, deviceId: n.device_id, creditNoteNumber: n.credit_note_number, saleId: n.sale_id, invoiceNumber: n.sales?.invoice_number ?? invoiceBySale.get(n.sale_id) ?? "", createdAt: n.created_at, paymentMethod: n.payment_method,
+      id: n.id, deviceId: n.device_id, creditNoteNumber: n.credit_note_number, saleId: n.sale_id, invoiceNumber: n.sales?.invoice_number ?? invoiceBySale.get(n.sale_id) ?? "", createdAt: n.created_at, paymentMethod: summary(n.payment_method), payments: mapPayments(n.credit_note_payments),
       lines: n.credit_note_items.map((item) => ({ ...mapLine(item), originalLineId: item.sale_item_id })),
       netFils: Number(n.net_fils), vatFils: Number(n.vat_fils), grossFils: Number(n.gross_fils),
     })),
