@@ -1,4 +1,4 @@
-import type { Product } from "../domain.ts";
+import type { Category, Product } from "../domain.ts";
 import type { TaxCategory } from "../fiscal/countries.ts";
 import type { ProblemRow } from "./classify.ts";
 import { EXPORT_HEADINGS } from "./columns.ts";
@@ -75,7 +75,9 @@ function formatFils(fils: number): string {
 }
 
 /** Catalogue export in the import's own layout. Barcodes are written ="digits" so Excel keeps them as text. */
-export function productsToCsv(products: (Product & { taxCategory?: TaxCategory })[]): string {
+export function productsToCsv(products: (Product & { taxCategory?: TaxCategory })[], categories: Category[] = []): string {
+  // Stage 2C: the category name (blank when it has none, or it is archived). Cost is never exported.
+  const live = new Map(categories.filter((category) => !category.archived).map((category) => [category.id, category.name]));
   return toCsv([
     [...EXPORT_HEADINGS],
     ...products.map((product) => [
@@ -87,6 +89,7 @@ export function productsToCsv(products: (Product & { taxCategory?: TaxCategory }
       product.lowStockThreshold,
       TAX_LABEL[product.taxCategory ?? "standard"],
       product.active ? "Active" : "Archived",
+      (product.categoryId && live.get(product.categoryId)) || "",
     ]),
   ]);
 }

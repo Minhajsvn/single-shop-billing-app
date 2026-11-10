@@ -1,5 +1,7 @@
-import type { Product } from "../domain.ts";
+import type { Category, Product } from "../domain.ts";
 import type { TaxCategory } from "../fiscal/countries.ts";
+import { parseCostInput } from "../profit/math.ts";
+import { CATEGORY_NAME_MAX } from "./categories.ts";
 import { parseBarcodeCell, parsePriceCell, parseStockCell, parseTaxCategoryCell, parseTextCell, parseThresholdCell } from "./parse.ts";
 import type { Cell, ColumnMapping, Parsed } from "./types.ts";
 
@@ -8,20 +10,27 @@ const NAME_MAX = 160;
 const SKU_MAX = 100;
 const DEFAULT_LOW_STOCK = 5;
 
-export type ProductDraft = { id: string; name: string; sku: string; barcode?: string; priceFils: number; stock: number; lowStockThreshold: number; taxCategory: TaxCategory };
+/**
+ * Stage 2C: `categoryName` is the cell as typed (matched to a category ignoring case when applied; absent = leave the
+ * product's category alone). `costFils` is absent when the file gives no cost or the plan has no costs.
+ */
+export type ProductDraft = { id: string; name: string; sku: string; barcode?: string; priceFils: number; stock: number; lowStockThreshold: number; taxCategory: TaxCategory; categoryName?: string; costFils?: number };
 export type PlannedCreate = { rowNumber: number; product: ProductDraft; possibleDuplicateOf?: string };
 export type PlannedUpdate = {
   rowNumber: number;
   productId: string;
   archived: boolean;
   before: { priceFils: number; stock: number; barcode?: string };
-  after: { priceFils: number; stock: number; barcode?: string };
+  after: { priceFils: number; stock: number; barcode?: string; categoryName?: string; costFils?: number };
+  /** The product itself changes (price, stock, barcode or category); a cost alone does not count. */
   changed: boolean;
 };
 export type ProblemRow = { rowNumber: number; cells: Cell[]; reasons: string[] };
-export type ImportPlan = { creates: PlannedCreate[]; updates: PlannedUpdate[]; problems: ProblemRow[] };
+/** newCategories: names to create first, each once (first spelling wins). costSkipped: the file had costs the plan cannot take. */
+export type ImportPlan = { creates: PlannedCreate[]; updates: PlannedUpdate[]; problems: ProblemRow[]; newCategories: string[]; costSkipped: boolean };
 
 type ExistingProduct = Product & { taxCategory?: TaxCategory };
+const CATEGORY_PROBLEM = "Category names can be at most 40 characters.";
 type ParsedRow = {
   rowNumber: number;
   cells: Cell[];
@@ -33,6 +42,8 @@ type ParsedRow = {
   stock: number | null;
   lowStock: number | null;
   taxCategory: TaxCategory | null;
+  categoryName: string | null;
+  costFils: number | null;
 };
 
 const skuKey = (sku: string) => sku.trim().toLowerCase();
@@ -81,6 +92,14 @@ function parseRow(cells: Cell[], rowNumber: number, mapping: ColumnMapping): Par
     stock: read("stock", parseStockCell, null),
     lowStock: read("lowStock", parseThresholdCell, null),
     taxCategory: read("taxCategory", parseTaxCategoryCell, null),
+    categoryName: read("category", (cell) => {
+      const parsed = parseTextCell(cell, CATEGORY_NAME_MAX, "Category");
+      return parsed.ok ? parsed : { ok: false, reason: CATEGORY_PROBLEM };
+    }, null),
+    costFils: read("cost", (cell) => {
+      const parsed = parseCostInput(cell === null || typeof cell === "number" ? cell : String(cell));
+      return parsed.ok ? parsed : { ok: false, reason: parsed.reason };
+    }, null),
   };
 }
 
@@ -92,7 +111,7 @@ export function planImport(
   rows: Cell[][],
   mapping: ColumnMapping,
   existing: ExistingProduct[],
-  options: { productLimit: number | null; newId: () => string },
+  options: { productLimit: number | null; newId: () => string; categories?: Category[]; costAllowed?: boolean },
 ): { ok: true; plan: ImportPlan } | { ok: false; error: string } {
   if (mapping.name === undefined || mapping.price === undefined) return { ok: false, error: "Choose which column holds the product name and the price." };
   const dataRows = rows.slice(1);
@@ -117,7 +136,24 @@ export function planImport(
   const bySku = new Map(existing.map((product) => [skuKey(product.sku), product]));
   const byName = new Map(existing.map((product) => [nameKey(product.name), product]));
 
-  const plan: ImportPlan = { creates: [], updates: [], problems: [] };
+  // Stage 2C: costs only on a plan that has them; category names resolve against live categories, ignoring case.
+  const costAllowed = options.costAllowed === true;
+  const costSkipped = !costAllowed && mapping.cost !== undefined && parsed.some((row) => row.costFils !== null);
+  const liveByName = new Map((options.categories ?? []).filter((category) => !category.archived).map((category) => [category.name.trim().toLowerCase(), category]));
+  const plan: ImportPlan = { creates: [], updates: [], problems: [], newCategories: [], costSkipped };
+  const planned = new Set<string>();
+  const categoryOf = (row: ParsedRow) => {
+    if (row.categoryName === null) return {};
+    const key = row.categoryName.toLowerCase();
+    const existingCategory = liveByName.get(key);
+    if (existingCategory) return { categoryName: existingCategory.name };
+    if (!planned.has(key)) {
+      planned.add(key);
+      plan.newCategories.push(row.categoryName);
+    }
+    return { categoryName: row.categoryName };
+  };
+  const costOf = (row: ParsedRow) => (costAllowed && row.costFils !== null ? { costFils: row.costFils } : {});
   const pendingCreates: ParsedRow[] = [];
   const problem = (row: ParsedRow, reasons = row.reasons) => plan.problems.push({ rowNumber: row.rowNumber, cells: row.cells, reasons });
 
@@ -142,14 +178,16 @@ export function planImport(
       continue;
     }
     const before = { priceFils: target.priceFils, stock: target.stock, barcode: target.barcode };
-    const after = { priceFils: row.priceFils, stock: row.stock ?? target.stock, barcode: target.barcode ?? row.barcode ?? undefined };
+    const after = { priceFils: row.priceFils, stock: row.stock ?? target.stock, barcode: target.barcode ?? row.barcode ?? undefined, ...categoryOf(row), ...costOf(row) };
+    const currentCategory = target.categoryId ? (options.categories ?? []).find((category) => category.id === target.categoryId && !category.archived) : undefined;
+    const categoryMoves = after.categoryName !== undefined && after.categoryName.toLowerCase() !== currentCategory?.name.trim().toLowerCase();
     plan.updates.push({
       rowNumber: row.rowNumber,
       productId: target.id,
       archived: !target.active,
       before,
       after,
-      changed: before.priceFils !== after.priceFils || before.stock !== after.stock || before.barcode !== after.barcode,
+      changed: before.priceFils !== after.priceFils || before.stock !== after.stock || before.barcode !== after.barcode || categoryMoves,
     });
   }
 
@@ -176,6 +214,8 @@ export function planImport(
         stock: row.stock ?? 0,
         lowStockThreshold: row.lowStock ?? DEFAULT_LOW_STOCK,
         taxCategory: row.taxCategory ?? "standard",
+        ...categoryOf(row),
+        ...costOf(row),
       },
       ...(duplicate ? { possibleDuplicateOf: duplicate.name } : {}),
     });

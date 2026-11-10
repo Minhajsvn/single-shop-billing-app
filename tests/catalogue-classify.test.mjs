@@ -131,3 +131,43 @@ test("round trip: planImport(parseCsv(productsToCsv(products))) has 0 creates, 0
   assert.equal(result.plan.problems.length, 0);
   assert.deepEqual(result.plan.updates.map((u) => [u.productId, u.changed]), [["a", false], ["b", false], ["c", false], ["d", false]]);
 });
+
+// Stage 2C: category and cost columns.
+const HEAD2C = ["Name", "SKU", "Price", "Category", "Cost"];
+const MAP2C = { name: 0, sku: 1, price: 2, category: 3, cost: 4 };
+const drinks = { id: "c1", name: "Drinks", sortOrder: 0, archived: false };
+const plan2c = (rows, existing = [], extra = {}) => {
+  const result = planImport([HEAD2C, ...rows], MAP2C, existing, { ...options(), categories: [drinks], costAllowed: true, ...extra });
+  assert.equal(result.ok, true, result.error);
+  return result.plan;
+};
+
+test("2C: a new category name is listed once; an existing one is reused ignoring case", () => {
+  const p = plan2c([["Chips", "CH-1", "5", "Snacks", ""], ["Nuts", "NU-1", "6", "snacks", ""], ["Cola", "CO-1", "2", "DRINKS", ""]]);
+  assert.deepEqual(p.newCategories, ["Snacks"]);
+  assert.deepEqual(p.creates.map((c) => c.product.categoryName), ["Snacks", "snacks", "Drinks"]);
+});
+
+test("2C: costs are parsed; bad costs and long category names are row problems", () => {
+  const p = plan2c([["Chips", "CH-1", "5", "", "12.5"], ["Nuts", "NU-1", "6", "", "-1"], ["Gum", "GU-1", "1", "", "abc"], ["Tea", "TE-1", "1", "x".repeat(41), ""]]);
+  assert.deepEqual(p.creates.map((c) => [c.product.sku, c.product.costFils]), [["CH-1", 1250]]);
+  assert.deepEqual(p.problems.map((row) => row.reasons), [["Cost must be a number from 0 to 1,000,000."], ["Cost must be a number from 0 to 1,000,000."], ["Category names can be at most 40 characters."]]);
+  assert.equal(p.costSkipped, false);
+});
+
+test("2C: on a plan without costs, the cost column is skipped and flagged", () => {
+  const p = plan2c([["Chips", "CH-1", "5", "", "12.5"]], [], { costAllowed: false });
+  assert.equal(p.creates[0].product.costFils, undefined);
+  assert.equal(p.costSkipped, true);
+});
+
+test("2C: an update moves a product to another category or sets its cost; the same category is no change", () => {
+  const existing = [{ ...product({ id: "a", sku: "CO-1", priceFils: 200 }), categoryId: "c1" }, product({ id: "b", sku: "CH-1", priceFils: 500 })];
+  const p = plan2c([["Cola", "CO-1", "2", "drinks", ""], ["Chips", "CH-1", "5", "Snacks", "3"]], existing);
+  assert.deepEqual(p.updates.map((u) => [u.productId, u.changed, u.after.categoryName, u.after.costFils]), [["a", false, "Drinks", undefined], ["b", true, "Snacks", 300]]);
+});
+
+test("2C: the headings Category and Cost are recognised", () => {
+  assert.deepEqual(guessMapping(["Name", "Price", "Category", "Cost (AED)"]), { name: 0, price: 1, category: 2, cost: 3 });
+  assert.deepEqual(guessMapping(["Item", "Selling price", "Department", "Cost price"]), { name: 0, price: 1, category: 2, cost: 3 });
+});

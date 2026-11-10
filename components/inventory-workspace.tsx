@@ -141,7 +141,7 @@ export function InventoryWorkspace() {
   }
 
   function exportCatalogue() {
-    downloadCsv(`products-${dubaiSupplyDate(new Date())}.csv`, productsToCsv(products));
+    downloadCsv(`products-${dubaiSupplyDate(new Date())}.csv`, productsToCsv(products, categories));
     toast("Export ready");
   }
 

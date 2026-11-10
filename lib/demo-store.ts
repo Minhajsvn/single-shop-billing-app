@@ -667,8 +667,11 @@ export function productsInCategory(id: string): number {
 
 const IMPORT_REASON = "Spreadsheet import";
 
-/** Applies a confirmed import in one save: product operations first, then opening stock and stock counts. */
-export function applyImport(plan: ImportPlan): { createdIds: string[]; updatedIds: string[]; operationIds: string[] } {
+/**
+ * Applies a confirmed import in one save: new categories first (Stage 2C), then product operations, then opening stock
+ * and stock counts. Costs are not stored here: they go online afterwards, so the caller gets them back in `costs`.
+ */
+export function applyImport(plan: ImportPlan): { createdIds: string[]; updatedIds: string[]; operationIds: string[]; costs: { productId: string; costFils: number }[] } {
   const now = new Date().toISOString();
   const items: QueuedItem[] = [];
   const movements: StockMovement[] = [];
@@ -676,9 +679,26 @@ export function applyImport(plan: ImportPlan): { createdIds: string[]; updatedId
   let syncOperations = state.syncOperations;
   const createdIds: string[] = [];
   const updatedIds: string[] = [];
+  const costs: { productId: string; costFils: number }[] = [];
+
+  // Stage 2C: categories by lower-case name; names the import needs that do not exist yet are created first.
+  let categories = state.categories;
+  const byName = new Map(categories.filter((category) => !category.archived).map((category) => [category.name.trim().toLowerCase(), category.id]));
+  let nextSort = categories.reduce((max, category) => Math.max(max, category.sortOrder + 1), 0);
+  for (const name of plan.newCategories ?? []) {
+    if (byName.has(name.trim().toLowerCase())) continue;
+    const category: Category = { id: crypto.randomUUID(), name: name.trim(), sortOrder: nextSort++, archived: false };
+    categories = [...categories, category];
+    byName.set(category.name.toLowerCase(), category.id);
+    items.push({ entity: "category", entityId: category.id, payload: { category } });
+  }
+  const categoryIdFor = (name: string | undefined) => (name === undefined ? undefined : byName.get(name.trim().toLowerCase()) ?? null);
 
   for (const create of plan.creates) {
-    const product: Product = { ...create.product, active: true };
+    const { categoryName, costFils, ...draft } = create.product;
+    const categoryId = categoryIdFor(categoryName);
+    const product: Product = { ...draft, ...(categoryId ? { categoryId } : {}), active: true };
+    if (costFils !== undefined) costs.push({ productId: product.id, costFils });
     products = [product, ...products];
     createdIds.push(product.id);
     items.push(productItem(product));
@@ -690,13 +710,15 @@ export function applyImport(plan: ImportPlan): { createdIds: string[]; updatedId
   }
 
   for (const update of plan.updates) {
+    if (update.after.costFils !== undefined) costs.push({ productId: update.productId, costFils: update.after.costFils });
     if (!update.changed) continue;
     const current = products.find((product) => product.id === update.productId);
     if (!current) continue;
-    const updated: Product = { ...current, priceFils: update.after.priceFils, barcode: update.after.barcode, stock: update.after.stock };
+    const categoryId = categoryIdFor(update.after.categoryName);
+    const updated: Product = { ...current, priceFils: update.after.priceFils, barcode: update.after.barcode, stock: update.after.stock, ...(categoryId !== undefined ? { categoryId } : {}) };
     products = products.map((product) => product.id === current.id ? updated : product);
     updatedIds.push(current.id);
-    if (current.priceFils !== updated.priceFils || current.barcode !== updated.barcode) {
+    if (current.priceFils !== updated.priceFils || current.barcode !== updated.barcode || (current.categoryId ?? null) !== (updated.categoryId ?? null)) {
       syncOperations = supersedeProductOperations(syncOperations, current.id);
       items.push(productItem(updated));
     }
@@ -709,11 +731,11 @@ export function applyImport(plan: ImportPlan): { createdIds: string[]; updatedId
     }
   }
 
-  const next = enqueueInOrder({ ...state, products, syncOperations, stockMovements: [...movements.reverse(), ...state.stockMovements] }, items);
+  const next = enqueueInOrder({ ...state, products, categories, syncOperations, stockMovements: [...movements.reverse(), ...state.stockMovements] }, items);
   // enqueueInOrder prepends this import's operations (none outside hosted mode).
   const operationIds = next.syncOperations.length > syncOperations.length ? next.syncOperations.slice(0, items.length).map((operation) => operation.id) : [];
   save(next);
-  return { createdIds, updatedIds, operationIds };
+  return { createdIds, updatedIds, operationIds, costs };
 }
 export function adjustStock(productId: string, delta: number, reason: string, approvedByMemberId?: string) {
   const product = state.products.find((item) => item.id === productId);

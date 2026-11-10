@@ -64,5 +64,5 @@ test("text cells are trimmed, keep Arabic, and reject over-long values", () => {
 test("guessMapping recognises English and Arabic headings and export headings", () => {
   assert.deepEqual(guessMapping(["Item Name", "Barcode", "Selling Price", "Qty"]), { name: 0, barcode: 1, price: 2, stock: 3 });
   assert.deepEqual(guessMapping(["اسم", "باركود", "سعر", "كمية"]), { name: 0, barcode: 1, price: 2, stock: 3 });
-  assert.deepEqual(guessMapping(EXPORT_HEADINGS), { name: 0, sku: 1, barcode: 2, price: 3, stock: 4, lowStock: 5, taxCategory: 6 });
+  assert.deepEqual(guessMapping(EXPORT_HEADINGS), { name: 0, sku: 1, barcode: 2, price: 3, stock: 4, lowStock: 5, taxCategory: 6, category: 8 });
 });
