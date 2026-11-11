@@ -87,6 +87,21 @@ $$;
 revoke all on function public.shop_set_scale_label(uuid, jsonb) from public, anon;
 grant execute on function public.shop_set_scale_label(uuid, jsonb) to authenticated;
 
+-- Refund by invoice number (202610210029, 202610220032): the sale's items now carry weight_grams, so a weighed line
+-- fetched from another till shows its weight. Patched in place like 202610220032; the anchor must appear once.
+do $$
+declare
+  def text;
+  anchor constant text := E'''gross_fils'', i.gross_fils\n      )';
+begin
+  select pg_get_functiondef('public.find_sale_by_invoice(uuid, text)'::regprocedure) into def;
+  if (length(def) - length(replace(def, anchor, ''))) / length(anchor) <> 1 then
+    raise exception 'expected exactly one sale item gross in find_sale_by_invoice';
+  end if;
+  execute replace(def, anchor, E'''gross_fils'', i.gross_fils,\n        ''weight_grams'', i.weight_grams\n      )');
+end
+$$;
+
 -- apply_sale_sync: the body of 202610190024_register_access_gate.sql as patched by 202610210029; Stage 2F adds the weightGrams rule and moves
 -- stock by grams for weighed lines.
 create or replace function public.apply_sale_sync(

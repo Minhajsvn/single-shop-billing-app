@@ -24,3 +24,4 @@ Task 3: Ruling: productRecord moved to lib/store/product-sync.ts as productRecor
 Task 3: Ruling: a held weighed line that no longer fits the stock in grams is dropped (not capped), and lines of a product switched to or from weighing since the hold are dropped with a notice; completeSale refuses a cart whose lines disagree with the product's current weighing; a local refund restocks only when line and product agree (mirrors the server ruling) — cost if wrong: a cashier re-adds an item.
 Task 3: Ruling: feature_not_in_plan gets a generic rejection text "This needs the Pro plan." — cost if wrong: wording.
 Task 3: complete (commits cea677c..75092a3, tests: npm test → 515/515 pass; lint clean; tsc clean)
+Task 4: complete (commits 75092a3..6480172, tests: npm test → 517/517 pass)

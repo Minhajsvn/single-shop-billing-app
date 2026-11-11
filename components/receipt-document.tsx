@@ -5,6 +5,7 @@ import { useShopContext } from "@/lib/demo-store";
 import { formatAED, formatDateTime, type Sale } from "@/lib/domain";
 import { methodLabel, paymentParts } from "@/components/payments/method-badge";
 import { paymentsOf } from "@/lib/payments/split";
+import { linePricePerKg, weighedLineText } from "@/lib/weighing/kg";
 
 export type ReceiptShop = { name: string; trn: string; address: string; phone: string; footer: string };
 
@@ -50,7 +51,7 @@ export function ReceiptDocument({ sale, shop }: { sale: Sale; shop: ReceiptShop 
         <div className="receipt-line" key={item.id}>
           <div>
             <strong>{item.name}</strong>
-            <span>{item.quantity} × {formatAED(item.unitGrossFils)}</span>
+            <span>{item.weightGrams !== undefined ? weighedLineText(item.weightGrams, linePricePerKg(item)) : `${item.quantity} × ${formatAED(item.unitGrossFils)}`}</span>
             {item.listUnitGrossFils ? <span>was {formatAED(item.listUnitGrossFils)} · saved {formatAED(lineSaving(item))}{item.promotionId ? ` · ${item.promotionName ?? "Promotion"}` : ""}</span> : null}
           </div>
           <strong>{formatAED(item.grossFils)}</strong>

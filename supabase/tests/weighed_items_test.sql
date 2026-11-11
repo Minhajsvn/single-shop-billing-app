@@ -155,6 +155,12 @@ end $$;
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000008a1","role":"authenticated"}', true);
 
+-- Refund lookup by invoice number carries the line's grams.
+do $$
+begin
+  assert (select (i->>'weight_grams')::int = 750 from jsonb_array_elements(public.find_sale_by_invoice('b0000000-0000-4000-8000-0000000008a0', 'W-0001')->'sale_items') i where i->>'id' = '12000000-0000-4000-8000-0000000008a1'), '2c lookup grams';
+end $$;
+
 -- 3. Refunds: the weighed line comes back whole with its grams.
 select public.apply_credit_note_sync_with_payments('08000000-0000-4000-8000-0000000008a1', 'b0000000-0000-4000-8000-0000000008a0', '6c000000-0000-4000-8000-0000000008a1',
   pg_temp.note_payload('6c000000-0000-4000-8000-0000000008a1', 'CN-W1', '5a000000-0000-4000-8000-0000000008a1', '13000000-0000-4000-8000-0000000008a1', '12000000-0000-4000-8000-0000000008a1', 1, 2857, 143));

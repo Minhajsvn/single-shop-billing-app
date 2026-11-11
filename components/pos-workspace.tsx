@@ -9,12 +9,16 @@ import { HeldCarts, parkCart } from "@/components/pos/held-carts";
 import { LineDiscountDialog } from "@/components/pos/line-discount-dialog";
 import { PaymentDialog } from "@/components/pos/payment-dialog";
 import { SplitDialog } from "@/components/pos/split-dialog";
+import { WeightDialog } from "@/components/pos/weight-dialog";
+import { cartUsage, weighedLine } from "@/lib/weighing/cart";
+import { formatKg, gramsForPrice, perKgText, weighedLineText } from "@/lib/weighing/kg";
+import { MAX_LINE_GRAMS, parseScaleLabel } from "@/lib/weighing/label";
 import { useEntitlement } from "@/components/billing/use-entitlement";
 import type { Payment } from "@/lib/payments/split";
 import { ReceiptPanel } from "@/components/pos/receipt-panel";
 import { useReceiptShop } from "@/components/receipt-document";
 import type { HeldCart } from "@/lib/checkout/held-carts";
-import { findByCode } from "@/lib/checkout/lookup";
+import { findByCode, findWeighedByScaleCode } from "@/lib/checkout/lookup";
 import { saleBlockReason, staleRegister } from "@/lib/checkout/register-status";
 import { cartTotals, formatItemCount } from "@/lib/checkout/pricing";
 import { checkoutLines, itemSummary, toCartInputs } from "@/lib/promotions/cart";
@@ -31,7 +35,7 @@ type CartItem = CheckoutLine & { key: string };
 
 export function PosWorkspace() {
   const store = useDemoStore();
-  const { device } = useShopContext();
+  const { device, scaleLabel } = useShopContext();
   const role = useEffectiveRole();
   const askApproval = useApproval();
   const [query, setQuery] = useState("");
@@ -52,6 +56,9 @@ export function PosWorkspace() {
     return () => window.clearInterval(timer);
   }, []);
   const [unknownCode, setUnknownCode] = useState<string | null>(null);
+  // Stage 2F: the weighed product whose weight is being typed, and why a scale label could not be used.
+  const [weighing, setWeighing] = useState<Product | null>(null);
+  const [labelNotice, setLabelNotice] = useState<string | null>(null);
   const [discountFor, setDiscountFor] = useState<string | null>(null);
   // Phones show the cart as a bottom sheet opened from the cart bar.
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -90,6 +97,11 @@ export function PosWorkspace() {
 
   function addProduct(product: Product) {
     setError("");
+    // Stage 2F: a product sold by weight asks for its weight first.
+    if (product.soldByWeight) {
+      setWeighing(product);
+      return;
+    }
     setCart((current) => {
       const existing = current.find((item) => item.productId === product.id);
       if (existing) {
@@ -103,12 +115,56 @@ export function PosWorkspace() {
     if (product.stock > 0) setFlash({ key: product.id, at: Date.now() });
   }
 
+  /** Stage 2F: adds one weighing as its own line, refusing more than the grams in stock. True when added. */
+  function addWeighed(product: Product, grams: number, labelPriceFils?: number): boolean {
+    const available = product.stock - cartUsage(cart, product.id);
+    if (grams > available) {
+      setError(`Only ${formatKg(Math.max(0, available))} of ${product.name} in stock.`);
+      return false;
+    }
+    const line = weighedLine(product, grams, labelPriceFils);
+    setError("");
+    setCart((current) => [...current, line]);
+    setFlash({ key: line.key, at: Date.now() });
+    return true;
+  }
+
+  /** Stage 2F: a scale label (after ordinary barcodes and SKUs). Returns false when the code is not a label. */
+  function scanLabel(code: string): boolean {
+    const label = parseScaleLabel(code, scaleLabel);
+    if ("error" in label) {
+      if (label.error === "not_scale") return false;
+      setLabelNotice(label.error === "bad_check_digit" ? "This label did not scan cleanly; scan again" : label.error === "no_value" ? "This label has no weight or price; weigh it again" : "This label is over 100 kg; weigh it again");
+    } else {
+      const product = findWeighedByScaleCode(store.products, label.scaleCode);
+      const grams = !product ? 0 : label.kind === "weight" ? label.grams : gramsForPrice(label.priceFils, product.priceFils);
+      if (!product) setLabelNotice(`No weighed product with scale code ${String(label.scaleCode).padStart(scaleLabel.codeLength, "0")}`);
+      else if (grams > MAX_LINE_GRAMS) setLabelNotice("This label is over 100 kg; weigh it again");
+      else {
+        setLabelNotice(null);
+        setQuery("");
+        beep(addWeighed(product, grams, label.kind === "price" ? label.priceFils : undefined));
+        return true;
+      }
+    }
+    setQuery("");
+    beep(false);
+    return true;
+  }
+
   /** Scanner input arrives as typed characters plus Enter: an exact barcode/SKU match is added straight to the cart. */
   function scan(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const code = query.trim();
     if (!code) return;
+    setLabelNotice(null);
     const product = findByCode(store.products, code);
+    if (product?.soldByWeight) {
+      setUnknownCode(null);
+      setQuery("");
+      setWeighing(product);
+      return;
+    }
     if (product) {
       const inCart = cart.find((item) => item.productId === product.id)?.quantity ?? 0;
       setUnknownCode(null);
@@ -122,6 +178,7 @@ export function PosWorkspace() {
       beep(true);
       return;
     }
+    if (scanLabel(code)) return;
     // Unknown codes never touch the cart; offer to create the product instead of failing silently.
     if (/^[0-9A-Za-z-]{4,}$/.test(code)) {
       setUnknownCode(code);
@@ -141,7 +198,7 @@ export function PosWorkspace() {
   }
 
   function heldLines() {
-    return { customerId, lines: cart.map(({ productId, name, sku, quantity, unitGrossFils, listUnitGrossFils }) => ({ productId, name, sku, quantity, unitGrossFils, listUnitGrossFils })) };
+    return { customerId, lines: cart.map(({ productId, name, sku, quantity, unitGrossFils, listUnitGrossFils, weightGrams, pricePerKgFils }) => ({ productId, name, sku, quantity, unitGrossFils, listUnitGrossFils, weightGrams, pricePerKgFils })) };
   }
 
   /** Leaving for /inventory unmounts the POS; hold the sale first so it can be resumed on return. */
@@ -155,7 +212,8 @@ export function PosWorkspace() {
   }
 
   function resumeHeld(held: HeldCart, notices: string[]) {
-    setCart(held.lines.map((line) => ({ ...line, key: line.productId ?? crypto.randomUUID() })));
+    // Weighed lines are never merged, so each gets its own key; other product lines are keyed by product id.
+    setCart(held.lines.map((line) => ({ ...line, key: line.weightGrams === undefined && line.productId ? line.productId : crypto.randomUUID() })));
     setCustomerId(held.customerId);
     setError(notices.join(" "));
     // The held-sales modal unmounts with focus inside it; hand focus back so F2/F3 work.
@@ -308,7 +366,8 @@ export function PosWorkspace() {
 
       <div className="pos-layout">
         <section className="panel catalog-panel">
-          <div className="panel-body"><div className="toolbar"><form className="search" onSubmit={scan} role="search"><MagnifyingGlass size={17} weight="bold" /><input ref={searchInput} className="input" value={query} onChange={(event) => { setQuery(event.target.value); setUnknownCode(null); }} placeholder="Search name, SKU, or scan barcode" autoFocus aria-label="Search products" aria-keyshortcuts="/" /></form><button className="button" onClick={() => setCustomOpen(true)}><Plus size={15} weight="bold" /> Custom item</button></div></div>
+          <div className="panel-body"><div className="toolbar"><form className="search" onSubmit={scan} role="search"><MagnifyingGlass size={17} weight="bold" /><input ref={searchInput} className="input" value={query} onChange={(event) => { setQuery(event.target.value); setUnknownCode(null); setLabelNotice(null); }} placeholder="Search name, SKU, or scan barcode" autoFocus aria-label="Search products" aria-keyshortcuts="/" /></form><button className="button" onClick={() => setCustomOpen(true)}><Plus size={15} weight="bold" /> Custom item</button></div></div>
+          {labelNotice ? <div className="notice error-notice scan-notice" role="alert"><span>{labelNotice}</span></div> : null}
           {unknownCode ? <div className="notice error-notice scan-notice" role="alert"><span>No product with code <strong>{unknownCode}</strong>.{isOwnerView(role) ? null : " Ask the shop owner to add it."}</span>{isOwnerView(role) ? <Link className="button" href={`/inventory?barcode=${encodeURIComponent(unknownCode)}`} onClick={holdBeforeAddingProduct}><Plus size={15} weight="bold" /> {cart.length ? "Hold sale & add product" : "Add product"}</Link> : null}</div> : null}
           {chips.length ? (
             <div className="category-chips" role="radiogroup" aria-label="Show category">
@@ -318,16 +377,19 @@ export function PosWorkspace() {
             </div>
           ) : null}
           <div className="product-grid">{availableProducts.map((product) => {
-            const inCart = cart.find((item) => item.productId === product.id)?.quantity ?? 0;
+            // Stage 2F: weighed products count grams in stock and in the cart; the badge counts their lines.
+            const inCart = cartUsage(cart, product.id);
+            const lineCount = product.soldByWeight ? cart.filter((item) => item.productId === product.id).length : inCart;
             const soldOut = product.stock <= inCart;
-            return <button className="product-card" key={product.id} onClick={() => addProduct(product)} disabled={soldOut}>{inCart ? <span className="in-cart-badge" aria-label={`${inCart} in cart`}>×{inCart}</span> : null}<div><span className={`badge ${product.stock <= product.lowStockThreshold ? "red" : "green"}`}>{soldOut ? "Unavailable" : `${product.stock - inCart} available`}</span><h3>{product.name}</h3><p>{product.sku}</p></div><strong>{formatAED(product.priceFils)}</strong></button>;
+            const available = product.soldByWeight ? formatKg(product.stock - inCart) : String(product.stock - inCart);
+            return <button className="product-card" key={product.id} onClick={() => addProduct(product)} disabled={soldOut}>{lineCount ? <span className="in-cart-badge" aria-label={`${lineCount} in cart`}>×{lineCount}</span> : null}<div><span className={`badge ${product.stock <= product.lowStockThreshold ? "red" : "green"}`}>{soldOut ? "Unavailable" : `${available} available`}</span><h3>{product.name}</h3><p>{product.sku}</p></div><strong>{product.soldByWeight ? perKgText(product.priceFils) : formatAED(product.priceFils)}</strong></button>;
           })}</div>
           {!availableProducts.length && <EmptyState icon={<MagnifyingGlass size={28} weight="duotone" />} title="No products found" hint="Try a different name, SKU, or barcode." />}
         </section>
 
         {completed ? <ReceiptPanel sale={completed.sale} tenderedFils={completed.tenderedFils} shop={receiptShop} onNewSale={startNewSale} /> : <aside className={`panel cart-panel ${sheetOpen ? "sheet-open" : ""}`}>
           <div className="panel-header"><div><div className="panel-title">Current cart</div><div className="panel-subtitle">{formatItemCount(cart)}</div></div><HeldCarts deviceId={device?.id ?? null} products={store.products} canHold={cart.length > 0} cartIsEmpty={!cart.length} onHold={heldLines} onHeld={() => { setCart([]); setCustomerId(undefined); focusSearch(); }} onResume={resumeHeld} />{cart.length > 0 && <button className="button" onClick={() => { setCart([]); focusSearch(); }}>Clear</button>}</div>
-          <div className="cart-lines" aria-live="polite" ref={cartLines}>{cart.length ? cart.map((item) => <div className={`cart-line ${flash?.key === item.key ? "flash" : ""}`} data-key={item.key} key={item.key}><div className="cart-line-top"><div><div className="product-name">{item.name}</div><div className="product-meta">{item.sku ?? "Custom non-stock item"}</div>{item.listUnitGrossFils ? <div className="product-meta discount-meta"><s>{formatAED(item.listUnitGrossFils)}</s> {formatAED(item.unitGrossFils)} each · −{formatAED((item.listUnitGrossFils - item.unitGrossFils) * item.quantity)}</div> : null}{(() => { const summary = itemSummary(pricing.lines, item.key); return summary.savingFils > 0 ? <div className="product-meta promo-meta">{summary.promotionName} · −{formatAED(summary.savingFils)}</div> : null; })()}</div><button className="cart-remove" onClick={() => void removeLine(item.key)} aria-label={`Remove ${item.name}`}><Trash size={15} weight="bold" /></button></div><div className="cart-line-bottom"><div className="quantity-stepper"><button onClick={() => changeQuantity(item, -1)} aria-label={`Decrease ${item.name}`}><Minus size={13} weight="bold" /></button><span>{item.quantity}</span><button onClick={() => changeQuantity(item, 1)} aria-label={`Increase ${item.name}`}><Plus size={13} weight="bold" /></button></div><button className={`button discount-button ${item.listUnitGrossFils ? "on" : ""}`} type="button" onClick={() => setDiscountFor(item.key)} aria-label={`Discount ${item.name}`} title={item.listUnitGrossFils ? "Edit discount" : "Discount"}><Tag size={14} weight="bold" />{item.listUnitGrossFils ? "Edit" : "Discount"}</button><strong>{formatAED(itemSummary(pricing.lines, item.key).totalFils)}</strong></div></div>) : <div className="cart-empty"><ShoppingCart size={30} weight="duotone" /><p>Scan a barcode, tap a product, or press <kbd>/</kbd> to search.</p></div>}</div>
+          <div className="cart-lines" aria-live="polite" ref={cartLines}>{cart.length ? cart.map((item) => <div className={`cart-line ${flash?.key === item.key ? "flash" : ""}`} data-key={item.key} key={item.key}><div className="cart-line-top"><div><div className="product-name">{item.name}</div><div className="product-meta">{item.weightGrams !== undefined ? weighedLineText(item.weightGrams, item.pricePerKgFils ?? 0) : item.sku ?? "Custom non-stock item"}</div>{item.listUnitGrossFils ? <div className="product-meta discount-meta"><s>{formatAED(item.listUnitGrossFils)}</s> {formatAED(item.unitGrossFils)} each · −{formatAED((item.listUnitGrossFils - item.unitGrossFils) * item.quantity)}</div> : null}{(() => { const summary = itemSummary(pricing.lines, item.key); return summary.savingFils > 0 ? <div className="product-meta promo-meta">{summary.promotionName} · −{formatAED(summary.savingFils)}</div> : null; })()}</div><button className="cart-remove" onClick={() => void removeLine(item.key)} aria-label={`Remove ${item.name}`}><Trash size={15} weight="bold" /></button></div><div className="cart-line-bottom">{item.weightGrams !== undefined ? <span className="cart-weight">{formatKg(item.weightGrams)}</span> : <div className="quantity-stepper"><button onClick={() => changeQuantity(item, -1)} aria-label={`Decrease ${item.name}`}><Minus size={13} weight="bold" /></button><span>{item.quantity}</span><button onClick={() => changeQuantity(item, 1)} aria-label={`Increase ${item.name}`}><Plus size={13} weight="bold" /></button></div>}<button className={`button discount-button ${item.listUnitGrossFils ? "on" : ""}`} type="button" onClick={() => setDiscountFor(item.key)} aria-label={`Discount ${item.name}`} title={item.listUnitGrossFils ? "Edit discount" : "Discount"}><Tag size={14} weight="bold" />{item.listUnitGrossFils ? "Edit" : "Discount"}</button><strong>{formatAED(itemSummary(pricing.lines, item.key).totalFils)}</strong></div></div>) : <div className="cart-empty"><ShoppingCart size={30} weight="duotone" /><p>Scan a barcode, tap a product, or press <kbd>/</kbd> to search.</p></div>}</div>
 
           <div className="checkout-block">
             <button className="customer-selector" onClick={() => setCustomerOpen(true)}><span className="customer-selector-icon">{selectedCustomer ? <IdentificationCard size={17} weight="fill" /> : <User size={17} weight="bold" />}</span><span><small>Invoice customer</small><strong>{selectedCustomer?.name ?? "Walk-in customer"}</strong></span><span className="customer-selector-action">Change</span></button>
@@ -344,6 +406,7 @@ export function PosWorkspace() {
         </aside>}
       </div>
 
+      {weighing && <WeightDialog product={weighing} availableGrams={Math.max(0, weighing.stock - cartUsage(cart, weighing.id))} onCancel={() => closeDialog(setWeighing)} onAdd={(grams) => { if (addWeighed(weighing, grams)) closeDialog(setWeighing); }} />}
       {discountLine && <LineDiscountDialog line={discountLine} onApply={(unit) => applyDiscount(discountLine.key, unit)} onRemove={() => removeDiscount(discountLine.key)} onCancel={() => closeDialog(setDiscountFor)} />}
       {!completed && <div className="pos-cart-bar"><button type="button" className="pos-cart-bar-summary" onClick={() => setSheetOpen((open) => !open)} aria-expanded={sheetOpen} aria-label="Show cart"><strong>{formatItemCount(cart)}</strong><span>{formatAED(totals.grossFils)}</span></button><button className="button primary" type="button" disabled={!canSell || !cart.length} onClick={() => pay("cash")}>Pay</button></div>}
       {payment && payment.method !== "split" && <PaymentDialog method={payment.method} totalFils={totals.grossFils} error={payment.error} onCancel={() => closeDialog(setPayment)} onComplete={(tendered, reference) => void completePayment(tendered, reference)} />}
