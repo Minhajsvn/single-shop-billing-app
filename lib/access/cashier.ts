@@ -16,13 +16,14 @@ const SELLING_LINKS: NavLink[] = [
 
 /** Pages a cashier (or manager) may open: selling, today's sales, read-only stock, customers, the register. */
 const MEMBER_PAGES = ["/overview", "/sale", "/sales", "/inventory", "/customers", "/register"];
-/** Stage 2D: a manager also records deliveries and sees the reports (the server checks each call). */
-const MANAGER_PAGES = ["/purchases", "/reports"];
+/** Stage 2D/2E: a manager also records deliveries, runs promotions and sees the reports (the server checks each call). */
+const MANAGER_PAGES = ["/purchases", "/promotions", "/reports"];
 const PURCHASES_LINK: NavLink = { href: "/purchases", label: "Purchases" };
+const PROMOTIONS_LINK: NavLink = { href: "/promotions", label: "Promotions" };
 
-/** The selling links with Purchases after Inventory. */
+/** The selling links with Purchases and Promotions after Inventory. */
 function withPurchases(links: NavLink[]): NavLink[] {
-  return links.flatMap((link) => (link.href === "/inventory" ? [link, PURCHASES_LINK] : [link]));
+  return links.flatMap((link) => (link.href === "/inventory" ? [link, PURCHASES_LINK, PROMOTIONS_LINK] : [link]));
 }
 /** The one Settings tab a cashier uses: Sync now and the outbox. */
 export const MEMBER_SETTINGS_TAB = "data";

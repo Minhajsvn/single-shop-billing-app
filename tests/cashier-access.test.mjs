@@ -46,12 +46,12 @@ test("navLinksFor: the cashier's exact links", () => {
 });
 
 test("navLinksFor: the owner keeps Reports and all of Settings", () => {
-  assert.deepEqual(navLinksFor("owner").map((link) => link.href), ["/overview", "/sale", "/sales", "/inventory", "/purchases", "/customers", "/register", "/reports", "/settings"]);
+  assert.deepEqual(navLinksFor("owner").map((link) => link.href), ["/overview", "/sale", "/sales", "/inventory", "/purchases", "/promotions", "/customers", "/register", "/reports", "/settings"]);
   assert.deepEqual(navLinksFor(null).map((link) => link.href), navLinksFor("owner").map((link) => link.href));
 });
 
 test("navLinksFor: a manager gets Purchases and Reports, and only the Data tab of Settings", () => {
-  assert.deepEqual(navLinksFor("manager").map((link) => link.href), ["/overview", "/sale", "/sales", "/inventory", "/purchases", "/customers", "/register", "/reports", "/settings?tab=data"]);
+  assert.deepEqual(navLinksFor("manager").map((link) => link.href), ["/overview", "/sale", "/sales", "/inventory", "/purchases", "/promotions", "/customers", "/register", "/reports", "/settings?tab=data"]);
   assert.equal(navLinksFor("manager").find((link) => link.href === "/purchases")?.label, "Purchases");
 });
 

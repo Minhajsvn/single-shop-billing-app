@@ -1584,3 +1584,8 @@ kbd { min-width: 22px; display: inline-grid; place-items: center; padding: 2px 6
 
 /* Stage 2E: promotions on the cart. */
 .promo-meta { color: var(--green); font-weight: 600; }
+.promotion-form .form-grid { align-items: start; }
+.promo-days { display: flex; flex-wrap: wrap; gap: 6px 14px; border: 0; padding: 0; margin: 0; }
+.promo-day { display: inline-flex; gap: 6px; align-items: center; }
+.promo-preview { font-weight: 600; color: var(--text); }
+.promo-switch { display: inline-flex; gap: 8px; align-items: center; }
