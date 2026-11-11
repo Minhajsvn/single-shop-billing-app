@@ -33,3 +33,12 @@ Task 6: Ruling: offline sale with a promotion and a refund of a promoted item we
 - `npm test` 499/499; `npm run test:sql` 8 PASS (incl. promotions_test); lint clean; typecheck clean apart from known `PageProps`; `npm run build` passes.
 - Browser (worktree dev server :3104, bundle checked for 127.0.0.1:54321 before sign-in; local Pro shop): owner created "Buy 2 get 1" on Medjool Dates (preview "Buy 2 get 1 free on Medjool Dates 1kg · from 11 Nov"); the till showed "Buy 2 get 1 · −AED 32.00" and "Promotions −AED 32.00", total 64.00 for 3 × 32.00; card sale receipt: 1 × 21.34 + 2 × 21.33 with "was AED 32.00 · saved … · Buy 2 get 1" and "You saved AED 32.00"; DB shows both lines with promotion_id, savings 1066 + 2134, cost 2583 stamped; Results tab: 1 use, 3 units, net 60.95, saving 32.00, profit −16.54. Starter (temporarily): till charged list price (96.00) and Promotions showed the Pro card.
 Task 6: complete (commit baf7bcd, tests: npm test 499/499, test:sql 8 PASS, lint, build)
+
+## Final review
+
+Final review: self-review (no subagent) — the fresh-reviewer Agent call was blocked twice because a context-mode hook rewrites its input and auto mode cannot check it; per the skill it was not retried further.
+Final: minor (deferred): promotion Results and the daily "Promotions saving" do not subtract refunded promotion units (a refund returns the charged price, so the saving stays counted).
+Final: minor (deferred): a category multi-buy counts each product separately (mix-and-match is out of scope in the spec); owners may expect "any 3 drinks for AED 10" to mix.
+Final: minor (deferred): the cart line shows one promotion name even when a basket share and an item offer both apply to it (the receipt line names the larger).
+Final: minor (deferred): a sale completed seconds after a time window closes keeps the offer until the 30-second re-price (ledgered in Task 4).
+Final: minor (deferred): when a till is offline, the Promotions page shows only the connection notice; it does not list the cached promotions.
