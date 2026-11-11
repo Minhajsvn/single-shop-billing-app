@@ -17,6 +17,8 @@ import type { HeldCart } from "@/lib/checkout/held-carts";
 import { findByCode } from "@/lib/checkout/lookup";
 import { saleBlockReason, staleRegister } from "@/lib/checkout/register-status";
 import { cartTotals, formatItemCount } from "@/lib/checkout/pricing";
+import { checkoutLines, itemSummary, toCartInputs } from "@/lib/promotions/cart";
+import { applyPromotions } from "@/lib/promotions/engine";
 import { isOwnerView } from "@/lib/access/cashier";
 import { useEffectiveRole } from "@/components/staff/use-operator";
 import { useApproval } from "@/components/staff/approval-dialog";
@@ -40,7 +42,15 @@ export function PosWorkspace() {
   const [error, setError] = useState("");
   const [payment, setPayment] = useState<{ method: "cash" | "card" | "transfer" | "split"; error?: string } | null>(null);
   // Stage 2B: splitting one sale across methods is Pro.
-  const splitAllowed = useEntitlement().hasFeature("split_payment");
+  const entitlement = useEntitlement();
+  const splitAllowed = entitlement.hasFeature("split_payment");
+  // Stage 2E: promotions price the cart on this till (offline too). The moment ticks so time windows open and close.
+  const promotionsOn = entitlement.hasFeature("promotions");
+  const [pricedAt, setPricedAt] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setPricedAt(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
   const [unknownCode, setUnknownCode] = useState<string | null>(null);
   const [discountFor, setDiscountFor] = useState<string | null>(null);
   // Phones show the cart as a bottom sheet opened from the cart bar.
@@ -69,7 +79,14 @@ export function PosWorkspace() {
   const activeChip = chip === "all" || chips.some((category) => category.id === chip) ? chip : "all";
   const availableProducts = useMemo(() => filterByCategory(store.products, activeChip, query), [activeChip, query, store.products]);
 
-  const totals = useMemo(() => cartTotals(cart), [cart]);
+  const pricing = useMemo(() => {
+    const inputs = toCartInputs(cart, store.products, store.categories ?? []);
+    return applyPromotions(inputs, promotionsOn ? store.promotions ?? [] : [], new Date(pricedAt));
+  }, [cart, store.products, store.categories, store.promotions, promotionsOn, pricedAt]);
+  const pricedLines = useMemo(() => checkoutLines(pricing.lines), [pricing]);
+  const totals = useMemo(() => cartTotals(pricedLines), [pricedLines]);
+  // The manager-approval limit judges manual discounts only (owner decision 3); promotions never need approval.
+  const manualDiscountFils = useMemo(() => cartTotals(cart).discountFils, [cart]);
 
   function addProduct(product: Product) {
     setError("");
@@ -202,9 +219,9 @@ export function PosWorkspace() {
   async function completePayment(tenderedFils: number | null, paid?: Payment[] | string) {
     if (!payment) return;
     // Stage 2A: a discount above the shop's limit needs a manager before the sale completes.
-    const approver = await askApproval({ kind: "discount", discountFils: totals.discountFils, listTotalFils: totals.grossFils + totals.discountFils });
+    const approver = await askApproval({ kind: "discount", discountFils: manualDiscountFils, listTotalFils: totals.grossFils + totals.discountFils });
     if (approver === null) return;
-    const lines = cart.map(({ productId, name, sku, quantity, unitGrossFils, listUnitGrossFils }) => ({ productId, name, sku, quantity, unitGrossFils, listUnitGrossFils }));
+    const lines = pricedLines;
     const pay = Array.isArray(paid)
       ? paid
       : payment.method === "transfer"
@@ -310,11 +327,12 @@ export function PosWorkspace() {
 
         {completed ? <ReceiptPanel sale={completed.sale} tenderedFils={completed.tenderedFils} shop={receiptShop} onNewSale={startNewSale} /> : <aside className={`panel cart-panel ${sheetOpen ? "sheet-open" : ""}`}>
           <div className="panel-header"><div><div className="panel-title">Current cart</div><div className="panel-subtitle">{formatItemCount(cart)}</div></div><HeldCarts deviceId={device?.id ?? null} products={store.products} canHold={cart.length > 0} cartIsEmpty={!cart.length} onHold={heldLines} onHeld={() => { setCart([]); setCustomerId(undefined); focusSearch(); }} onResume={resumeHeld} />{cart.length > 0 && <button className="button" onClick={() => { setCart([]); focusSearch(); }}>Clear</button>}</div>
-          <div className="cart-lines" aria-live="polite" ref={cartLines}>{cart.length ? cart.map((item) => <div className={`cart-line ${flash?.key === item.key ? "flash" : ""}`} data-key={item.key} key={item.key}><div className="cart-line-top"><div><div className="product-name">{item.name}</div><div className="product-meta">{item.sku ?? "Custom non-stock item"}</div>{item.listUnitGrossFils ? <div className="product-meta discount-meta"><s>{formatAED(item.listUnitGrossFils)}</s> {formatAED(item.unitGrossFils)} each · −{formatAED((item.listUnitGrossFils - item.unitGrossFils) * item.quantity)}</div> : null}</div><button className="cart-remove" onClick={() => void removeLine(item.key)} aria-label={`Remove ${item.name}`}><Trash size={15} weight="bold" /></button></div><div className="cart-line-bottom"><div className="quantity-stepper"><button onClick={() => changeQuantity(item, -1)} aria-label={`Decrease ${item.name}`}><Minus size={13} weight="bold" /></button><span>{item.quantity}</span><button onClick={() => changeQuantity(item, 1)} aria-label={`Increase ${item.name}`}><Plus size={13} weight="bold" /></button></div><button className={`button discount-button ${item.listUnitGrossFils ? "on" : ""}`} type="button" onClick={() => setDiscountFor(item.key)} aria-label={`Discount ${item.name}`} title={item.listUnitGrossFils ? "Edit discount" : "Discount"}><Tag size={14} weight="bold" />{item.listUnitGrossFils ? "Edit" : "Discount"}</button><strong>{formatAED(item.unitGrossFils * item.quantity)}</strong></div></div>) : <div className="cart-empty"><ShoppingCart size={30} weight="duotone" /><p>Scan a barcode, tap a product, or press <kbd>/</kbd> to search.</p></div>}</div>
+          <div className="cart-lines" aria-live="polite" ref={cartLines}>{cart.length ? cart.map((item) => <div className={`cart-line ${flash?.key === item.key ? "flash" : ""}`} data-key={item.key} key={item.key}><div className="cart-line-top"><div><div className="product-name">{item.name}</div><div className="product-meta">{item.sku ?? "Custom non-stock item"}</div>{item.listUnitGrossFils ? <div className="product-meta discount-meta"><s>{formatAED(item.listUnitGrossFils)}</s> {formatAED(item.unitGrossFils)} each · −{formatAED((item.listUnitGrossFils - item.unitGrossFils) * item.quantity)}</div> : null}{(() => { const summary = itemSummary(pricing.lines, item.key); return summary.savingFils > 0 ? <div className="product-meta promo-meta">{summary.promotionName} · −{formatAED(summary.savingFils)}</div> : null; })()}</div><button className="cart-remove" onClick={() => void removeLine(item.key)} aria-label={`Remove ${item.name}`}><Trash size={15} weight="bold" /></button></div><div className="cart-line-bottom"><div className="quantity-stepper"><button onClick={() => changeQuantity(item, -1)} aria-label={`Decrease ${item.name}`}><Minus size={13} weight="bold" /></button><span>{item.quantity}</span><button onClick={() => changeQuantity(item, 1)} aria-label={`Increase ${item.name}`}><Plus size={13} weight="bold" /></button></div><button className={`button discount-button ${item.listUnitGrossFils ? "on" : ""}`} type="button" onClick={() => setDiscountFor(item.key)} aria-label={`Discount ${item.name}`} title={item.listUnitGrossFils ? "Edit discount" : "Discount"}><Tag size={14} weight="bold" />{item.listUnitGrossFils ? "Edit" : "Discount"}</button><strong>{formatAED(itemSummary(pricing.lines, item.key).totalFils)}</strong></div></div>) : <div className="cart-empty"><ShoppingCart size={30} weight="duotone" /><p>Scan a barcode, tap a product, or press <kbd>/</kbd> to search.</p></div>}</div>
 
           <div className="checkout-block">
             <button className="customer-selector" onClick={() => setCustomerOpen(true)}><span className="customer-selector-icon">{selectedCustomer ? <IdentificationCard size={17} weight="fill" /> : <User size={17} weight="bold" />}</span><span><small>Invoice customer</small><strong>{selectedCustomer?.name ?? "Walk-in customer"}</strong></span><span className="customer-selector-action">Change</span></button>
-            {totals.discountFils > 0 ? <div className="summary-line discount"><span>Discount</span><strong>−{formatAED(totals.discountFils)}</strong></div> : null}
+            {manualDiscountFils > 0 ? <div className="summary-line discount"><span>Discount</span><strong>−{formatAED(manualDiscountFils)}</strong></div> : null}
+            {pricing.savingFils > 0 ? <div className="summary-line discount"><span>Promotions</span><strong>−{formatAED(pricing.savingFils)}</strong></div> : null}
             <div className="summary-line net"><span>Net</span><strong>{formatAED(totals.netFils)}</strong></div>
             <div className="summary-line vat"><span>VAT 5%</span><strong>{formatAED(totals.vatFils)}</strong></div>
             <div className="summary-line total"><span>Total</span><strong>{formatAED(totals.grossFils)}</strong></div>

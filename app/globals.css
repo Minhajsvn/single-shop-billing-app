@@ -1581,3 +1581,6 @@ kbd { min-width: 22px; display: inline-grid; place-items: center; padding: 2px 6
 .delivery-totals > div span { color: var(--muted); font-size: 13px; }
 .delivery-totals strong { font-size: 18px; font-variant-numeric: tabular-nums; }
 @media (max-width: 640px) { .inline-field { flex-direction: column; } .qty-input { width: 100%; } }
+
+/* Stage 2E: promotions on the cart. */
+.promo-meta { color: var(--green); font-weight: 600; }

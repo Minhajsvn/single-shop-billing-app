@@ -58,6 +58,8 @@ export function buildDailyReport(state: DemoState, date: string) {
     cardFils: salesBy.card - returnsBy.card,
     transferFils: salesBy.transfer - returnsBy.transfer,
     returnsFils: returnsBy.cash + returnsBy.card + returnsBy.transfer,
+    // Stage 2E: what promotions took off the day's sales (a refund returns the charged price, so it does not change this).
+    promotionSavingFils: sales.reduce((sum, sale) => sum + sale.lines.reduce((lineSum, line) => lineSum + (line.promotionSavingFils ?? 0), 0), 0),
     register,
   };
 }

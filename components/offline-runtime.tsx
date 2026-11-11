@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { shouldAutoSync } from "@/lib/sync/auto-sync";
-import { isSyncing, reconcilePendingOperations, subscribeSyncing, useDemoStore, useShopContext } from "@/lib/demo-store";
+import { isSyncing, reconcilePendingOperations, refreshSnapshot, subscribeSyncing, useDemoStore, useShopContext } from "@/lib/demo-store";
+import { shouldRefresh } from "@/lib/promotions/refresh";
 import { productSyncProblems } from "@/lib/store/product-sync";
 import { categorySyncProblems } from "@/lib/catalogue/categories";
 import { syncStatus } from "@/lib/sync/status-text";
@@ -62,6 +63,29 @@ export function OfflineRuntime({ ready = true }: { ready?: boolean }) {
     const timer = window.setTimeout(() => { void reconcilePendingOperations(); }, 900);
     return () => window.clearTimeout(timer);
   }, [ready, online, pending]);
+
+  // Stage 2E: pick up shop changes (promotions, prices) while online: every 5 minutes and when the tab comes back.
+  const { mode } = useShopContext();
+  useEffect(() => {
+    if (!ready || !online || mode !== "hosted") return;
+    let lastAt = Date.now();
+    const refresh = () => {
+      if (!shouldRefresh(lastAt, Date.now())) return;
+      lastAt = Date.now();
+      void refreshSnapshot();
+    };
+    const timer = window.setInterval(refresh, 60_000);
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      lastAt = 0;
+      refresh();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [ready, online, mode]);
 
   return null;
 }
