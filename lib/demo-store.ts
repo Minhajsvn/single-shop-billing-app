@@ -48,7 +48,9 @@ import type { ChecklistFlags } from "@/lib/onboarding/checklist";
 import type { ImportPlan } from "@/lib/catalogue/classify";
 import { normalizePromotions } from "@/lib/promotions/live";
 import { liveCategories, normalizeCategories, supersedeCategoryOperations, validCategoryName } from "@/lib/catalogue/categories";
-import { heldStockOperations, stampSequence, supersedeProductOperations, syncOrder, withTaxCategories } from "@/lib/store/product-sync";
+import { heldStockOperations, productRecordOf, stampSequence, supersedeProductOperations, syncOrder, weighingProblem, withTaxCategories } from "@/lib/store/product-sync";
+import { DEFAULT_SCALE_LABEL, type ScaleLabelSettings } from "@/lib/weighing/types";
+import { formatKg } from "@/lib/weighing/kg";
 import { useSyncExternalStore } from "react";
 
 // Sample and unconfigured (no Supabase) modes keep using the original browser-only demo keys.
@@ -126,6 +128,8 @@ export type ShopContext = {
   lockSettings: LockSettings;
   staff: StaffMember[];
   pinLock: boolean;
+  /** Stage 2F: how this shop's scale labels are laid out (the default until the snapshot says otherwise). */
+  scaleLabel: ScaleLabelSettings;
 };
 
 function sampleRequested() {
@@ -172,6 +176,7 @@ function buildContext(): ShopContext {
     lockSettings: hostedContext.lockSettings ?? DEFAULT_LOCK_SETTINGS,
     staff: hostedContext.staff ?? [],
     pinLock: mode === "hosted" && hostedContext.role === "owner" && (hostedContext.lockSettings ?? DEFAULT_LOCK_SETTINGS).pinLockEnabled,
+    scaleLabel: hostedContext.scaleLabel ?? DEFAULT_SCALE_LABEL,
   };
 }
 
@@ -331,6 +336,7 @@ function applySnapshot(snapshot: ShopSnapshot) {
     lastRefreshedAt: snapshot.generatedAt,
     lockSettings: snapshot.lockSettings ?? DEFAULT_LOCK_SETTINGS,
     staff: snapshot.staff ?? [],
+    scaleLabel: snapshot.scaleLabel ?? DEFAULT_SCALE_LABEL,
   };
   reconcileOperator(snapshot.staff ?? []);
   save(merged);
@@ -550,7 +556,7 @@ function enqueueInOrder(next: DemoState, items: QueuedItem[]): DemoState {
 }
 
 function productRecord(product: Product): ProductRecord {
-  return { id: product.id, name: product.name, sku: product.sku, barcode: product.barcode, priceFils: product.priceFils, lowStockThreshold: product.lowStockThreshold, active: product.active, taxCategory: product.taxCategory, categoryId: product.categoryId ?? null };
+  return productRecordOf(product);
 }
 
 function productItem(product: Product): QueuedItem {
@@ -576,6 +582,8 @@ export function addProduct(input: Omit<Product, "id" | "active">): { ok: true; p
   const limit = productLimit();
   if (limit !== null && state.products.filter((product) => product.active).length >= limit) return { ok: false, error: overLimitError(limit) };
   const product: Product = { ...input, id: crypto.randomUUID(), active: true };
+  const weighing = weighingProblem(state.products, product, null);
+  if (weighing) return { ok: false, error: weighing };
   const movement: StockMovement | null = input.stock > 0 ? {
     id: crypto.randomUUID(), productId: product.id, delta: input.stock, type: "opening", reason: "Opening stock", createdAt: new Date().toISOString(),
   } : null;
@@ -585,7 +593,7 @@ export function addProduct(input: Omit<Product, "id" | "active">): { ok: true; p
   return { ok: true, product };
 }
 
-export type ProductPatch = Partial<Pick<Product, "name" | "sku" | "barcode" | "priceFils" | "lowStockThreshold" | "taxCategory" | "categoryId">>;
+export type ProductPatch = Partial<Pick<Product, "name" | "sku" | "barcode" | "priceFils" | "lowStockThreshold" | "taxCategory" | "categoryId" | "soldByWeight" | "scaleCode">>;
 
 export function updateProduct(id: string, patch: ProductPatch): { ok: true } | { ok: false; error: string } {
   const current = state.products.find((product) => product.id === id);
@@ -594,6 +602,8 @@ export function updateProduct(id: string, patch: ProductPatch): { ok: true } | {
   if (!updated.name.trim() || !updated.sku.trim()) return { ok: false, error: "Name and SKU are required." };
   if (!Number.isInteger(updated.priceFils) || updated.priceFils < 1) return { ok: false, error: "Enter a price above 0." };
   if (duplicateOf(id, updated.sku, updated.barcode)) return { ok: false, error: "SKU and barcode must be unique." };
+  const weighing = weighingProblem(state.products, updated, current);
+  if (weighing) return { ok: false, error: weighing };
   const next = { ...state, products: state.products.map((product) => product.id === id ? updated : product), syncOperations: supersedeProductOperations(state.syncOperations, id) };
   save(enqueueInOrder(next, [productItem(updated)]));
   return { ok: true };
@@ -789,7 +799,8 @@ export function closeRegister(countedCashFils: number, approvedByMemberId?: stri
   save(queueRegisterOperation({ ...state, register }, crypto.randomUUID(), { action: "close", register }));
   return true;
 }
-export type CheckoutLine = { productId?: string; name: string; sku?: string; quantity: number; unitGrossFils: number; listUnitGrossFils?: number; promotionId?: string; promotionName?: string; promotionSavingFils?: number };
+/** Stage 2F: a weighed line is quantity 1 at its total price, with its grams (and its per-kg price, kept on this device). */
+export type CheckoutLine = { productId?: string; name: string; sku?: string; quantity: number; unitGrossFils: number; listUnitGrossFils?: number; promotionId?: string; promotionName?: string; promotionSavingFils?: number; weightGrams?: number; pricePerKgFils?: number };
 
 function invoicePrefix() {
   if (mode === "hosted") return contextSnapshot.business?.invoicePrefix ?? "SL";
@@ -826,12 +837,16 @@ export function completeSale(inputLines: CheckoutLine[], pay: Payment[] | PayMet
   const requested = new Map<string, number>();
   for (const item of inputLines) {
     if (item.quantity < 1 || item.unitGrossFils < 1) return { ok: false, error: "Every line requires a valid quantity and price." };
-    if (item.productId) requested.set(item.productId, (requested.get(item.productId) ?? 0) + item.quantity);
+    if (item.weightGrams !== undefined && (item.quantity !== 1 || !Number.isInteger(item.weightGrams) || item.weightGrams < 1)) return { ok: false, error: "Every line requires a valid quantity and price." };
+    // Stage 2F: stock is grams for weighed products.
+    if (item.productId) requested.set(item.productId, (requested.get(item.productId) ?? 0) + (item.weightGrams ?? item.quantity));
   }
   for (const [productId, quantity] of requested) {
     const product = state.products.find((item) => item.id === productId);
     if (!product || !product.active) return { ok: false, error: "A cart product is no longer available." };
-    if (product.stock < quantity) return { ok: false, error: `${product.name} has only ${product.stock} available.` };
+    const weighedLines = inputLines.filter((line) => line.productId === productId && line.weightGrams !== undefined).length;
+    if (Boolean(product.soldByWeight) !== (weighedLines > 0)) return { ok: false, error: `${product.name} changed how it is sold; remove it and add it again.` };
+    if (product.stock < quantity) return { ok: false, error: `${product.name} has only ${product.soldByWeight ? formatKg(product.stock) : product.stock} available.` };
   }
 
   const now = new Date();
@@ -861,7 +876,7 @@ export function completeSale(inputLines: CheckoutLine[], pay: Payment[] | PayMet
     ...actorFields(lockedOperator(), approvedByMemberId),
   };
   const movements: StockMovement[] = lines.filter((item) => item.productId).map((item) => ({
-    id: crypto.randomUUID(), productId: item.productId!, delta: -item.quantity, type: "sale", reason: sale.invoiceNumber, createdAt: sale.createdAt,
+    id: crypto.randomUUID(), productId: item.productId!, delta: -(item.weightGrams ?? item.quantity), type: "sale", reason: sale.invoiceNumber, createdAt: sale.createdAt,
   }));
   save(queueSaleOperation({
     ...state,
@@ -918,8 +933,14 @@ export function createCreditNote(saleId: string, requestedQuantities: Record<str
     ...actorFields(lockedOperator(), approvedByMemberId),
   };
   const restored = new Map<string, number>();
-  for (const item of lines) if (item.productId) restored.set(item.productId, (restored.get(item.productId) ?? 0) + item.quantity);
-  const movements: StockMovement[] = lines.filter((item) => item.productId).map((item) => ({ id: crypto.randomUUID(), productId: item.productId!, delta: item.quantity, type: "return", reason: creditNote.creditNoteNumber, createdAt: creditNote.createdAt }));
+  // Stage 2F: a weighed line puts its grams back, but only while the product is still sold by weight (and the reverse),
+  // as the server does.
+  const restocks = (item: InvoiceLine) => {
+    const product = item.productId ? state.products.find((candidate) => candidate.id === item.productId) : undefined;
+    return Boolean(product) && Boolean(product!.soldByWeight) === (item.weightGrams !== undefined);
+  };
+  for (const item of lines) if (item.productId && restocks(item)) restored.set(item.productId, (restored.get(item.productId) ?? 0) + (item.weightGrams ?? item.quantity));
+  const movements: StockMovement[] = lines.filter((item) => item.productId && restocks(item)).map((item) => ({ id: crypto.randomUUID(), productId: item.productId!, delta: item.weightGrams ?? item.quantity, type: "return", reason: creditNote.creditNoteNumber, createdAt: creditNote.createdAt }));
   const next = {
     ...state,
     products: state.products.map((product) => restored.has(product.id) ? { ...product, stock: product.stock + restored.get(product.id)! } : product),

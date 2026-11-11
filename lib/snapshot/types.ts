@@ -1,5 +1,6 @@
 import type { DemoState } from "../domain.ts";
 import type { CountryCode, CurrencyCode } from "../fiscal/countries.ts";
+import type { ScaleLabelSettings } from "../weighing/types.ts";
 
 export type BusinessProfile = { id: string; legalName: string; trn: string; address: string; phone: string; invoicePrefix: string; receiptFooter: string; country: CountryCode; currency: CurrencyCode };
 export type TillDevice = { id: string; name: string; tillNumber: number; branchId: string; branchName: string; status: "active" | "paused" | "revoked" };
@@ -8,11 +9,11 @@ export type MemberRole = "owner" | "manager" | "cashier";
 export type StaffMember = { memberId: string; displayName: string; role: MemberRole; status: "active" | "disabled"; pinHash: string | null; pinSalt: string | null };
 export type LockSettings = { pinLockEnabled: boolean; idleLockMinutes: number; managerDiscountPct: number };
 export const DEFAULT_LOCK_SETTINGS: LockSettings = { pinLockEnabled: false, idleLockMinutes: 5, managerDiscountPct: 10 };
-export type ShopSnapshot = { business: BusinessProfile; devices: TillDevice[]; role: MemberRole | null; state: DemoState; generatedAt: string; lockSettings: LockSettings; staff: StaffMember[] };
+export type ShopSnapshot = { business: BusinessProfile; devices: TillDevice[]; role: MemberRole | null; state: DemoState; generatedAt: string; lockSettings: LockSettings; staff: StaffMember[]; scaleLabel: ScaleLabelSettings };
 
 type Money = { net_fils: number; vat_fils: number; gross_fils: number };
 type PaymentRow = { id: string; method: string; amount_fils: number; reference: string | null };
-type LineRow = Money & { id: string; product_id: string | null; description: string; sku: string | null; quantity: number; unit_gross_fils: number; list_unit_gross_fils?: number | null; promotion_id?: string | null; promotion_saving_fils?: number | null };
+type LineRow = Money & { id: string; product_id: string | null; description: string; sku: string | null; quantity: number; unit_gross_fils: number; list_unit_gross_fils?: number | null; promotion_id?: string | null; promotion_saving_fils?: number | null; weight_grams?: number | null };
 
 export type SnapshotRows = {
   role: string | null;
@@ -20,9 +21,9 @@ export type SnapshotRows = {
   lock?: { pin_lock_enabled: boolean; idle_lock_minutes: number; manager_discount_pct: number; lock_allowed: boolean } | null;
   /** Owner sessions only (staff_list); empty for everyone else. */
   staff?: { member_id: string; display_name: string | null; role: string; status: string; pin_hash: string | null; pin_salt: string | null }[];
-  business: { id: string; legal_name: string; trn: string; address: string; phone: string; invoice_prefix: string; receipt_footer: string; country: string; currency: string };
+  business: { id: string; legal_name: string; trn: string; address: string; phone: string; invoice_prefix: string; receipt_footer: string; country: string; currency: string; scale_label?: unknown };
   devices: { id: string; name: string; till_number: number; branch_id: string; status: string; branch?: { name: string } | null }[];
-  products: { id: string; name: string; sku: string; barcode: string | null; price_fils: number; stock_quantity: number; low_stock_threshold: number; status: string; tax_category?: string | null; category_id?: string | null }[];
+  products: { id: string; name: string; sku: string; barcode: string | null; price_fils: number; stock_quantity: number; low_stock_threshold: number; status: string; tax_category?: string | null; category_id?: string | null; sold_by_weight?: boolean | null; scale_code?: number | null }[];
   /** Stage 2C. Absent from an older server. */
   categories?: { id: string; name: string; sort_order: number; archived_at: string | null }[];
   /** Stage 2E. Absent from an older server. Numeric columns may arrive as strings. */

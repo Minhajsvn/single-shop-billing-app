@@ -1,6 +1,6 @@
 import type { Product } from "../domain.ts";
 
-export type HeldLine = { productId?: string; name: string; sku?: string; quantity: number; unitGrossFils: number; listUnitGrossFils?: number };
+export type HeldLine = { productId?: string; name: string; sku?: string; quantity: number; unitGrossFils: number; listUnitGrossFils?: number; weightGrams?: number; pricePerKgFils?: number };
 export type HeldCart = { id: string; heldAt: string; customerId?: string; lines: HeldLine[] };
 
 /** Held sales are a cashier convenience on one till, not fiscal documents: they never sync. */
@@ -21,12 +21,27 @@ export function resumeCart(list: HeldCart[], id: string, products: Product[]): {
   const held = list.find((cart) => cart.id === id);
   if (!held) return { ok: false, error: "That held sale is no longer available." };
   const notices: string[] = [];
+  const used = new Map<string, number>();
   const lines = held.lines.flatMap((line) => {
     if (!line.productId) return [line];
     const product = products.find((candidate) => candidate.id === line.productId);
     if (!product || !product.active || product.stock < 1) {
       notices.push(`${line.name} is no longer available and was removed.`);
       return [];
+    }
+    // Stage 2F: a weighed line needs its grams in stock; a product switched to or from weighing since the hold is dropped.
+    if (Boolean(product.soldByWeight) !== (line.weightGrams !== undefined)) {
+      notices.push(`${line.name} is now sold ${product.soldByWeight ? "by weight" : "by the item"} and was removed; add it again.`);
+      return [];
+    }
+    if (line.weightGrams !== undefined) {
+      used.set(product.id, (used.get(product.id) ?? 0) + line.weightGrams);
+      if (used.get(product.id)! > product.stock) {
+        notices.push(`${line.name} is no longer in stock for that weight and was removed.`);
+        used.set(product.id, used.get(product.id)! - line.weightGrams);
+        return [];
+      }
+      return [line];
     }
     if (line.quantity > product.stock) {
       notices.push(`${line.name} reduced to ${product.stock} (stock changed).`);

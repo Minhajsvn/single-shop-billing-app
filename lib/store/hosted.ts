@@ -4,6 +4,7 @@ import { normalizePromotions } from "../promotions/live.ts";
 import { READ_ONLY_ENTITLEMENTS, type Entitlements } from "../billing/entitlements.ts";
 import type { DemoState, SyncOperation } from "../domain.ts";
 import type { BusinessProfile, LockSettings, MemberRole, StaffMember, TillDevice } from "../snapshot/types.ts";
+import type { ScaleLabelSettings } from "../weighing/types.ts";
 
 export type EntitlementCache = { entitlements: Entitlements; expiresAt: string };
 
@@ -16,6 +17,8 @@ export type HostedContext = {
   /** Stage 2A: PIN lock settings and (owner sessions only) the staff list; cached so the lock works offline. */
   lockSettings?: LockSettings;
   staff?: StaffMember[];
+  /** Stage 2F: the shop's scale label layout; absent in caches written before 2F (the default applies). */
+  scaleLabel?: ScaleLabelSettings;
   lastRefreshedAt: string | null;
 };
 

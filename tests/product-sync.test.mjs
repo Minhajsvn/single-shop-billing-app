@@ -90,3 +90,23 @@ test("rejectionText maps server codes and passes unknown ones through", () => {
   assert.equal(rejectionText("plan_limit_reached"), "Your plan's product limit is reached: upgrade to Pro or archive products.");
   assert.equal(rejectionText("something_else"), "something_else");
 });
+
+test("Stage 2F: the product record sent to the server carries soldByWeight and scaleCode", async () => {
+  const { productRecordOf } = await import("../lib/store/product-sync.ts");
+  const product = { id: "p1", name: "Dates", sku: "DAT", priceFils: 4000, stock: 0, lowStockThreshold: 500, active: true, taxCategory: "standard", soldByWeight: true, scaleCode: 1234 };
+  assert.deepEqual(productRecordOf(product), { id: "p1", name: "Dates", sku: "DAT", barcode: undefined, priceFils: 4000, lowStockThreshold: 500, active: true, taxCategory: "standard", categoryId: null, soldByWeight: true, scaleCode: 1234 });
+  assert.deepEqual(productRecordOf({ ...product, soldByWeight: undefined, scaleCode: undefined }).soldByWeight, false);
+  assert.equal(productRecordOf({ ...product, scaleCode: undefined }).scaleCode, null);
+});
+
+test("Stage 2F: weighing changes are checked on the till: a used scale code, or a switch with stock", async () => {
+  const { weighingProblem } = await import("../lib/store/product-sync.ts");
+  const dates = { id: "p1", name: "Dates", sku: "DAT", priceFils: 4000, stock: 0, lowStockThreshold: 0, active: true, taxCategory: "standard", soldByWeight: true, scaleCode: 1234 };
+  const nuts = { ...dates, id: "p2", name: "Nuts", sku: "NUT", stock: 5, soldByWeight: false, scaleCode: null };
+  const products = [dates, nuts];
+  assert.equal(weighingProblem(products, { ...nuts, scaleCode: 1234 }, nuts), "Scale code 1234 is already used by Dates.");
+  assert.equal(weighingProblem(products, { ...nuts, soldByWeight: true }, nuts), "Set stock to 0 before changing how this product is sold.");
+  assert.equal(weighingProblem(products, { ...dates, scaleCode: 1234, name: "Medjool" }, dates), null, "its own code");
+  assert.equal(weighingProblem(products, { ...nuts, scaleCode: 0 }, nuts), "Scale codes are whole numbers from 1 to 999999.");
+  assert.equal(weighingProblem(products, { ...nuts, id: "new", stock: 2500, soldByWeight: true }, null), null, "a new product starts with its opening stock");
+});

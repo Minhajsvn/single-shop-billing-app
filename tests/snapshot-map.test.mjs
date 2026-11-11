@@ -59,7 +59,7 @@ test("tills carry their branch name, or Main branch when the snapshot has none",
 
 test("maps products, customers and sales with lines and supplier", () => {
   const { state } = mapSnapshotRows(rows, "x");
-  assert.deepEqual(state.products[0], { id: "p1", name: "Coffee", sku: "COF", barcode: undefined, priceFils: 2850, stock: 4, lowStockThreshold: 5, active: true, taxCategory: "zero", categoryId: null });
+  assert.deepEqual(state.products[0], { id: "p1", name: "Coffee", sku: "COF", barcode: undefined, priceFils: 2850, stock: 4, lowStockThreshold: 5, active: true, taxCategory: "zero", categoryId: null, soldByWeight: false, scaleCode: null });
   assert.equal(state.customers[0].email, undefined);
   assert.equal(state.sales[0].lines[0].productId, "p1");
   assert.equal(state.sales[0].supplier?.name, "Smoke LLC");
@@ -148,4 +148,23 @@ test("Stage 2B: sale and credit note payment rows map to camelCase payments; non
     { id: "p2", method: "transfer", amountFils: 2720, reference: "TT-1" },
   ]);
   assert.equal(mapSnapshotRows(rows, "x").state.sales[0].payments, undefined);
+});
+
+test("Stage 2F: weighed products, line grams and the scale label setting map from the snapshot", () => {
+  const weighed = {
+    ...rows,
+    business: { ...rows.business, scale_label: { prefixes: ["23"], codeLength: 6, value: "price" } },
+    products: [...rows.products, { id: "p2", name: "Dates", sku: "DAT", barcode: null, price_fils: 4000, stock_quantity: 4250, low_stock_threshold: 500, status: "active", sold_by_weight: true, scale_code: 1234 }],
+    sales: [{ ...rows.sales[0], sale_items: [...rows.sales[0].sale_items, { id: "l2", product_id: "p2", description: "Dates", sku: "DAT", quantity: 1, unit_gross_fils: 3000, net_fils: 2857, vat_fils: 143, gross_fils: 3000, weight_grams: 750 }] }],
+  };
+  const snapshot = mapSnapshotRows(weighed, "2026-11-13T00:00:00Z");
+  const [coffee, dates] = snapshot.state.products;
+  assert.equal(coffee.soldByWeight, false);
+  assert.equal(coffee.scaleCode, null);
+  assert.equal(dates.soldByWeight, true);
+  assert.equal(dates.scaleCode, 1234);
+  assert.equal(snapshot.state.sales[0].lines[0].weightGrams, undefined);
+  assert.equal(snapshot.state.sales[0].lines[1].weightGrams, 750);
+  assert.deepEqual(snapshot.scaleLabel, { prefixes: ["23"], codeLength: 6, value: "price" });
+  assert.deepEqual(mapSnapshotRows(rows, "2026-11-13T00:00:00Z").scaleLabel, { prefixes: ["21", "22"], codeLength: 5, value: "weight" }, "older server: default");
 });

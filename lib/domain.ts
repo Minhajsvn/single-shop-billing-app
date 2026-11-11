@@ -68,6 +68,9 @@ export type InvoiceLine = {
   promotionId?: string;
   promotionName?: string;
   promotionSavingFils?: number;
+  /** Stage 2F: a weighed line (quantity 1) and its grams; the per-kg price is kept on this device for receipts. */
+  weightGrams?: number;
+  pricePerKgFils?: number;
   netFils: number;
   vatFils: number;
   grossFils: number;
