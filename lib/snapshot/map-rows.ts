@@ -1,5 +1,6 @@
 import type { CustomerSnapshot, DemoState, InvoiceLine, Payment, PaymentMethod, Sale, StockMovement, SupplierSnapshot } from "../domain.ts";
 import type { CountryCode, CurrencyCode, TaxCategory } from "../fiscal/countries.ts";
+import type { Promotion } from "../promotions/types.ts";
 import { DEFAULT_LOCK_SETTINGS, type LockSettings, type ShopSnapshot, type SnapshotRows, type StaffMember } from "./types.ts";
 
 /** Stage 2A lock settings; off when the server sends none or the plan does not include staff_roles. */
@@ -31,11 +32,26 @@ function summary(value: string): PaymentMethod {
   return value === "card" || value === "transfer" || value === "split" ? value : "cash";
 }
 
+const numberOrNull = (value: number | string | null) => (value === null || value === undefined ? null : Number(value));
+const hhmm = (value: string | null) => (value ? value.slice(0, 5) : null);
+
+/** Stage 2E: a promotions row as the till's Promotion. */
+function mapPromotion(p: NonNullable<SnapshotRows["promotions"]>[number]): Promotion {
+  return {
+    id: p.id, name: p.name, kind: p.kind as Promotion["kind"], targetType: p.target_type as Promotion["targetType"], targetId: p.target_id,
+    percent: numberOrNull(p.percent), amountFils: numberOrNull(p.amount_fils), buyQty: p.buy_qty, getQty: p.get_qty,
+    bundlePriceFils: numberOrNull(p.bundle_price_fils), minBasketFils: numberOrNull(p.min_basket_fils),
+    startsOn: p.starts_on, endsOn: p.ends_on, days: p.days, fromTime: hhmm(p.from_time), toTime: hhmm(p.to_time),
+    active: p.active, archived: p.archived_at !== null, createdAt: p.created_at,
+  };
+}
+
 function mapLine(row: SnapshotRows["sales"][number]["sale_items"][number]): InvoiceLine {
   return {
     id: row.id, productId: optional(row.product_id), name: row.description, sku: optional(row.sku), quantity: row.quantity,
     unitGrossFils: Number(row.unit_gross_fils), netFils: Number(row.net_fils), vatFils: Number(row.vat_fils), grossFils: Number(row.gross_fils),
     listUnitGrossFils: row.list_unit_gross_fils == null ? undefined : Number(row.list_unit_gross_fils),
+    ...(row.promotion_id ? { promotionId: row.promotion_id, promotionSavingFils: Number(row.promotion_saving_fils ?? 0) } : {}),
   };
 }
 
@@ -62,6 +78,7 @@ export function mapSnapshotRows(rows: SnapshotRows, generatedAt: string): ShopSn
       id: p.id, name: p.name, sku: p.sku, barcode: optional(p.barcode), priceFils: Number(p.price_fils), stock: p.stock_quantity, lowStockThreshold: p.low_stock_threshold, active: p.status === "active", taxCategory: taxCategory(p.tax_category), categoryId: p.category_id ?? null,
     })),
     categories: (rows.categories ?? []).map((c) => ({ id: c.id, name: c.name, sortOrder: Number(c.sort_order), archived: c.archived_at !== null })),
+    promotions: (rows.promotions ?? []).map(mapPromotion),
     customers: rows.customers.map((c) => ({
       id: c.id, name: c.name, phone: c.phone, email: optional(c.email), address: optional(c.address), trn: optional(c.trn), createdAt: c.created_at, updatedAt: c.updated_at,
     })),

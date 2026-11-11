@@ -41,3 +41,8 @@ export function isLive(promotion: Promotion, now: Date): boolean {
   if (moment.minutes < to) return dayAllowed(promotion, shiftDate(moment.date, -1), moment.weekday === 1 ? 7 : moment.weekday - 1);
   return false;
 }
+
+/** Saved state from before Stage 2E has no promotions. */
+export function normalizePromotions(value: unknown): Promotion[] {
+  return Array.isArray(value) ? (value as Promotion[]) : [];
+}

@@ -45,6 +45,9 @@ const saleLineSchema = z.object({
   quantity: z.number().int().positive(),
   unitGrossFils: z.number().int().positive(),
   listUnitGrossFils: z.number().int().positive().optional(),
+  // Stage 2E: the promotion that priced the line (absent on older tills).
+  promotionId: z.string().uuid().optional(),
+  promotionSavingFils: z.number().int().nonnegative().optional(),
   netFils: z.number().int().nonnegative(),
   vatFils: z.number().int().nonnegative(),
   grossFils: z.number().int().positive(),

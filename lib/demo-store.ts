@@ -46,6 +46,7 @@ import {
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import type { ChecklistFlags } from "@/lib/onboarding/checklist";
 import type { ImportPlan } from "@/lib/catalogue/classify";
+import { normalizePromotions } from "@/lib/promotions/live";
 import { liveCategories, normalizeCategories, supersedeCategoryOperations, validCategoryName } from "@/lib/catalogue/categories";
 import { heldStockOperations, stampSequence, supersedeProductOperations, syncOrder, withTaxCategories } from "@/lib/store/product-sync";
 import { useSyncExternalStore } from "react";
@@ -87,6 +88,7 @@ function seededSale(id: string, invoiceNumber: string, createdAt: string, paymen
 const initialState: DemoState = {
   products: initialProducts,
   categories: [],
+  promotions: [],
   stockMovements: [],
   sales: [
     seededSale("sale-001", "SL-260830-0010", "2026-08-30T07:54:00.000Z", "cash", [line("prd-005", "Premium Date Box", "DAT-PRM", 1, 6800)]),
@@ -221,6 +223,7 @@ function normalizeState(saved: Partial<DemoState>): DemoState {
   return {
     products: withTaxCategories(saved.products ?? initialState.products),
     categories: normalizeCategories(saved.categories),
+    promotions: normalizePromotions(saved.promotions),
     stockMovements: saved.stockMovements ?? [],
     sales: saved.sales ?? initialState.sales,
     customers: saved.customers ?? initialCustomers,
@@ -786,7 +789,7 @@ export function closeRegister(countedCashFils: number, approvedByMemberId?: stri
   save(queueRegisterOperation({ ...state, register }, crypto.randomUUID(), { action: "close", register }));
   return true;
 }
-export type CheckoutLine = { productId?: string; name: string; sku?: string; quantity: number; unitGrossFils: number; listUnitGrossFils?: number };
+export type CheckoutLine = { productId?: string; name: string; sku?: string; quantity: number; unitGrossFils: number; listUnitGrossFils?: number; promotionId?: string; promotionName?: string; promotionSavingFils?: number };
 
 function invoicePrefix() {
   if (mode === "hosted") return contextSnapshot.business?.invoicePrefix ?? "SL";

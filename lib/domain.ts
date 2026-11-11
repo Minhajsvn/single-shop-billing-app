@@ -34,6 +34,7 @@ export type StockMovement = {
 export type PaymentMethod = "cash" | "card" | "transfer" | "split";
 export type { Payment } from "./payments/split.ts";
 import type { Payment } from "./payments/split.ts";
+import type { Promotion } from "./promotions/types.ts";
 
 export type Customer = {
   id: string;
@@ -59,6 +60,10 @@ export type InvoiceLine = {
   unitGrossFils: number;
   /** Undiscounted unit price, present only when the line was discounted. */
   listUnitGrossFils?: number;
+  /** Stage 2E: the promotion that priced this line and what it took off (name kept on this device for receipts). */
+  promotionId?: string;
+  promotionName?: string;
+  promotionSavingFils?: number;
   netFils: number;
   vatFils: number;
   grossFils: number;
@@ -170,6 +175,8 @@ export type RegisterSession = {
 export type DemoState = {
   products: Product[];
   categories: Category[];
+  /** Stage 2E: the shop's live promotions (from the snapshot). */
+  promotions: Promotion[];
   stockMovements: StockMovement[];
   sales: Sale[];
   customers: Customer[];

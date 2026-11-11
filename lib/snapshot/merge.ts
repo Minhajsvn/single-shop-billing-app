@@ -18,7 +18,7 @@ export function mergeSnapshot(server: DemoState, local: DemoState): DemoState {
   // back without that invoice number; the browser's own copy still has it.
   const localInvoice = new Map(local.creditNotes.map((note) => [note.id, note.invoiceNumber]));
   const creditNotes = server.creditNotes.map((note) => note.invoiceNumber || !localInvoice.get(note.id) ? note : { ...note, invoiceNumber: localInvoice.get(note.id)! });
-  const merged: DemoState = { ...server, categories: server.categories ?? [], creditNotes, syncOperations: kept };
+  const merged: DemoState = { ...server, categories: server.categories ?? [], promotions: server.promotions ?? [], creditNotes, syncOperations: kept };
   const steps = new Map<string, StockStep[]>();
   const addStep = (productId: string | undefined, step: StockStep) => {
     if (productId) steps.set(productId, [...(steps.get(productId) ?? []), step]);

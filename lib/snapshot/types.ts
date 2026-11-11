@@ -12,7 +12,7 @@ export type ShopSnapshot = { business: BusinessProfile; devices: TillDevice[]; r
 
 type Money = { net_fils: number; vat_fils: number; gross_fils: number };
 type PaymentRow = { id: string; method: string; amount_fils: number; reference: string | null };
-type LineRow = Money & { id: string; product_id: string | null; description: string; sku: string | null; quantity: number; unit_gross_fils: number; list_unit_gross_fils?: number | null };
+type LineRow = Money & { id: string; product_id: string | null; description: string; sku: string | null; quantity: number; unit_gross_fils: number; list_unit_gross_fils?: number | null; promotion_id?: string | null; promotion_saving_fils?: number | null };
 
 export type SnapshotRows = {
   role: string | null;
@@ -25,6 +25,8 @@ export type SnapshotRows = {
   products: { id: string; name: string; sku: string; barcode: string | null; price_fils: number; stock_quantity: number; low_stock_threshold: number; status: string; tax_category?: string | null; category_id?: string | null }[];
   /** Stage 2C. Absent from an older server. */
   categories?: { id: string; name: string; sort_order: number; archived_at: string | null }[];
+  /** Stage 2E. Absent from an older server. Numeric columns may arrive as strings. */
+  promotions?: { id: string; name: string; kind: string; target_type: string; target_id: string | null; percent: number | string | null; amount_fils: number | string | null; buy_qty: number | null; get_qty: number | null; bundle_price_fils: number | string | null; min_basket_fils: number | string | null; starts_on: string; ends_on: string | null; days: number[] | null; from_time: string | null; to_time: string | null; active: boolean; archived_at: string | null; created_at: string }[];
   customers: { id: string; name: string; phone: string; email: string | null; address: string | null; trn: string | null; created_at: string; updated_at: string }[];
   sales: (Money & { id: string; device_id: string; invoice_number: string; created_at: string; supply_date: string; payment_method: string; status: string; sale_payments?: PaymentRow[]; customer_snapshot: Record<string, unknown> | null; supplier_snapshot: Record<string, unknown> | null; sale_items: LineRow[] })[];
   creditNotes: (Money & { id: string; device_id: string; credit_note_number: string; sale_id: string; payment_method: string; credit_note_payments?: PaymentRow[]; created_at: string; sales: { invoice_number: string } | null; credit_note_items: (LineRow & { sale_item_id: string })[] })[];
