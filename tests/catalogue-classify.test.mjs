@@ -171,3 +171,62 @@ test("2C: the headings Category and Cost are recognised", () => {
   assert.deepEqual(guessMapping(["Name", "Price", "Category", "Cost (AED)"]), { name: 0, price: 1, category: 2, cost: 3 });
   assert.deepEqual(guessMapping(["Item", "Selling price", "Department", "Cost price"]), { name: 0, price: 1, category: 2, cost: 3 });
 });
+
+const WHEAD = ["Name", "SKU", "Price", "Stock", "Sold by weight", "Scale code"];
+const WMAP = { name: 0, sku: 1, price: 2, stock: 3, soldByWeight: 4, scaleCode: 5 };
+const wplan = (rows, existing = [], weighingAllowed = true) => {
+  const result = planImport([WHEAD, ...rows], WMAP, existing, { ...options(), weighingAllowed });
+  assert.equal(result.ok, true, result.error);
+  return result.plan;
+};
+
+test("Stage 2F: the new columns are guessed from their headings", () => {
+  const mapping = guessMapping(["Name", "Price", "Sold by weight", "Scale code"]);
+  assert.equal(mapping.soldByWeight, 2);
+  assert.equal(mapping.scaleCode, 3);
+});
+
+test("Stage 2F: a weighed row creates a product sold by weight with stock in grams", () => {
+  const result = wplan([["Dates", "DAT", "40", "2.5", "yes", "1234"], ["Cola", "COLA", "6", "12", "no", ""]]);
+  assert.deepEqual(result.problems, []);
+  const [dates, cola] = result.creates.map((create) => create.product);
+  assert.equal(dates.soldByWeight, true);
+  assert.equal(dates.scaleCode, 1234);
+  assert.equal(dates.stock, 2500);
+  assert.equal(cola.soldByWeight ?? false, false);
+  assert.equal(cola.stock, 12);
+});
+
+test("Stage 2F: weighing problems are row problems", () => {
+  const nuts = { ...product({ id: "nuts", sku: "NUT", stock: 5 }), soldByWeight: false };
+  const dates = { ...product({ id: "dates", sku: "DAT", stock: 0 }), soldByWeight: true, scaleCode: 1234 };
+  const result = wplan([
+    ["Nuts", "NUT", "50", "", "yes", ""],
+    ["Figs", "FIG", "30", "1", "yes", "1234"],
+    ["Plums", "PLM", "30", "1.5", "no", ""],
+    ["Kiwi", "KIW", "30", "1", "maybe", ""],
+    ["Pear", "PEA", "30", "1", "yes", "0"],
+    ["Fig2", "FG2", "30", "1", "yes", "77"],
+    ["Fig3", "FG3", "30", "1", "yes", "77"],
+  ], [nuts, dates]);
+  assert.deepEqual(result.problems.map((p) => [p.rowNumber, p.reasons[0]]), [
+    [2, "Set stock to 0 before changing how this product is sold."],
+    [3, "Scale code 1234 is already used by dates."],
+    [4, "Stock must be a whole number of 0 or more"],
+    [5, "Sold by weight must be yes or no"],
+    [6, "Scale code must be a whole number from 1 to 999999"],
+    [7, "Scale code appears more than once in this file"],
+    [8, "Scale code appears more than once in this file"],
+  ]);
+  const starter = wplan([["Figs", "FIG", "30", "1", "yes", ""]], [], false);
+  assert.deepEqual(starter.problems[0].reasons, ["Selling by weight is part of the Pro plan"]);
+});
+
+test("Stage 2F: an update of a weighed product reads stock in kg; a file without the new columns imports as before", () => {
+  const dates = { ...product({ id: "dates", sku: "DAT", stock: 4250 }), soldByWeight: true, scaleCode: 1234 };
+  const result = wplan([["Dates", "DAT", "40", "3.75", "", ""]], [dates]);
+  assert.equal(result.updates[0].after.stock, 3750);
+  assert.equal(result.updates[0].after.soldByWeight, undefined, "blank keeps it");
+  const plain = plan([["Dates", "DAT", "", "40", "3.75"]], [dates]);
+  assert.equal(plain.updates[0].after.stock, 3750, "the product decides kg when the column is absent");
+});

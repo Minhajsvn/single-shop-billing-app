@@ -25,6 +25,8 @@ const FIELDS: { field: ImportField; label: string; required?: boolean }[] = [
   { field: "taxCategory", label: "VAT category" },
   { field: "category", label: "Category" },
   { field: "cost", label: "Cost excl. VAT (AED, Pro)" },
+  { field: "soldByWeight", label: "Sold by weight (yes/no, Pro)" },
+  { field: "scaleCode", label: "Scale code" },
 ];
 const VISIBLE_ROWS = 100;
 const products_ = (count: number) => `${count.toLocaleString("en-US")} ${count === 1 ? "product" : "products"}`;
@@ -116,7 +118,7 @@ export function ImportDialog({ onClose, onPrintLabels }: { onClose: () => void; 
   }
 
   function preview(current: Extract<Step, { kind: "map" }>) {
-    const result = planImport(current.rows, current.mapping, products, { productLimit: productLimit(), newId: () => crypto.randomUUID(), categories, costAllowed });
+    const result = planImport(current.rows, current.mapping, products, { productLimit: productLimit(), newId: () => crypto.randomUUID(), categories, costAllowed, weighingAllowed: hasFeature("weighed_items") });
     if (!result.ok) {
       setError(result.error);
       return;

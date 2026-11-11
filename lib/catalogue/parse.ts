@@ -37,6 +37,37 @@ function parseWholeCell(cell: Cell, label: string): Parsed<number | null> {
   return /^\d+(\.0+)?$/.test(raw) ? ok(Number(raw.split(".")[0])) : invalid;
 }
 
+/**
+ * Stage 2F: a stock or low-stock amount with up to 3 decimals (kg for weighed products, whole units otherwise; the
+ * caller decides which once it knows the product). Null means the cell was blank.
+ */
+export function parseAmountCell(cell: Cell, label: string): Parsed<number | null> {
+  const invalid = problem<number | null>(`${label} must be a whole number of 0 or more`);
+  const thousandths = (value: number) => Math.abs(value * 1000 - Math.round(value * 1000)) < 1e-6;
+  if (typeof cell === "number") return Number.isFinite(cell) && cell >= 0 && thousandths(cell) ? ok(cell) : invalid;
+  const raw = text(cell);
+  if (!raw) return ok(null);
+  return /^\d+(\.\d+)?$/.test(raw) && thousandths(Number(raw)) ? ok(Number(raw)) : invalid;
+}
+
+/** Stage 2F: yes/no; null when blank. */
+export function parseYesNoCell(cell: Cell, label: string): Parsed<boolean | null> {
+  if (typeof cell === "boolean") return ok(cell);
+  const raw = text(cell).toLowerCase();
+  if (!raw) return ok(null);
+  if (["yes", "y", "true", "1"].includes(raw)) return ok(true);
+  if (["no", "n", "false", "0"].includes(raw)) return ok(false);
+  return problem(`${label} must be yes or no`);
+}
+
+/** Stage 2F: a scale code, 1–999999; null when blank. */
+export function parseScaleCodeCell(cell: Cell): Parsed<number | null> {
+  const raw = typeof cell === "number" ? String(cell) : text(cell).replace(/^="(.*)"$/, "$1").trim();
+  if (!raw) return ok(null);
+  const value = /^\d{1,6}$/.test(raw) ? Number(raw) : 0;
+  return value >= 1 ? ok(value) : problem("Scale code must be a whole number from 1 to 999999");
+}
+
 /** Stock count; null means the cell was blank. */
 export function parseStockCell(cell: Cell): Parsed<number | null> {
   return parseWholeCell(cell, "Stock");

@@ -45,3 +45,12 @@ export function linePricePerKg(line: { weightGrams?: number; pricePerKgFils?: nu
   if (line.pricePerKgFils) return line.pricePerKgFils;
   return Math.round(((line.listUnitGrossFils ?? line.unitGrossFils) * 1000) / (line.weightGrams || 1000));
 }
+
+/** A stock amount in kg ("250.5" → 250500 g): 0 or more, up to 3 decimals, at most 1,000,000 kg. Else null. */
+export function parseKgAmount(text: string): number | null {
+  const value = text.trim();
+  if (!/^\d{1,7}(\.\d{1,3})?$/.test(value)) return null;
+  const [whole, fraction = ""] = value.split(".");
+  const grams = Number(whole) * 1000 + Number(fraction.padEnd(3, "0"));
+  return grams <= 1_000_000_000 ? grams : null;
+}

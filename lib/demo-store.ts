@@ -728,10 +728,15 @@ export function applyImport(plan: ImportPlan): { createdIds: string[]; updatedId
     const current = products.find((product) => product.id === update.productId);
     if (!current) continue;
     const categoryId = categoryIdFor(update.after.categoryName);
-    const updated: Product = { ...current, priceFils: update.after.priceFils, barcode: update.after.barcode, stock: update.after.stock, ...(categoryId !== undefined ? { categoryId } : {}) };
+    const updated: Product = {
+      ...current, priceFils: update.after.priceFils, barcode: update.after.barcode, stock: update.after.stock, ...(categoryId !== undefined ? { categoryId } : {}),
+      ...(update.after.soldByWeight !== undefined ? { soldByWeight: update.after.soldByWeight } : {}),
+      ...(update.after.scaleCode !== undefined ? { scaleCode: update.after.scaleCode } : {}),
+    };
     products = products.map((product) => product.id === current.id ? updated : product);
     updatedIds.push(current.id);
-    if (current.priceFils !== updated.priceFils || current.barcode !== updated.barcode || (current.categoryId ?? null) !== (updated.categoryId ?? null)) {
+    const weighingChanged = Boolean(current.soldByWeight) !== Boolean(updated.soldByWeight) || (current.scaleCode ?? null) !== (updated.scaleCode ?? null);
+    if (current.priceFils !== updated.priceFils || current.barcode !== updated.barcode || (current.categoryId ?? null) !== (updated.categoryId ?? null) || weighingChanged) {
       syncOperations = supersedeProductOperations(syncOperations, current.id);
       items.push(productItem(updated));
     }

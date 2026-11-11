@@ -49,3 +49,12 @@ test("weighed products are found by scale code: active and sold by weight only",
 test("an ordinary barcode that starts with a scale prefix still finds its product", () => {
   assert.equal(findByCode(products, "2212345678907")?.id, "p1");
 });
+
+test("stock amounts in kg: 0 allowed, up to 3 decimals, no 100 kg cap", async () => {
+  const { parseKgAmount } = await import("../lib/weighing/kg.ts");
+  assert.equal(parseKgAmount("0"), 0);
+  assert.equal(parseKgAmount("250.5"), 250500);
+  assert.equal(parseKgAmount("0.0005"), null);
+  assert.equal(parseKgAmount("-1"), null);
+  assert.equal(parseKgAmount(""), null);
+});
