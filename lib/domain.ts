@@ -13,6 +13,10 @@ export type Product = {
   taxCategory: TaxCategory;
   /** Stage 2C: the product's category; null or absent when it has none. */
   categoryId?: string | null;
+  /** Stage 2F: priced per kg with stock and low-stock in grams; absent on products saved before 2F (not weighed). */
+  soldByWeight?: boolean;
+  /** Stage 2F: the item code a counter scale prints on its labels; null when none. */
+  scaleCode?: number | null;
 };
 
 /** Stage 2C: one flat list per shop. Archived categories keep their products but read "Uncategorised". */
