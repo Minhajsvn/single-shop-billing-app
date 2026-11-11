@@ -102,7 +102,7 @@ export function PromotionForm({ promotion, onSaved, onCancel }: { promotion?: Pr
           <div className="field"><label htmlFor="promo-start">From</label><input className="input" id="promo-start" type="date" value={startsOn} onChange={(event) => setStartsOn(event.target.value)} required /></div>
           <div className="field"><label htmlFor="promo-end">Until (optional)</label><input className="input" id="promo-end" type="date" value={endsOn} min={startsOn} onChange={(event) => setEndsOn(event.target.value)} /></div>
           <fieldset className="field full-span promo-days"><legend className="field-label">Days (none ticked = every day)</legend>
-            {DAY_NAMES.map((label, index) => <label key={label} className="promo-day"><input type="checkbox" checked={days.includes(index + 1)} onChange={(event) => setDays((current) => event.target.checked ? [...current, index + 1] : current.filter((day) => day !== index + 1))} /> {label}</label>)}
+            {DAY_NAMES.map((label, index) => <label key={label} className="promo-day"><input type="checkbox" aria-label={label} checked={days.includes(index + 1)} onChange={(event) => setDays((current) => event.target.checked ? [...current, index + 1] : current.filter((day) => day !== index + 1))} /> {label}</label>)}
           </fieldset>
           <div className="field"><label htmlFor="promo-from-time">Hours from (optional)</label><input className="input" id="promo-from-time" type="time" value={fromTime} onChange={(event) => setFromTime(event.target.value)} /></div>
           <div className="field"><label htmlFor="promo-to-time">to</label><input className="input" id="promo-to-time" type="time" value={toTime} onChange={(event) => setToTime(event.target.value)} /></div>

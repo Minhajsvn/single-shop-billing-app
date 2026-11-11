@@ -85,6 +85,19 @@
   delivery has been sold.
 - [ ] Tell accountants about the purchases CSV (Purchases → Download CSV): supplier TRN, invoice no., net, VAT, gross.
 
+## Stage 2E: promotions
+
+- [ ] Apply migration `202611120059_promotions` (replaces the sale wrapper, keeping 2C cost stamping and the 056 split
+  cash fix). Safe before the app deploy: older tills send no promotion fields, so those stay empty.
+- [ ] Deploy the 2E app after 059.
+- [ ] Smoke test on a Pro shop: create each kind (percent, AED off, buy N get M, N for P, basket over a threshold, one
+  with days and hours); sell at the till online and offline; check the cart's "Promotions −AED x", the receipt's per-line
+  promotion and "You saved"; refund one promoted item (it returns the price charged); see the Results tab; on Starter the
+  till charges list prices and Promotions shows the Pro card.
+- [ ] Note for support: tills pick up promotion changes within about 5 minutes (or when the tab regains focus); a till
+  offline since a change keeps the old rules until it reconnects. A "free" item is never a zero line: the saving is spread
+  over the group, so lines can show prices like 21.34 and 21.33.
+
 ## Rollback
 
 1. Keep the previous hosting deployment available.

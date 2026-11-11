@@ -85,7 +85,7 @@ function PromotionsBody() {
   return <>
     <div className="toolbar">
       <div className="segmented report-tabs" role="tablist" aria-label="Promotions">{TABS.map((item) => <button key={item.key} type="button" role="tab" aria-selected={tab === item.key} className={`button ${tab === item.key ? "primary" : ""}`} onClick={() => setTab(item.key)}>{item.label}</button>)}</div>
-      <button type="button" className="button primary" onClick={() => setEditing("new")}><Plus size={15} weight="bold" /> New promotion</button>
+      <button type="button" className="button primary toolbar-action" onClick={() => setEditing("new")}><Plus size={15} weight="bold" /> New promotion</button>
     </div>
     {error ? <div className="notice error-notice" role="alert"><WarningCircle size={18} weight="fill" /><span>{error}</span></div> : null}
     {tab === "results" ? <ResultsTab /> : promotions === null && !error ? <p className="field-hint" role="status">Loading promotions…</p> : (

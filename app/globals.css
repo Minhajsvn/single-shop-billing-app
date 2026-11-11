@@ -1589,3 +1589,4 @@ kbd { min-width: 22px; display: inline-grid; place-items: center; padding: 2px 6
 .promo-day { display: inline-flex; gap: 6px; align-items: center; }
 .promo-preview { font-weight: 600; color: var(--text); }
 .promo-switch { display: inline-flex; gap: 8px; align-items: center; }
+.toolbar-action { align-self: flex-start; }
