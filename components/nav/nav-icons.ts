@@ -1,8 +1,8 @@
-import { Archive, CashRegister, ChartBar, Gear, House, IdentificationCard, Receipt, ShoppingCart, Truck, type Icon } from "@/components/icons";
+import { Archive, CashRegister, ChartBar, Gear, House, IdentificationCard, Receipt, ShoppingCart, Tag, Truck, type Icon } from "@/components/icons";
 
 /** The icon for each page, by its path (a link's query, such as Settings' ?tab=data, is ignored). */
 const NAV_ICONS: Record<string, Icon> = {
-  "/overview": House, "/sale": ShoppingCart, "/sales": Receipt, "/inventory": Archive, "/purchases": Truck,
+  "/overview": House, "/sale": ShoppingCart, "/sales": Receipt, "/inventory": Archive, "/purchases": Truck, "/promotions": Tag,
   "/customers": IdentificationCard, "/register": CashRegister, "/reports": ChartBar, "/settings": Gear,
 };
 

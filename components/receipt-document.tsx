@@ -51,7 +51,7 @@ export function ReceiptDocument({ sale, shop }: { sale: Sale; shop: ReceiptShop 
           <div>
             <strong>{item.name}</strong>
             <span>{item.quantity} × {formatAED(item.unitGrossFils)}</span>
-            {item.listUnitGrossFils ? <span>was {formatAED(item.listUnitGrossFils)} · saved {formatAED(lineSaving(item))}</span> : null}
+            {item.listUnitGrossFils ? <span>was {formatAED(item.listUnitGrossFils)} · saved {formatAED(lineSaving(item))}{item.promotionId ? ` · ${item.promotionName ?? "Promotion"}` : ""}</span> : null}
           </div>
           <strong>{formatAED(item.grossFils)}</strong>
         </div>

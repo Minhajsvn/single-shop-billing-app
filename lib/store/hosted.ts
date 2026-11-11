@@ -1,5 +1,6 @@
 import { withTaxCategories } from "./product-sync.ts";
 import { normalizeCategories } from "../catalogue/categories.ts";
+import { normalizePromotions } from "../promotions/live.ts";
 import { READ_ONLY_ENTITLEMENTS, type Entitlements } from "../billing/entitlements.ts";
 import type { DemoState, SyncOperation } from "../domain.ts";
 import type { BusinessProfile, LockSettings, MemberRole, StaffMember, TillDevice } from "../snapshot/types.ts";
@@ -43,6 +44,7 @@ export function restoreFromIndexed(current: DemoState, indexed: Omit<DemoState, 
     ...indexed,
     products: withTaxCategories(indexed.products),
     categories: normalizeCategories(indexed.categories),
+    promotions: normalizePromotions(indexed.promotions),
     customers: current.customers,
     syncOperations: [...current.syncOperations.filter((operation) => !known.has(operation.id)), ...indexed.syncOperations],
   };
@@ -75,7 +77,7 @@ export function chunk<T>(items: T[], size: number): T[][] {
 }
 
 export function emptyShopState(): DemoState {
-  return { products: [], categories: [], stockMovements: [], sales: [], customers: [], creditNotes: [], syncOperations: [], register: null };
+  return { products: [], categories: [], promotions: [], stockMovements: [], sales: [], customers: [], creditNotes: [], syncOperations: [], register: null };
 }
 
 export function emptyHostedContext(): HostedContext {
@@ -100,7 +102,7 @@ export function parseHostedCache(raw: string | null): HostedCache | null {
     const value = JSON.parse(raw) as Partial<HostedCache>;
     if (value?.version !== 1 || !value.state || !value.context || !Array.isArray(value.state.sales)) return null;
     // Products cached before Stage 1D have no VAT category.
-    return { ...value, savedAt: typeof value.savedAt === "number" ? value.savedAt : 0, state: { ...value.state, products: withTaxCategories(value.state.products ?? []), categories: normalizeCategories(value.state.categories) } } as HostedCache;
+    return { ...value, savedAt: typeof value.savedAt === "number" ? value.savedAt : 0, state: { ...value.state, products: withTaxCategories(value.state.products ?? []), categories: normalizeCategories(value.state.categories), promotions: normalizePromotions(value.state.promotions) } } as HostedCache;
   } catch {
     return null;
   }
