@@ -13,6 +13,9 @@ export type CartInput = {
   listUnitGrossFils: number;
   /** Set by a manual line discount: that line takes no item offer (owner decision 3). */
   manualUnitGrossFils?: number;
+  /** Stage 2F: a weighed line (quantity 1) takes only percent off and the basket offer. */
+  weightGrams?: number;
+  pricePerKgFils?: number;
 };
 
 export type PricedLine = {
@@ -28,6 +31,8 @@ export type PricedLine = {
   /** What promotions took off this line (not counting a manual discount). */
   promotionSavingFils: number;
   manual: boolean;
+  weightGrams?: number;
+  pricePerKgFils?: number;
 };
 
 /** A run of units that end up at one total, before it is cut into whole-fils unit prices. */
@@ -44,6 +49,8 @@ export function splitWholeFils(totalFils: number, quantity: number): { quantity:
 
 function matches(promotion: Promotion, line: CartInput): boolean {
   if (!line.productId) return false;
+  // Stage 2F: AED off each and multi-buys count items; a weighed line is not a count of items.
+  if (line.weightGrams !== undefined && promotion.kind !== "percent_off") return false;
   if (promotion.targetType === "all") return true;
   if (promotion.targetType === "product") return promotion.targetId === line.productId;
   return Boolean(line.categoryId) && promotion.targetId === line.categoryId;
@@ -145,6 +152,7 @@ export function applyPromotions(cart: CartInput[], promotions: Promotion[], now:
         ...(promotion ? { promotionId: promotion.id, promotionName: promotion.name } : {}),
         promotionSavingFils: Math.max(0, saving),
         manual: line.input.manualUnitGrossFils !== undefined,
+        ...(line.input.weightGrams !== undefined ? { weightGrams: line.input.weightGrams, ...(line.input.pricePerKgFils ? { pricePerKgFils: line.input.pricePerKgFils } : {}) } : {}),
       });
     }
   });

@@ -17,3 +17,10 @@ Task 1: Ruling: a refund of a line whose product has since switched how it is so
 Task 1: Ruling: a direct `update businesses set scale_label` is refused by a trigger (`not_authorized`); only `shop_set_scale_label` may change it — owners have table UPDATE, which would bypass the Pro check — cost if wrong: none for the app (it uses the function).
 Task 1: Ruling: manager refusal from `shop_set_scale_label` is `not_owner` (the existing `staff_require_owner` helper), not `not_authorized`; a non-integer or 0 scale code is `invalid_scale_code` — cost if wrong: client error mapping (Task 3/8 map both).
 Task 1: Ruling: delivery test figures differ from the plan's example (stock 4500 g at 30.00/kg after the test's sales, so the average is 21.50) — same formula — cost if wrong: none.
+Task 1: complete (commits 9bce30d..99fdbeb, tests: npm run test:sql → 9/9 suites pass)
+Task 2: Ruling: lookup tests live in tests/weighing-kg.test.mjs, not checkout-lookup.test.mjs; an item code of 0 is not a label (not_scale), since scale codes start at 1; added linePricePerKg (per-kg kept on the device, else derived) for receipts — cost if wrong: none.
+Task 2: complete (commits 99fdbeb..cea677c, tests: npm test → 509/509 pass)
+Task 3: Ruling: productRecord moved to lib/store/product-sync.ts as productRecordOf, with weighingProblem (local scale-code and switch checks), so both are unit-tested — the store imports them — cost if wrong: none.
+Task 3: Ruling: a held weighed line that no longer fits the stock in grams is dropped (not capped), and lines of a product switched to or from weighing since the hold are dropped with a notice; completeSale refuses a cart whose lines disagree with the product's current weighing; a local refund restocks only when line and product agree (mirrors the server ruling) — cost if wrong: a cashier re-adds an item.
+Task 3: Ruling: feature_not_in_plan gets a generic rejection text "This needs the Pro plan." — cost if wrong: wording.
+Task 3: complete (commits cea677c..75092a3, tests: npm test → 515/515 pass; lint clean; tsc clean)

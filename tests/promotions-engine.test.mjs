@@ -133,3 +133,16 @@ test("no promotions leaves the cart at list (or manual) price", () => {
   assert.deepEqual(result.lines.map((l) => [l.quantity, l.unitGrossFils, l.promotionId]), [[2, 600, undefined], [1, 3000, undefined]]);
   assert.equal(result.savingFils, 0);
 });
+
+test("Stage 2F: weighed lines take percent off and the basket offer, never AED off or multi-buys", () => {
+  const loose = (key, gross, grams) => ({ key, productId: "p-loose", categoryId: "c-food", name: "Loose dates", quantity: 1, listUnitGrossFils: gross, weightGrams: grams, pricePerKgFils: 4000 });
+  const percent = promo({ kind: "percent_off", targetType: "product", targetId: "p-loose", percent: 10 });
+  assert.deepEqual(applyPromotions([loose("a", 3000, 750)], [percent], NOW).lines.map((l) => [l.unitGrossFils, l.weightGrams, l.pricePerKgFils]), [[2700, 750, 4000]]);
+  const amount = promo({ kind: "amount_off", targetType: "product", targetId: "p-loose", amountFils: 500 });
+  assert.equal(applyPromotions([loose("a", 3000, 750)], [amount], NOW).lines[0].unitGrossFils, 3000);
+  const free = promo({ kind: "multi_buy_free", targetType: "product", targetId: "p-loose", buyQty: 1, getQty: 1 });
+  const bundle = promo({ kind: "multi_buy_price", targetType: "all", buyQty: 2, bundlePriceFils: 1000 });
+  assert.deepEqual(applyPromotions([loose("a", 3000, 750), loose("b", 2000, 500)], [free, bundle], NOW).lines.map((l) => l.unitGrossFils), [3000, 2000]);
+  const basket = promo({ kind: "basket_percent", percent: 10, minBasketFils: 2000 });
+  assert.equal(applyPromotions([loose("a", 3000, 750)], [basket], NOW).lines[0].unitGrossFils, 2700);
+});
