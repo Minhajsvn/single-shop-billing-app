@@ -53,3 +53,22 @@ Task 8: complete (commits 7382c13..835d902, tests: npm test → 531/531 pass; li
 - Task 9: Ruling: the stale local register from 11 Nov was closed (counted AED 100.00, variance 0) and a new one opened to test selling — local data only — cost if wrong: none.
 - Task 9: Ruling: the product form's weight switch got aria-label "Sold by weight" (its accessible name read "on" in the browser check) — cost if wrong: none.
 Task 9: complete (commits 835d902..acb8cbd, tests: npm test → 531/531 pass; test:sql 9/9)
+
+## Final review (fresh reviewer, opus)
+
+No Critical findings; all five Review Focus items passed. Re-graded by effect:
+
+- Final: fixed I1 catalog upload wrote weighed products as units — product-sync "final review I1" test RED→GREEN, suite 534/534.
+- Final: fixed I2 default prefixes 21/22 turned unknown in-store codes into label notices on shops that sell nothing by weight — weighing-scan "final review I2" test RED→GREEN, suite 534/534.
+- Final: fixed I3 overview low-stock list showed grams as units — display-only (formatStock/formatKg, both unit-tested); no failing test possible without a component harness; tsc and build clean.
+- Final: fixed minor M3, re-graded Important (stock ends wrong): voiding a by-the-unit delivery after the product switched to weighed took grams — weighed_items_test 6b RED→GREEN (void_purchase_receipt now replaced in 060, refuses weight_mismatch), SQL 9/9.
+- Final: fixed minor M7, re-graded Important (a stale default could be saved over the shop's layout): the Scale labels form restarts when the saved setting changes — UI-only, tsc and build clean.
+- Final: minor (deferred): import preview shows weighed stock in grams.
+- Final: minor (deferred): outbox replay of a pending refund restocks locally even when the product switched since the sale (corrects at next refresh).
+- Final: minor (deferred): apply_product_sync reads stock for the switch check without `for update`.
+- Final: minor (deferred): profit Qty shows only kg on a mixed row ("Rest", or a product with unit and weighed history).
+- Final: minor (deferred): the scale-label route refuses valid settings sent with keys in another order (the app's client is unaffected).
+- Final: minor (deferred): a price-label line shows the current per-kg price beside the label's own total (e.g. 0.751 kg × AED 40.00/kg = AED 30.00).
+- Final: Ruling: declined-to-judge "older tills refused for now-weighed products" stands — the alternative silently takes 1 g; the release note tells shops to update every till before switching a product — cost if wrong: a sale waits in an old till's outbox until reload.
+- Final: Ruling: apply_sale_sync reads sold_by_weight without a lock — switching needs zero stock and the decrement is guarded — cost if wrong: none found.
+- Final: Ruling: the guard_scale_label bypass setting needs arbitrary SQL, which PostgREST does not expose — cost if wrong: an owner changes their own label layout without Pro.
