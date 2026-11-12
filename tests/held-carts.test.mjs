@@ -31,3 +31,17 @@ test("resuming removes the cart from the list and caps lines at current stock", 
 test("resuming an unknown cart fails", () => {
   assert.equal(resumeCart([], "nope", []).ok, false);
 });
+
+test("Stage 2F: weighed held lines keep their grams and check them against stock in grams; older lines are unchanged", () => {
+  const dates = { ...product("dates", 600), soldByWeight: true };
+  const weighed = { productId: "dates", name: "dates", sku: "dates", quantity: 1, unitGrossFils: 3000, weightGrams: 750, pricePerKgFils: 4000 };
+  const small = { ...weighed, unitGrossFils: 2000, weightGrams: 500 };
+  const list = [{ id: "h1", heldAt: now.toISOString(), lines: [weighed, small, line("a", 1)] }];
+  const result = resumeCart(list, "h1", [dates, product("a", 2)]);
+  assert.deepEqual(result.cart.lines.map((item) => [item.name, item.weightGrams, item.pricePerKgFils]), [["dates", 500, 4000], ["a", undefined, undefined]]);
+  assert.equal(result.notices.length, 1, "the 750 g line no longer fits in 600 g");
+  // A product switched to (or from) sold-by-weight since the hold: its lines are dropped with a notice.
+  const switched = resumeCart([{ id: "h2", heldAt: now.toISOString(), lines: [line("dates", 1), { ...weighed, productId: "a" }] }], "h2", [dates, product("a", 2)]);
+  assert.deepEqual(switched.cart.lines, []);
+  assert.equal(switched.notices.length, 2);
+});

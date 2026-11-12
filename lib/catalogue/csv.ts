@@ -85,11 +85,14 @@ export function productsToCsv(products: (Product & { taxCategory?: TaxCategory }
       excelText(product.sku),
       product.barcode ? `="${product.barcode}"` : "",
       formatFils(product.priceFils),
-      product.stock,
-      product.lowStockThreshold,
+      // Stage 2F: weighed stock is kept in grams and written in kg.
+      product.soldByWeight ? (product.stock / 1000).toFixed(3) : product.stock,
+      product.soldByWeight ? (product.lowStockThreshold / 1000).toFixed(3) : product.lowStockThreshold,
       TAX_LABEL[product.taxCategory ?? "standard"],
       product.active ? "Active" : "Archived",
       (product.categoryId && live.get(product.categoryId)) || "",
+      product.soldByWeight ? "yes" : "no",
+      product.scaleCode ?? "",
     ]),
   ]);
 }

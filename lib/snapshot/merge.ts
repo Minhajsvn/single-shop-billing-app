@@ -29,10 +29,11 @@ export function mergeSnapshot(server: DemoState, local: DemoState): DemoState {
     if (!payload) continue;
     if (operation.entity === "sale" && "sale" in payload && !merged.sales.some((sale) => sale.id === payload.sale.id)) {
       merged.sales = [payload.sale, ...merged.sales];
-      for (const line of payload.sale.lines) addStep(line.productId, { kind: "delta", value: -line.quantity });
+      // Stage 2F: a weighed line moves stock by its grams.
+      for (const line of payload.sale.lines) addStep(line.productId, { kind: "delta", value: -(line.weightGrams ?? line.quantity) });
     } else if (operation.entity === "credit-note" && "creditNote" in payload && !merged.creditNotes.some((note) => note.id === payload.creditNote.id)) {
       merged.creditNotes = [payload.creditNote, ...merged.creditNotes];
-      for (const line of payload.creditNote.lines) addStep(line.productId, { kind: "delta", value: line.quantity });
+      for (const line of payload.creditNote.lines) addStep(line.productId, { kind: "delta", value: line.weightGrams ?? line.quantity });
     } else if (operation.entity === "customer" && "customer" in payload && operation.status === "pending") {
       merged.customers = [payload.customer, ...merged.customers.filter((customer) => customer.id !== payload.customer.id)];
     } else if (operation.entity === "product" && "product" in payload && !("movement" in payload)) {

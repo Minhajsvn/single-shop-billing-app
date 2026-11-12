@@ -1,4 +1,4 @@
-import type { Product, SyncOperation } from "../domain.ts";
+import type { Product, ProductRecord, SyncOperation } from "../domain.ts";
 import type { TaxCategory } from "../fiscal/countries.ts";
 import { rejectionText } from "../sync/rejections.ts";
 
@@ -106,4 +106,41 @@ export function productSyncProblems(ops: SyncOperation[]): Map<string, string> {
 /** A new product operation carries the whole product, so earlier unsent ones for it are dropped. */
 export function supersedeProductOperations(ops: SyncOperation[], productId: string): SyncOperation[] {
   return ops.filter((op) => op.entity !== "product" || op.entityId !== productId || op.status === "synced");
+}
+
+/** What a product operation sends: the product without stock (stock only moves through movements, sales and refunds). */
+export function productRecordOf(product: Product): ProductRecord {
+  return {
+    id: product.id, name: product.name, sku: product.sku, barcode: product.barcode, priceFils: product.priceFils, lowStockThreshold: product.lowStockThreshold,
+    active: product.active, taxCategory: product.taxCategory, categoryId: product.categoryId ?? null,
+    soldByWeight: product.soldByWeight === true, scaleCode: product.scaleCode ?? null,
+  };
+}
+
+/**
+ * Stage 2F: why a product change would be refused for weighing (the server checks the same), or null. `current` is the
+ * product before the change (null for a new product, whose opening stock is set with it).
+ */
+export function weighingProblem(products: Product[], next: Product, current: Product | null): string | null {
+  const code = next.scaleCode ?? null;
+  if (code !== null && (!Number.isInteger(code) || code < 1 || code > 999999)) return "Scale codes are whole numbers from 1 to 999999.";
+  const holder = code === null ? undefined : products.find((product) => product.id !== next.id && product.scaleCode === code);
+  if (holder) return `Scale code ${code} is already used by ${holder.name}.`;
+  if (current && Boolean(current.soldByWeight) !== Boolean(next.soldByWeight) && current.stock !== 0) return "Set stock to 0 before changing how this product is sold.";
+  return null;
+}
+
+/**
+ * Settings → Upload catalog writes product rows directly, which cannot express grams: products sold by weight (here, or
+ * already on the server by SKU) are left out with a reason (final review I1).
+ */
+export function catalogUploadPlan(products: Product[], serverWeighedSkus: Set<string>): { upload: Product[]; skipped: string[] } {
+  const upload: Product[] = [];
+  const skipped: string[] = [];
+  for (const product of products) {
+    if (product.soldByWeight) skipped.push(`Product ${product.sku}: sold by weight; add it in your shop's Inventory instead.`);
+    else if (serverWeighedSkus.has(product.sku)) skipped.push(`Product ${product.sku}: sold by weight in your shop; change it there instead.`);
+    else upload.push(product);
+  }
+  return { upload, skipped };
 }

@@ -55,3 +55,14 @@ test("daily report: Promotions saving is the day's sale lines' promotion savings
   assert.equal(buildDailyReport(state, "2026-11-11").promotionSavingFils, 300);
   assert.equal(buildDailyReport(state, "2026-11-12").promotionSavingFils, 0);
 });
+
+test("Stage 2F: grams and the per-kg price travel from the till line to checkout", async () => {
+  const { toCartInputs, checkoutLines } = await import("../lib/promotions/cart.ts");
+  const product = { id: "p-loose", name: "Loose", sku: "L", priceFils: 4000, stock: 5000, lowStockThreshold: 0, active: true, taxCategory: "standard", soldByWeight: true };
+  const [input] = toCartInputs([{ key: "k1", productId: "p-loose", name: "Loose", sku: "L", quantity: 1, unitGrossFils: 3000, weightGrams: 750, pricePerKgFils: 4000 }], [product], []);
+  assert.equal(input.weightGrams, 750);
+  assert.equal(input.pricePerKgFils, 4000);
+  const [line] = checkoutLines([{ key: "k1", productId: "p-loose", name: "Loose", sku: "L", quantity: 1, unitGrossFils: 3000, listUnitGrossFils: 3000, promotionSavingFils: 0, manual: false, weightGrams: 750, pricePerKgFils: 4000 }]);
+  assert.equal(line.weightGrams, 750);
+  assert.equal(line.pricePerKgFils, 4000);
+});

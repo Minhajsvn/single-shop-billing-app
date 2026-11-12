@@ -12,6 +12,7 @@ import { profitCsv } from "@/lib/profit/csv";
 import { MAX_HISTORY_DAYS, periodRange, type PeriodKey } from "@/lib/profit/math";
 import type { ProfitReport } from "@/lib/profit/types";
 import { uaeBusinessDate } from "@/lib/reporting";
+import { formatKg } from "@/lib/weighing/kg";
 
 const PERIODS: { key: PeriodKey; label: string }[] = [
   { key: "today", label: "Today" },
@@ -22,7 +23,7 @@ const PERIODS: { key: PeriodKey; label: string }[] = [
 ];
 
 type SortKey = "profit" | "margin" | "net";
-type Row = { key: string; name: string; netFils: number; costFils: number; profitFils: number; marginPct: number | null; quantity?: number };
+type Row = { key: string; name: string; netFils: number; costFils: number; profitFils: number; marginPct: number | null; quantity?: number; weightGrams?: number | null };
 
 function shiftDate(date: string, days: number) {
   const [year, month, day] = date.split("-").map(Number);
@@ -61,7 +62,7 @@ function ProfitTable({ title, rows, withQuantity, onExport }: { title: string; r
       {rows.length ? (
         <div className="table-wrap stack-table"><table><thead><tr><th>{withQuantity ? "Product" : "Category"}</th>{withQuantity ? <th className="numeric">Qty</th> : null}{header("net", "Net sales")}<th className="numeric">Cost</th>{header("profit", "Profit")}{header("margin", "Margin")}</tr></thead>
           <tbody>{sorted.map((row) => (
-            <tr key={row.key}><td data-label={withQuantity ? "Product" : "Category"}><span className="product-name">{row.name}</span></td>{withQuantity ? <td data-label="Qty" className="numeric">{row.quantity}</td> : null}<td data-label="Net sales" className="numeric">{formatAED(row.netFils)}</td><td data-label="Cost" className="numeric">{formatAED(row.costFils)}</td><td data-label="Profit" className="numeric product-name">{formatAED(row.profitFils)}</td><td data-label="Margin" className="numeric">{pct(row.marginPct)}</td></tr>
+            <tr key={row.key}><td data-label={withQuantity ? "Product" : "Category"}><span className="product-name">{row.name}</span></td>{withQuantity ? <td data-label="Qty" className="numeric">{row.weightGrams === null || row.weightGrams === undefined ? row.quantity : formatKg(row.weightGrams)}</td> : null}<td data-label="Net sales" className="numeric">{formatAED(row.netFils)}</td><td data-label="Cost" className="numeric">{formatAED(row.costFils)}</td><td data-label="Profit" className="numeric product-name">{formatAED(row.profitFils)}</td><td data-label="Margin" className="numeric">{pct(row.marginPct)}</td></tr>
           ))}</tbody></table></div>
       ) : <div className="panel-body"><p className="field-hint">Nothing sold in this period.</p></div>}
     </section>

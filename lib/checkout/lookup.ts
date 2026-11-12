@@ -21,3 +21,8 @@ export function findByCode(products: Product[], code: string): Product | null {
     ?? active.find((product) => product.sku.toLowerCase() === value.toLowerCase())
     ?? null;
 }
+
+/** Stage 2F: the active product sold by weight with this scale (label) code. */
+export function findWeighedByScaleCode(products: Product[], scaleCode: number): Product | null {
+  return products.find((product) => product.active && product.soldByWeight && product.scaleCode === scaleCode) ?? null;
+}

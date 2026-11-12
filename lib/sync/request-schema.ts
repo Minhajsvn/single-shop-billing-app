@@ -48,6 +48,8 @@ const saleLineSchema = z.object({
   // Stage 2E: the promotion that priced the line (absent on older tills).
   promotionId: z.string().uuid().optional(),
   promotionSavingFils: z.number().int().nonnegative().optional(),
+  // Stage 2F: a weighed line's grams (absent on older tills and on other lines).
+  weightGrams: z.number().int().min(1).max(100000).optional(),
   netFils: z.number().int().nonnegative(),
   vatFils: z.number().int().nonnegative(),
   grossFils: z.number().int().positive(),
@@ -165,6 +167,9 @@ const productRecordSchema = z.object({
   taxCategory: z.enum(["standard", "zero", "exempt"]),
   // Stage 2C: absent on older tills (the server keeps the category); null clears it.
   categoryId: z.string().uuid().nullable().optional(),
+  // Stage 2F: absent on older tills (the server keeps both); null clears the scale code.
+  soldByWeight: z.boolean().optional(),
+  scaleCode: z.number().int().min(1).max(999999).nullable().optional(),
 });
 
 const productOperationSchema = z.object({

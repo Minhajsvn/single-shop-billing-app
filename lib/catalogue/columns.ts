@@ -1,7 +1,7 @@
 import type { Cell, ColumnMapping, ImportField } from "./types.ts";
 
 /** Export column order; every heading is one the import recognises (Status is ignored on import). */
-export const EXPORT_HEADINGS = ["Name", "SKU", "Barcode", "Price (AED)", "Stock", "Low-stock threshold", "VAT category", "Status", "Category"] as const;
+export const EXPORT_HEADINGS = ["Name", "SKU", "Barcode", "Price (AED)", "Stock", "Low-stock threshold", "VAT category", "Status", "Category", "Sold by weight", "Scale code"] as const;
 
 function normalise(heading: Cell): string {
   return String(heading ?? "").toLowerCase().replace(/[^\p{L}\p{N}%]+/gu, " ").trim();
@@ -19,6 +19,9 @@ const RULES: { field: ImportField; exact?: string[]; test?: (heading: string) =>
   // Stage 2C.
   { field: "category", exact: ["category", "product category", "group", "department"] },
   { field: "cost", exact: ["cost", "cost aed", "cost price", "unit cost", "purchase price", "cost excl vat"] },
+  // Stage 2F.
+  { field: "soldByWeight", exact: ["sold by weight", "by weight", "weighed", "sold by kg"] },
+  { field: "scaleCode", exact: ["scale code", "plu", "scale plu", "plu code"] },
 ];
 
 /** Best guess at which column holds which field, from the heading row. The owner can change any of it. */

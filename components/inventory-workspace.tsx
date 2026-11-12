@@ -26,6 +26,7 @@ import { paginate } from "@/lib/lists/paging";
 import { useDemoProducts } from "@/hooks/use-demo-products";
 import { productsToCsv } from "@/lib/catalogue/csv";
 import { formatAED, type Product } from "@/lib/domain";
+import { formatStock, parseKgAmount, perKgText } from "@/lib/weighing/kg";
 import { dubaiSupplyDate } from "@/lib/invoice-numbers";
 import { requestConfirm } from "@/lib/ui/confirm-store";
 import { toast } from "@/lib/ui/toast-store";
@@ -119,7 +120,7 @@ export function InventoryWorkspace() {
   }
 
   function saveEdit(product: Product, values: ProductFormValues) {
-    const result = updateProduct(product.id, { name: values.name, sku: values.sku, barcode: values.barcode, priceFils: values.priceFils, lowStockThreshold: values.lowStockThreshold, taxCategory: values.taxCategory, categoryId: values.categoryId });
+    const result = updateProduct(product.id, { name: values.name, sku: values.sku, barcode: values.barcode, priceFils: values.priceFils, lowStockThreshold: values.lowStockThreshold, taxCategory: values.taxCategory, categoryId: values.categoryId, soldByWeight: values.soldByWeight, scaleCode: values.scaleCode });
     return result.ok ? { productId: product.id } : { error: result.error };
   }
 
@@ -163,7 +164,12 @@ export function InventoryWorkspace() {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
     const direction = String(data.get("direction"));
-    const quantity = Number(data.get("quantity"));
+    // Stage 2F: a weighed product's adjustment is entered in kg and stored in grams.
+    const quantity = product.soldByWeight ? parseKgAmount(String(data.get("quantity") ?? "")) ?? 0 : Number(data.get("quantity"));
+    if (!Number.isInteger(quantity) || quantity < 1) {
+      setError(product.soldByWeight ? "Enter a weight in kg above 0, up to 3 decimals." : "Enter a whole quantity of 1 or more.");
+      return;
+    }
     const delta = direction === "in" ? quantity : -quantity;
     if (!adjustStock(product.id, delta, String(data.get("reason") ?? "").trim())) {
       setError("This adjustment would make available stock negative.");
@@ -260,8 +266,8 @@ export function InventoryWorkspace() {
                   {product.active ? <span className={`badge ${low ? "red" : "green"}`}>{low ? "Low stock" : "In stock"}</span> : <span className="badge yellow">Archived</span>}
                   {problem ? <div className="sync-problem"><span className="badge red" title={problem}>Not saved to the server</span><small>{problem}</small></div> : null}
                 </td>
-                <td data-label="Stock" className="numeric">{product.stock}</td>
-                <td data-label="Price incl. VAT" className="numeric">{formatAED(product.priceFils)}</td>
+                <td data-label="Stock" className="numeric">{formatStock(product)}</td>
+                <td data-label="Price incl. VAT" className="numeric">{product.soldByWeight ? perKgText(product.priceFils) : formatAED(product.priceFils)}</td>
                 {canSeeCost ? <>
                   <td data-label="Cost excl. VAT" className="numeric">{costs === null ? "—" : cost === undefined ? <span className="product-meta">No cost</span> : formatAED(cost)}</td>
                   <td data-label="Margin" className="numeric">{margin === null ? "—" : `${margin.toFixed(1)}%`}</td>
@@ -291,11 +297,12 @@ export function InventoryWorkspace() {
         <Pager {...paged} onPage={(next) => setParams({ page: String(next) })} />
       </section>
 
-      {dialog?.kind === "new" && canWrite && <ProductForm mode="add" barcode={dialog.barcode} categories={categories} cost={costView()} onSubmit={saveNew} onSaveCost={saveCost} onDone={productSaved} onCancel={closeDialog} />}
+      {dialog?.kind === "new" && canWrite && <ProductForm mode="add" barcode={dialog.barcode} categories={categories} weighingAllowed={hasFeature("weighed_items")} cost={costView()} onSubmit={saveNew} onSaveCost={saveCost} onDone={productSaved} onCancel={closeDialog} />}
 
       {dialog?.kind === "edit" && canWrite && (
         <ProductForm
           mode="edit"
+          weighingAllowed={hasFeature("weighed_items")}
           product={products.find((product) => product.id === dialog.product.id) ?? dialog.product}
           categories={categories}
           cost={costView(dialog.product.id)}
@@ -317,10 +324,10 @@ export function InventoryWorkspace() {
       {dialog?.kind === "adjust" && canWrite && (
         <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeDialog(); }}>
           <form className="modal" onSubmit={(event) => submitAdjustment(event, dialog.product)} aria-label="Adjust stock">
-            <div className="modal-header"><div><div className="panel-title">Adjust stock</div><div className="panel-subtitle">{dialog.product.name} · {dialog.product.stock} currently available</div></div><button type="button" className="button icon-only" onClick={closeDialog} aria-label="Close"><X size={16} weight="bold" /></button></div>
+            <div className="modal-header"><div><div className="panel-title">Adjust stock</div><div className="panel-subtitle">{dialog.product.name} · {formatStock(dialog.product)} currently available</div></div><button type="button" className="button icon-only" onClick={closeDialog} aria-label="Close"><X size={16} weight="bold" /></button></div>
             <div className="modal-body"><div className="form-grid">
               <div className="field"><label htmlFor="direction">Movement</label><select className="select" id="direction" name="direction" value={stockDirection} onChange={(event) => setStockDirection(event.target.value)}><option value="in">Stock in</option><option value="out">Stock out</option></select>{stockDirection === "in" ? <small>For supplier deliveries, use {hasFeature("purchasing") ? <Link href="/purchases/new">Purchases → Record delivery</Link> : "Purchases → Record delivery"}.</small> : null}</div>
-              <div className="field"><label htmlFor="quantity">Quantity</label><input className="input" id="quantity" name="quantity" type="number" min="1" step="1" required autoFocus /></div>
+              <div className="field"><label htmlFor="quantity">{dialog.product.soldByWeight ? "Weight (kg)" : "Quantity"}</label><input className="input" id="quantity" name="quantity" {...(dialog.product.soldByWeight ? { inputMode: "decimal" as const, placeholder: "0.500" } : { type: "number", min: "1", step: "1" })} required autoFocus /></div>
               <div className="field full-span"><label htmlFor="reason">Reason</label><textarea className="textarea" id="reason" name="reason" placeholder="Delivery received, damaged item, counting correction…" required /></div>
             </div>{error && <p className="form-error">{error}</p>}</div>
             <div className="modal-footer"><button type="button" className="button" onClick={closeDialog}>Cancel</button><button className="button primary" type="submit">Record movement</button></div>

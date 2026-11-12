@@ -4,7 +4,7 @@ import type { Category, Product } from "../domain.ts";
 import type { CartInput, PricedLine } from "./engine.ts";
 
 /** A cart line as the till holds it: `listUnitGrossFils` is set only by a manual discount. */
-type TillLine = { key: string; productId?: string; name: string; sku?: string; quantity: number; unitGrossFils: number; listUnitGrossFils?: number };
+type TillLine = { key: string; productId?: string; name: string; sku?: string; quantity: number; unitGrossFils: number; listUnitGrossFils?: number; weightGrams?: number; pricePerKgFils?: number };
 
 export function toCartInputs(cart: TillLine[], products: Product[], categories: Category[]): CartInput[] {
   const live = new Set(categories.filter((category) => !category.archived).map((category) => category.id));
@@ -20,6 +20,7 @@ export function toCartInputs(cart: TillLine[], products: Product[], categories: 
       quantity: line.quantity,
       listUnitGrossFils: line.listUnitGrossFils ?? line.unitGrossFils,
       ...(line.listUnitGrossFils !== undefined ? { manualUnitGrossFils: line.unitGrossFils } : {}),
+      ...(line.weightGrams !== undefined ? { weightGrams: line.weightGrams, ...(line.pricePerKgFils ? { pricePerKgFils: line.pricePerKgFils } : {}) } : {}),
     };
   });
 }
@@ -34,6 +35,7 @@ export function checkoutLines(lines: PricedLine[]) {
     unitGrossFils: line.unitGrossFils,
     ...(line.unitGrossFils < line.listUnitGrossFils ? { listUnitGrossFils: line.listUnitGrossFils } : {}),
     ...(line.promotionId ? { promotionId: line.promotionId, promotionName: line.promotionName, promotionSavingFils: line.promotionSavingFils } : {}),
+    ...(line.weightGrams !== undefined ? { weightGrams: line.weightGrams, ...(line.pricePerKgFils ? { pricePerKgFils: line.pricePerKgFils } : {}) } : {}),
   }));
 }
 

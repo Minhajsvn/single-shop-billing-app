@@ -86,3 +86,20 @@ test("Stage 2B: a split sale keeps its payments through validation; bad payments
   assert.equal(requestSchema.safeParse(withPayment({ id: "a1000000-0000-4000-8000-0000000000b3", method: "transfer", amountFils: 7720, reference: "x".repeat(61) })).success, false);
   assert.equal(requestSchema.safeParse(withPayment({ id: "a1000000-0000-4000-8000-0000000000b3", method: "card", amountFils: 0 })).success, false);
 });
+
+test("Stage 2F: sale lines carry weightGrams 1–100000; product records carry soldByWeight and scaleCode", () => {
+  const saleWith = (weightGrams) => ({
+    id: "a1000000-0000-4000-8000-000000000002", invoiceNumber: "SMK-1-261113-0001", status: "completed",
+    createdAt: "2026-11-13T08:00:00Z", supplyDate: "2026-11-13", paymentMethod: "cash", netFils: 2857, vatFils: 143, grossFils: 3000,
+    lines: [{ id: "a1000000-0000-4000-8000-0000000000a2", productId: productRecord.id, name: "Dates", quantity: 1, unitGrossFils: 3000, netFils: 2857, vatFils: 143, grossFils: 3000, weightGrams }],
+  });
+  const parse = (weightGrams) => requestSchema.safeParse({ operations: [base("sale", "a1000000-0000-4000-8000-000000000002", { sale: saleWith(weightGrams), deviceId })] });
+  assert.equal(parse(750).data.operations[0].payload.sale.lines[0].weightGrams, 750);
+  assert.equal(parse(0).success, false);
+  assert.equal(parse(100001).success, false);
+  const product = (extra) => requestSchema.safeParse({ operations: [base("product", productRecord.id, { product: { ...productRecord, ...extra }, deviceId })] });
+  assert.deepEqual(product({ soldByWeight: true, scaleCode: 1234 }).data.operations[0].payload.product.scaleCode, 1234);
+  assert.equal(product({ soldByWeight: true, scaleCode: null }).success, true);
+  assert.equal(product({ scaleCode: 0 }).success, false);
+  assert.equal(product({ scaleCode: 1000000 }).success, false);
+});

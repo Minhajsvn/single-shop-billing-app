@@ -21,6 +21,18 @@ test("profitCsv: one file per table with fixed headings, AED with 2 decimals, bl
 
 test("profitCsv: a product name that looks like a formula is quoted safely", () => {
   const product = profitCsv("product", report).split("\r\n");
-  assert.equal(product[0], '"Product","Quantity","Net AED","Cost AED","Profit AED","Margin %"');
-  assert.equal(product[1], `"'=HYPERLINK(1)","2","40.00","25.00","15.00","37.5"`);
+  assert.equal(product[0], '"Product","Quantity","Kg sold","Net AED","Cost AED","Profit AED","Margin %"');
+  assert.equal(product[1], `"'=HYPERLINK(1)","2","","40.00","25.00","15.00","37.5"`);
+});
+
+test("Stage 2F: the product CSV has a Kg sold column", async () => {
+  const { profitCsv } = await import("../lib/profit/csv.ts");
+  const report = { totals: {}, byDay: [], byCategory: [], byProduct: [
+    { productId: "d", name: "Dates", quantity: 1, weightGrams: 750, netFils: 2857, costFils: 2250, profitFils: 607, marginPct: 21.2 },
+    { productId: "c", name: "Cola", quantity: 2, weightGrams: null, netFils: 1143, costFils: 600, profitFils: 543, marginPct: 47.5 },
+  ] };
+  const rows = profitCsv("product", report).replace(/^\ufeff/, "").trim().split(/\r?\n/);
+  assert.equal(rows[0], '"Product","Quantity","Kg sold","Net AED","Cost AED","Profit AED","Margin %"');
+  assert.equal(rows[1].split(",")[2], '"0.750"');
+  assert.equal(rows[2].split(",")[2], '""');
 });

@@ -1,6 +1,7 @@
 import type { CustomerSnapshot, DemoState, InvoiceLine, Payment, PaymentMethod, Sale, StockMovement, SupplierSnapshot } from "../domain.ts";
 import type { CountryCode, CurrencyCode, TaxCategory } from "../fiscal/countries.ts";
 import type { Promotion } from "../promotions/types.ts";
+import { normalizeScaleLabel } from "../weighing/types.ts";
 import { DEFAULT_LOCK_SETTINGS, type LockSettings, type ShopSnapshot, type SnapshotRows, type StaffMember } from "./types.ts";
 
 /** Stage 2A lock settings; off when the server sends none or the plan does not include staff_roles. */
@@ -52,6 +53,7 @@ function mapLine(row: SnapshotRows["sales"][number]["sale_items"][number]): Invo
     unitGrossFils: Number(row.unit_gross_fils), netFils: Number(row.net_fils), vatFils: Number(row.vat_fils), grossFils: Number(row.gross_fils),
     listUnitGrossFils: row.list_unit_gross_fils == null ? undefined : Number(row.list_unit_gross_fils),
     ...(row.promotion_id ? { promotionId: row.promotion_id, promotionSavingFils: Number(row.promotion_saving_fils ?? 0) } : {}),
+    ...(row.weight_grams ? { weightGrams: Number(row.weight_grams) } : {}),
   };
 }
 
@@ -76,6 +78,7 @@ export function mapSnapshotRows(rows: SnapshotRows, generatedAt: string): ShopSn
   const state: DemoState = {
     products: rows.products.map((p) => ({
       id: p.id, name: p.name, sku: p.sku, barcode: optional(p.barcode), priceFils: Number(p.price_fils), stock: p.stock_quantity, lowStockThreshold: p.low_stock_threshold, active: p.status === "active", taxCategory: taxCategory(p.tax_category), categoryId: p.category_id ?? null,
+      soldByWeight: p.sold_by_weight === true, scaleCode: p.scale_code == null ? null : Number(p.scale_code),
     })),
     categories: (rows.categories ?? []).map((c) => ({ id: c.id, name: c.name, sortOrder: Number(c.sort_order), archived: c.archived_at !== null })),
     promotions: (rows.promotions ?? []).map(mapPromotion),
@@ -114,5 +117,6 @@ export function mapSnapshotRows(rows: SnapshotRows, generatedAt: string): ShopSn
     generatedAt,
     lockSettings: mapLock(rows.lock),
     staff: mapStaff(rows.staff),
+    scaleLabel: normalizeScaleLabel(rows.business.scale_label),
   };
 }

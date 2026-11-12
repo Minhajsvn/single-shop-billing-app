@@ -53,3 +53,17 @@ test("purchasesCsv: fixed headings, AED amounts, voided flag, safe quoting", () 
   assert.equal(lines[1], `"2026-11-11","'=Al Noor","100000000000003","INV-1","72.50","3.63","76.13",""`);
   assert.equal(lines[2], '"2026-11-10","Gulf","","","1.00","0.00","1.00","Yes"');
 });
+
+test("Stage 2F: a weighed product's delivery line is grams at a per-kg cost", async () => {
+  const { lineNetFils } = await import("../lib/purchasing/draft.ts");
+  let lines = mergeLines([], { productId: "dates", unitCostFils: 2000, byWeight: true });
+  assert.deepEqual(lines, [{ productId: "dates", quantity: 1000, unitCostFils: 2000, byWeight: true }], "starts at 1 kg");
+  lines = mergeLines(lines, { productId: "dates", unitCostFils: 2000, byWeight: true });
+  assert.equal(lines[0].quantity, 1000, "a second scan does not add a gram");
+  const line = { productId: "dates", quantity: 25500, unitCostFils: 2000, byWeight: true };
+  assert.equal(lineNetFils(line), 51000);
+  assert.equal(draftTotals([line, { productId: "cola", quantity: 2, unitCostFils: 300 }], null).netFils, 51600);
+  assert.equal(costPreview(4500, 3000, 25500, 2000), 2150);
+  assert.equal(validateDraft({ supplierId: "s", lines: [line], vatFils: 0 }), null, "grams above 100,000 are fine by weight");
+  assert.equal(validateDraft({ supplierId: "s", lines: [{ ...line, quantity: 0 }], vatFils: 0 }), "Weights must be from 0.001 to 100,000 kg.");
+});

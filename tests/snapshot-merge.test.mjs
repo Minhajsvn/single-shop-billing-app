@@ -117,3 +117,16 @@ test("a failed product operation keeps the local fields over the server copy, wi
   assert.equal(merged.products[0].name, "Local name");
   assert.equal(merged.products[0].stock, 10);
 });
+
+test("Stage 2F: a pending weighed sale and refund move server stock by their grams", () => {
+  const dates = { id: "p2", name: "Dates", sku: "DAT", priceFils: 4000, stock: 5000, lowStockThreshold: 0, active: true, soldByWeight: true };
+  const weighed = { id: "l2", productId: "p2", name: "Dates", sku: "DAT", quantity: 1, unitGrossFils: 3000, weightGrams: 750, netFils: 2857, vatFils: 143, grossFils: 3000 };
+  const weighedSale = { ...sale, id: "s-w", lines: [weighed] };
+  const refund = { id: "n-w", creditNoteNumber: "CN-1", saleId: "s-x", invoiceNumber: "X", createdAt: "2026-10-13T10:00:00Z", paymentMethod: "cash", lines: [{ ...weighed, id: "nl2", originalLineId: "lx", weightGrams: 500, unitGrossFils: 2000, grossFils: 2000 }], netFils: 1905, vatFils: 95, grossFils: 2000 };
+  const ops = [
+    { id: "op-s", entity: "sale", entityId: "s-w", createdAt: "2026-10-13T09:00:00Z", status: "pending", payload: { sale: weighedSale } },
+    { id: "op-n", entity: "credit-note", entityId: "n-w", createdAt: "2026-10-13T10:00:00Z", status: "pending", payload: { creditNote: refund } },
+  ];
+  const merged = mergeSnapshot({ ...empty, products: [dates] }, { ...empty, products: [dates], syncOperations: ops });
+  assert.equal(merged.products[0].stock, 5000 - 750 + 500);
+});

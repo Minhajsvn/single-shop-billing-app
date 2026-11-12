@@ -15,6 +15,7 @@ import { syncCatalogToSupabase } from "@/lib/supabase/catalog-sync";
 import { requestConfirm } from "@/lib/ui/confirm-store";
 import { toast } from "@/lib/ui/toast-store";
 import { StaffTab } from "@/components/staff/staff-tab";
+import { ScaleLabelTab } from "@/components/settings/scale-label-tab";
 import { YourPinCard } from "@/components/staff/your-pin-card";
 import { useEffectiveRole } from "@/components/staff/use-operator";
 
@@ -27,9 +28,11 @@ const TABS = [
 const BILLING_TAB = { tab: "billing", label: "Billing" } as const;
 // Stage 2A: the owner's Staff tab sits after Tills.
 const STAFF_TAB = { tab: "staff", label: "Staff" } as const;
-type Tab = (typeof TABS)[number]["tab"] | "billing" | "staff";
-const isTab = (value: string): value is Tab => value === "billing" || value === "staff" || TABS.some((item) => item.tab === value);
-const OWNER_TABS = [TABS[0], TABS[1], STAFF_TAB, TABS[2], TABS[3], BILLING_TAB];
+// Stage 2F: the owner's Scale labels tab sits after Tax and invoices.
+const SCALE_TAB = { tab: "scale-labels", label: "Scale labels" } as const;
+type Tab = (typeof TABS)[number]["tab"] | "billing" | "staff" | "scale-labels";
+const isTab = (value: string): value is Tab => value === "billing" || value === "staff" || value === "scale-labels" || TABS.some((item) => item.tab === value);
+const OWNER_TABS = [TABS[0], TABS[1], STAFF_TAB, TABS[2], SCALE_TAB, TABS[3], BILLING_TAB];
 
 const SETTINGS_KEY = "shop-ledger-demo-settings-v1";
 const defaults = {
@@ -54,7 +57,7 @@ export default function SettingsPage() {
   const ownerView = isOwnerView(role);
   const hostedOwner = mode === "hosted" && role === "owner";
   const tabs = hostedOwner ? OWNER_TABS : role === "owner" ? [...TABS, BILLING_TAB] : ownerView ? TABS : TABS.filter((item) => item.tab === MEMBER_SETTINGS_TAB);
-  const tab: Tab = !ownerView ? MEMBER_SETTINGS_TAB : isTab(params.tab) && (params.tab !== "billing" || role === "owner") && (params.tab !== "staff" || hostedOwner) ? params.tab : "business";
+  const tab: Tab = !ownerView ? MEMBER_SETTINGS_TAB : isTab(params.tab) && (params.tab !== "billing" || role === "owner") && (params.tab !== "staff" || hostedOwner) && (params.tab !== "scale-labels" || hostedOwner) ? params.tab : "business";
   // On a phone the tab row scrolls; keep the open tab in view (Data sits past the edge at 375px).
   useEffect(() => {
     document.getElementById(`settings-tab-${tab}`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -253,6 +256,8 @@ export default function SettingsPage() {
         </section> : null}
 
         {tab === "staff" && hostedOwner ? <StaffTab /> : null}
+
+        {tab === "scale-labels" && hostedOwner ? <ScaleLabelTab /> : null}
 
         {tab === "billing" ? <BillingPanel overTillLimit={hosted && overTillLimit} onShowTills={() => setParams({ tab: "tills" })} /> : null}
 

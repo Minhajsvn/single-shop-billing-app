@@ -1075,6 +1075,8 @@ kbd { min-width: 22px; display: inline-grid; place-items: center; padding: 2px 6
 .cart-line-top > div:first-child .product-meta { margin-top: 0; }
 .cart-line-top > div:first-child .discount-meta { flex-basis: 100%; margin-top: 2px; }
 .cart-line .quantity-stepper { grid-row: 2; grid-column: 1; }
+/* Stage 2F: a weighed line shows its weight where other lines have the quantity stepper. */
+.cart-line .cart-weight { grid-row: 2; grid-column: 1; align-self: center; font-variant-numeric: tabular-nums; font-weight: 600; }
 .cart-line-bottom > strong { grid-row: 2; grid-column: 3; text-align: right; }
 .cart-line .discount-button { grid-row: 2; grid-column: 4; width: 44px; min-height: 44px; margin: 0; padding: 0; gap: 0; font-size: 0; }
 .cart-line .discount-button.on { color: var(--success); border-color: color-mix(in srgb, var(--success) 45%, transparent); background: var(--success-bg); }
