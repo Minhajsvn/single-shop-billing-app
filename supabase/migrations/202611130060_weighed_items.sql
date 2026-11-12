@@ -880,7 +880,7 @@ end
 $$;
 
 -- record_purchase_receipt: the body of 202611110058_purchase_receipts.sql; Stage 2F takes grams and a per-kg cost for
--- weighed products. void_purchase_receipt needs no change: it takes back the stored quantity, which is grams there.
+-- weighed products.
 create or replace function public.record_purchase_receipt(p_business_id uuid, p_receipt jsonb)
 returns jsonb language plpgsql security definer set search_path = public, extensions, pg_temp
 as $$
@@ -1005,6 +1005,52 @@ begin
           jsonb_build_object('supplier', supplier.name, 'invoice', invoice, 'lines', jsonb_array_length(p_receipt->'lines'),
                              'netFils', net, 'vatFils', vat, 'grossFils', net + vat));
   return public.purchase_receipt_get(p_business_id, receipt_id);
+end
+$$;
+
+-- void_purchase_receipt: the body of 202611110058_purchase_receipts.sql; it takes back the stored quantity (grams for a
+-- weighed line) and Stage 2F refuses a line whose product has switched how it is sold since the delivery.
+create or replace function public.void_purchase_receipt(p_business_id uuid, p_receipt_id uuid, p_reason text)
+returns void language plpgsql security definer set search_path = public, extensions, pg_temp
+as $$
+declare
+  receipt public.purchase_receipts;
+  clean_reason text := btrim(coalesce(p_reason, ''));
+  line record;
+begin
+  perform public.purchasing_check(p_business_id);
+  if char_length(clean_reason) not between 1 and 200 then
+    raise exception 'invalid_reason' using errcode = 'P0001';
+  end if;
+  select * into receipt from public.purchase_receipts r where r.id = p_receipt_id and r.business_id = p_business_id for update;
+  if not found then
+    raise exception 'receipt_not_found' using errcode = 'P0001';
+  end if;
+  if receipt.voided_at is not null then
+    raise exception 'already_voided' using errcode = 'P0001';
+  end if;
+
+  for line in
+    select l.product_id, l.quantity, l.by_weight, p.name, p.stock_quantity, p.sold_by_weight
+    from public.purchase_receipt_lines l join public.products p on p.id = l.product_id
+    where l.receipt_id = receipt.id order by l.product_id
+    for update of p
+  loop
+    -- Stage 2F: grams and units never mix: a line received one way cannot come back out the other way.
+    if line.by_weight <> line.sold_by_weight then
+      raise exception using errcode = 'P0001', message = 'weight_mismatch', detail = line.name;
+    end if;
+    if line.stock_quantity < line.quantity then
+      raise exception using errcode = 'P0001', message = 'stock_too_low', detail = line.name || ':' || line.stock_quantity;
+    end if;
+    update public.products set stock_quantity = stock_quantity - line.quantity, updated_at = now() where id = line.product_id;
+    insert into public.stock_movements (business_id, product_id, type, quantity_delta, reason, source_id, created_by)
+    values (p_business_id, line.product_id, 'correction_out', -line.quantity, left('Delivery voided · ' || clean_reason, 300), receipt.id, auth.uid());
+  end loop;
+
+  update public.purchase_receipts set voided_at = now(), voided_by = auth.uid(), void_reason = clean_reason where id = receipt.id;
+  insert into public.audit_events (business_id, actor_id, action, entity_type, entity_id, summary)
+  values (p_business_id, auth.uid(), 'purchase.void', 'purchase_receipt', receipt.id, jsonb_build_object('reason', clean_reason));
 end
 $$;
 

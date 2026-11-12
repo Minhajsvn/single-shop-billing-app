@@ -11,14 +11,14 @@ import { PaymentDialog } from "@/components/pos/payment-dialog";
 import { SplitDialog } from "@/components/pos/split-dialog";
 import { WeightDialog } from "@/components/pos/weight-dialog";
 import { cartUsage, weighedLine } from "@/lib/weighing/cart";
-import { formatKg, gramsForPrice, perKgText, weighedLineText } from "@/lib/weighing/kg";
-import { MAX_LINE_GRAMS, parseScaleLabel } from "@/lib/weighing/label";
+import { formatKg, perKgText, weighedLineText } from "@/lib/weighing/kg";
+import { scanScaleLabel } from "@/lib/weighing/scan";
 import { useEntitlement } from "@/components/billing/use-entitlement";
 import type { Payment } from "@/lib/payments/split";
 import { ReceiptPanel } from "@/components/pos/receipt-panel";
 import { useReceiptShop } from "@/components/receipt-document";
 import type { HeldCart } from "@/lib/checkout/held-carts";
-import { findByCode, findWeighedByScaleCode } from "@/lib/checkout/lookup";
+import { findByCode } from "@/lib/checkout/lookup";
 import { saleBlockReason, staleRegister } from "@/lib/checkout/register-status";
 import { cartTotals, formatItemCount } from "@/lib/checkout/pricing";
 import { checkoutLines, itemSummary, toCartInputs } from "@/lib/promotions/cart";
@@ -131,24 +131,16 @@ export function PosWorkspace() {
 
   /** Stage 2F: a scale label (after ordinary barcodes and SKUs). Returns false when the code is not a label. */
   function scanLabel(code: string): boolean {
-    const label = parseScaleLabel(code, scaleLabel);
-    if ("error" in label) {
-      if (label.error === "not_scale") return false;
-      setLabelNotice(label.error === "bad_check_digit" ? "This label did not scan cleanly; scan again" : label.error === "no_value" ? "This label has no weight or price; weigh it again" : "This label is over 100 kg; weigh it again");
-    } else {
-      const product = findWeighedByScaleCode(store.products, label.scaleCode);
-      const grams = !product ? 0 : label.kind === "weight" ? label.grams : gramsForPrice(label.priceFils, product.priceFils);
-      if (!product) setLabelNotice(`No weighed product with scale code ${String(label.scaleCode).padStart(scaleLabel.codeLength, "0")}`);
-      else if (grams > MAX_LINE_GRAMS) setLabelNotice("This label is over 100 kg; weigh it again");
-      else {
-        setLabelNotice(null);
-        setQuery("");
-        beep(addWeighed(product, grams, label.kind === "price" ? label.priceFils : undefined));
-        return true;
-      }
-    }
+    const outcome = scanScaleLabel(code, scaleLabel, store.products);
+    if (outcome.kind === "none") return false;
     setQuery("");
-    beep(false);
+    if (outcome.kind === "notice") {
+      setLabelNotice(outcome.text);
+      beep(false);
+    } else {
+      setLabelNotice(null);
+      beep(addWeighed(outcome.product, outcome.grams, outcome.labelPriceFils));
+    }
     return true;
   }
 

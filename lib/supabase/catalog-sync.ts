@@ -1,5 +1,6 @@
 import type { Customer, Product } from "@/lib/domain";
 import { createClient } from "@/lib/supabase/client";
+import { catalogUploadPlan } from "@/lib/store/product-sync";
 
 const CONTEXT_KEY = "shop-ledger-cloud-context-v1";
 const PRODUCT_MAP_KEY = "shop-ledger-cloud-product-map-v1";
@@ -50,12 +51,15 @@ export async function syncCatalogToSupabase(products: Product[], customers: Cust
 
   const { data: existingProducts, error: productsError } = await supabase
     .from("products")
-    .select("id, sku")
+    .select("id, sku, sold_by_weight")
     .eq("business_id", context.businessId);
   if (productsError) return { ...result, errors: [productsError.message] };
   const productsBySku = new Map((existingProducts ?? []).map((item) => [item.sku as string, item.id as string]));
+  // Stage 2F: stock here is written as it is, so products sold by weight (grams) are left out.
+  const plan = catalogUploadPlan(products, new Set((existingProducts ?? []).filter((item) => item.sold_by_weight).map((item) => item.sku as string)));
+  result.errors.push(...plan.skipped);
 
-  for (const product of products) {
+  for (const product of plan.upload) {
     const existingId = productMap[product.id] ?? productsBySku.get(product.sku);
     const payload = {
       business_id: context.businessId,

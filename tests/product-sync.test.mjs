@@ -110,3 +110,18 @@ test("Stage 2F: weighing changes are checked on the till: a used scale code, or 
   assert.equal(weighingProblem(products, { ...nuts, scaleCode: 0 }, nuts), "Scale codes are whole numbers from 1 to 999999.");
   assert.equal(weighingProblem(products, { ...nuts, id: "new", stock: 2500, soldByWeight: true }, null), null, "a new product starts with its opening stock");
 });
+
+test("final review I1: the catalog upload leaves weighed products out, on either side", async () => {
+  const { catalogUploadPlan } = await import("../lib/store/product-sync.ts");
+  const base = { priceFils: 100, stock: 5, lowStockThreshold: 0, active: true, taxCategory: "standard" };
+  const plan = catalogUploadPlan([
+    { ...base, id: "a", name: "Cola", sku: "COLA" },
+    { ...base, id: "b", name: "Dates", sku: "DAT", soldByWeight: true, stock: 5000 },
+    { ...base, id: "c", name: "Nuts", sku: "NUT" },
+  ], new Set(["NUT"]));
+  assert.deepEqual(plan.upload.map((p) => p.sku), ["COLA"]);
+  assert.deepEqual(plan.skipped, [
+    "Product DAT: sold by weight; add it in your shop's Inventory instead.",
+    "Product NUT: sold by weight in your shop; change it there instead.",
+  ]);
+});

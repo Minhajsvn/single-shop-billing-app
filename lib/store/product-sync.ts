@@ -129,3 +129,18 @@ export function weighingProblem(products: Product[], next: Product, current: Pro
   if (current && Boolean(current.soldByWeight) !== Boolean(next.soldByWeight) && current.stock !== 0) return "Set stock to 0 before changing how this product is sold.";
   return null;
 }
+
+/**
+ * Settings → Upload catalog writes product rows directly, which cannot express grams: products sold by weight (here, or
+ * already on the server by SKU) are left out with a reason (final review I1).
+ */
+export function catalogUploadPlan(products: Product[], serverWeighedSkus: Set<string>): { upload: Product[]; skipped: string[] } {
+  const upload: Product[] = [];
+  const skipped: string[] = [];
+  for (const product of products) {
+    if (product.soldByWeight) skipped.push(`Product ${product.sku}: sold by weight; add it in your shop's Inventory instead.`);
+    else if (serverWeighedSkus.has(product.sku)) skipped.push(`Product ${product.sku}: sold by weight in your shop; change it there instead.`);
+    else upload.push(product);
+  }
+  return { upload, skipped };
+}

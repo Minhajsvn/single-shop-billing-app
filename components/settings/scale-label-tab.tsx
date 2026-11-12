@@ -14,11 +14,16 @@ const PREFIXES = ["20", "21", "22", "23", "24", "25", "26", "27", "28", "29"];
 
 /** Stage 2F: how this shop's counter scale prints its barcode labels (owner, Pro), with a box to test a label. */
 export function ScaleLabelTab() {
-  const { hasFeature } = useEntitlement();
   const { scaleLabel } = useShopContext();
+  // A newer setting from the snapshot starts the form again, so a stale default is never saved over it (final review).
+  return <ScaleLabelForm key={JSON.stringify(scaleLabel)} saved={scaleLabel} />;
+}
+
+function ScaleLabelForm({ saved }: { saved: ScaleLabelSettings }) {
+  const { hasFeature } = useEntitlement();
   const store = useDemoStore();
   const online = useOnline();
-  const [draft, setDraft] = useState<ScaleLabelSettings>(scaleLabel);
+  const [draft, setDraft] = useState<ScaleLabelSettings>(saved);
   const [testCode, setTestCode] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);

@@ -239,6 +239,35 @@ begin
   assert exists (select 1 from public.credit_notes where id = '6c000000-0000-4000-8000-0000000008a2'), '6a refund saved';
 end $$;
 
+-- 6b. Final review: a delivery received by the unit cannot be voided once the product is sold by weight (it would take
+-- grams off).
+reset role;
+insert into public.products (id, business_id, name, sku, price_fils, stock_quantity, low_stock_threshold, status, cost_fils)
+values ('f4000000-0000-4000-8000-0000000008a4', 'b0000000-0000-4000-8000-0000000008a0', 'Figs', 'FIGS', 3000, 0, 0, 'active', null);
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000008a1","role":"authenticated"}', true);
+select public.record_purchase_receipt('b0000000-0000-4000-8000-0000000008a0', jsonb_build_object(
+  'id', '9d000000-0000-4000-8000-0000000008a3', 'supplierId', '5b000000-0000-4000-8000-0000000008a1', 'invoiceDate', (now() at time zone 'Asia/Dubai')::date::text,
+  'vatFils', 0, 'lines', jsonb_build_array(jsonb_build_object('productId', 'f4000000-0000-4000-8000-0000000008a4', 'quantity', 10, 'unitCostFils', 100))));
+reset role;
+update public.products set stock_quantity = 0 where id = 'f4000000-0000-4000-8000-0000000008a4';
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000008a1","role":"authenticated"}', true);
+select public.apply_product_sync('06000000-0000-4000-8000-0000000008a7', 'b0000000-0000-4000-8000-0000000008a0', 'f4000000-0000-4000-8000-0000000008a4',
+  pg_temp.product('a', 'f4000000-0000-4000-8000-0000000008a4', 'FIGS', '{"soldByWeight":true}'));
+reset role;
+update public.products set stock_quantity = 5000 where id = 'f4000000-0000-4000-8000-0000000008a4';
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000008a1","role":"authenticated"}', true);
+do $$
+begin
+  begin
+    perform public.void_purchase_receipt('b0000000-0000-4000-8000-0000000008a0', '9d000000-0000-4000-8000-0000000008a3', 'Wrong');
+    assert false, '6b void after a switch refused';
+  exception when raise_exception then assert sqlerrm = 'weight_mismatch', '6b code ' || sqlerrm; end;
+  assert (select stock_quantity = 5000 from public.products where id = 'f4000000-0000-4000-8000-0000000008a4'), '6b stock untouched';
+end $$;
+
 -- 7. Scale label setting.
 do $$
 begin

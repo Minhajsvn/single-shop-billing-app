@@ -6,6 +6,7 @@ import Link from "next/link";
 import { EmptyState } from "@/components/ui/list-parts";
 import { getRegisterTotals, useDemoStore, useShopContext } from "@/lib/demo-store";
 import { formatAED, formatTime } from "@/lib/domain";
+import { formatKg, formatStock } from "@/lib/weighing/kg";
 
 export default function OverviewPage() {
   const store = useDemoStore();
@@ -45,7 +46,7 @@ export default function OverviewPage() {
 
         <section className="panel">
           <div className="panel-header"><div><div className="panel-title">Low stock</div><div className="panel-subtitle">At or below reorder level</div></div><span className="badge red">{lowStock.length} items</span></div>
-          {lowStock.length ? <div className="panel-body"><div className="low-stock-list">{lowStock.map((product) => <div className="low-stock-item" key={product.id}><div><div className="product-name">{product.name}</div><div className="product-meta">{product.sku} · threshold {product.lowStockThreshold}</div></div><div className="stock-number">{product.stock} left</div></div>)}</div></div> : <EmptyState compact icon={<CheckCircle size={28} weight="duotone" />} title="Stock levels are fine" hint="Products at or below their reorder level appear here." />}
+          {lowStock.length ? <div className="panel-body"><div className="low-stock-list">{lowStock.map((product) => <div className="low-stock-item" key={product.id}><div><div className="product-name">{product.name}</div><div className="product-meta">{product.sku} · threshold {product.soldByWeight ? formatKg(product.lowStockThreshold) : product.lowStockThreshold}</div></div><div className="stock-number">{formatStock(product)} left</div></div>)}</div></div> : <EmptyState compact icon={<CheckCircle size={28} weight="duotone" />} title="Stock levels are fine" hint="Products at or below their reorder level appear here." />}
         </section>
       </div>
     </>
