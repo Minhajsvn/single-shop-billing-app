@@ -11,7 +11,8 @@ import { refreshSnapshot } from "@/lib/demo-store";
 import { formatAED, type Product } from "@/lib/domain";
 import { parseCostInput } from "@/lib/profit/math";
 import { listSuppliers, recordReceipt } from "@/lib/purchasing/client";
-import { costPreview, defaultInvoiceDate, draftTotals, mergeLines, validateDraft, type DraftLine } from "@/lib/purchasing/draft";
+import { costPreview, defaultInvoiceDate, draftTotals, lineNetFils, mergeLines, validateDraft, type DraftLine } from "@/lib/purchasing/draft";
+import { formatKg, formatStock, parseKgAmount } from "@/lib/weighing/kg";
 import type { ReceiptDetail, Supplier } from "@/lib/purchasing/types";
 
 const asInput = (fils: number | null | undefined) => (fils === null || fils === undefined ? "" : (fils / 100).toFixed(2));
@@ -35,6 +36,8 @@ function DeliveryForm() {
   const [invoiceDate, setInvoiceDate] = useState(() => defaultInvoiceDate(new Date()));
   const [lines, setLines] = useState<DraftLine[]>([]);
   const [costText, setCostText] = useState<Record<string, string>>({});
+  // Stage 2F: a weighed product's quantity is typed in kg and kept as grams.
+  const [kgText, setKgText] = useState<Record<string, string>>({});
   const [vatText, setVatText] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [error, setError] = useState("");
@@ -65,7 +68,7 @@ function DeliveryForm() {
 
   function add(product: Product) {
     const known = productCosts.costs?.get(product.id);
-    setLines((current) => mergeLines(current, { productId: product.id, unitCostFils: known ?? 0 }));
+    setLines((current) => mergeLines(current, { productId: product.id, unitCostFils: known ?? 0, byWeight: product.soldByWeight === true }));
     setCostText((current) => (product.id in current ? current : { ...current, [product.id]: asInput(known) }));
     setQuery("");
     setError("");
@@ -119,7 +122,7 @@ function DeliveryForm() {
     return <section className="panel">
       <div className="panel-header"><div><div className="panel-title">Delivery saved</div><div className="panel-subtitle">{saved.supplierName} · {saved.invoiceDate}{saved.supplierInvoice ? ` · ${saved.supplierInvoice}` : ""} · {formatAED(saved.grossFils)}</div></div></div>
       <div className="table-wrap stack-table"><table><thead><tr><th>Product</th><th className="numeric">Qty</th><th className="numeric">Unit cost</th><th className="numeric">Cost now</th></tr></thead>
-        <tbody>{saved.lines.map((line) => <tr key={line.productId}><td data-label="Product">{line.productName}</td><td data-label="Qty" className="numeric">{line.quantity}</td><td data-label="Unit cost" className="numeric">{formatAED(line.unitCostFils)}</td><td data-label="Cost now" className="numeric">{line.costBeforeFils === null ? "" : `${formatAED(line.costBeforeFils)} → `}{formatAED(line.costAfterFils)}</td></tr>)}</tbody></table></div>
+        <tbody>{saved.lines.map((line) => <tr key={line.productId}><td data-label="Product">{line.productName}</td><td data-label="Qty" className="numeric">{byId.get(line.productId)?.soldByWeight ? formatKg(line.quantity) : line.quantity}</td><td data-label="Unit cost" className="numeric">{formatAED(line.unitCostFils)}{byId.get(line.productId)?.soldByWeight ? "/kg" : ""}</td><td data-label="Cost now" className="numeric">{line.costBeforeFils === null ? "" : `${formatAED(line.costBeforeFils)} → `}{formatAED(line.costAfterFils)}</td></tr>)}</tbody></table></div>
       <div className="panel-body row-actions"><button type="button" className="button primary" onClick={another}><Plus size={15} weight="bold" /> Record another</button><Link className="button" href={`/purchases/${saved.id}`}>View delivery</Link></div>
     </section>;
   }
@@ -138,7 +141,7 @@ function DeliveryForm() {
     <section className="panel">
       <div className="panel-body">
         <div className="search"><MagnifyingGlass size={16} weight="bold" /><input className="input" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={scan} placeholder="Scan a barcode or search name, SKU" aria-label="Add a product" autoFocus /></div>
-        {matches.length ? <ul className="delivery-matches">{matches.map((product) => <li key={product.id}><button type="button" className="button" onClick={() => add(product)}>{product.name} <span className="product-meta">{product.sku} · stock {product.stock}</span></button></li>)}</ul> : null}
+        {matches.length ? <ul className="delivery-matches">{matches.map((product) => <li key={product.id}><button type="button" className="button" onClick={() => add(product)}>{product.name} <span className="product-meta">{product.sku} · stock {formatStock(product)}</span></button></li>)}</ul> : null}
       </div>
       {lines.length ? (
         <div className="table-wrap stack-table"><table><thead><tr><th>Product</th><th className="numeric">Qty</th><th className="numeric">Unit cost excl. VAT</th><th className="numeric">Line</th><th><span className="sr-only">Remove</span></th></tr></thead>
@@ -147,10 +150,10 @@ function DeliveryForm() {
             const cost = productCosts.costs?.get(line.productId) ?? null;
             const after = line.unitCostFils >= 0 && line.quantity >= 1 ? costPreview(product?.stock ?? 0, cost, line.quantity, line.unitCostFils) : null;
             return <tr key={line.productId}>
-              <td data-label="Product"><div className="product-name">{product?.name ?? "Unknown product"}</div><div className="product-meta">{product?.sku} · stock {product?.stock ?? 0}{after !== null && after !== cost ? ` · Cost ${cost === null ? "—" : formatAED(cost)} → ${formatAED(after)}` : ""}</div></td>
-              <td data-label="Qty" className="numeric"><input className="input qty-input" type="number" min={1} max={100000} step={1} value={line.quantity} aria-label={`Quantity of ${product?.name}`} onChange={(event) => setLines((current) => current.map((item) => item.productId === line.productId ? { ...item, quantity: Number(event.target.value) } : item))} /></td>
+              <td data-label="Product"><div className="product-name">{product?.name ?? "Unknown product"}</div><div className="product-meta">{product?.sku} · stock {product ? formatStock(product) : 0}{line.byWeight ? " · cost per kg" : ""}{after !== null && after !== cost ? ` · Cost ${cost === null ? "—" : formatAED(cost)} → ${formatAED(after)}` : ""}</div></td>
+              <td data-label="Qty" className="numeric">{line.byWeight ? <input className="input qty-input" inputMode="decimal" value={kgText[line.productId] ?? String(line.quantity / 1000)} aria-label={`Weight in kg of ${product?.name}`} onChange={(event) => { const text = event.target.value; setKgText((current) => ({ ...current, [line.productId]: text })); setLines((current) => current.map((item) => item.productId === line.productId ? { ...item, quantity: parseKgAmount(text) ?? 0 } : item)); }} /> : <input className="input qty-input" type="number" min={1} max={100000} step={1} value={line.quantity} aria-label={`Quantity of ${product?.name}`} onChange={(event) => setLines((current) => current.map((item) => item.productId === line.productId ? { ...item, quantity: Number(event.target.value) } : item))} />}{line.byWeight ? <small> kg</small> : null}</td>
               <td data-label="Unit cost" className="numeric"><input className="input qty-input" inputMode="decimal" value={costText[line.productId] ?? ""} aria-label={`Unit cost of ${product?.name}`} onChange={(event) => setCostText((current) => ({ ...current, [line.productId]: event.target.value }))} /></td>
-              <td data-label="Line" className="numeric">{line.unitCostFils >= 0 ? formatAED(line.quantity * line.unitCostFils) : "—"}</td>
+              <td data-label="Line" className="numeric">{line.unitCostFils >= 0 ? formatAED(lineNetFils(line)) : "—"}</td>
               <td className="numeric"><button type="button" className="button icon-only" aria-label={`Remove ${product?.name}`} onClick={() => setLines((current) => current.filter((item) => item.productId !== line.productId))}><Trash size={14} weight="bold" /></button></td>
             </tr>;
           })}</tbody></table></div>

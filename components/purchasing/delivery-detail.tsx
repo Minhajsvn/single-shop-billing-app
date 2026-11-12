@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useEffect, useState, type FormEvent } from "react";
 import { EmptyState } from "@/components/ui/list-parts";
 import { PurchasingGate } from "@/components/purchasing/purchasing-gate";
-import { refreshSnapshot } from "@/lib/demo-store";
+import { refreshSnapshot, useDemoStore } from "@/lib/demo-store";
+import { formatKg } from "@/lib/weighing/kg";
 import { formatAED, formatDateTime } from "@/lib/domain";
 import { getReceipt, voidReceipt } from "@/lib/purchasing/client";
 import type { ReceiptDetail } from "@/lib/purchasing/types";
@@ -21,6 +22,9 @@ export function DeliveryDetail({ id }: { id: string }) {
 
 function DeliveryBody({ id }: { id: string }) {
   const [receipt, setReceipt] = useState<ReceiptDetail | null>(null);
+  // Stage 2F: weighed products' quantities are grams (shown in kg) at a per-kg cost.
+  const store = useDemoStore();
+  const weighed = new Set(store.products.filter((product) => product.soldByWeight).map((product) => product.id));
   const [error, setError] = useState("");
   const [voiding, setVoiding] = useState(false);
   const [version, setVersion] = useState(0);
@@ -48,8 +52,8 @@ function DeliveryBody({ id }: { id: string }) {
       <div className="table-wrap stack-table"><table><thead><tr><th>Product</th><th className="numeric">Qty</th><th className="numeric">Unit cost excl. VAT</th><th className="numeric">Line</th><th className="numeric">Cost before → after</th></tr></thead>
         <tbody>{receipt.lines.map((line) => <tr key={line.productId}>
           <td data-label="Product"><div className="product-name">{line.productName}</div><div className="product-meta">{line.sku}</div></td>
-          <td data-label="Qty" className="numeric">{line.quantity}</td>
-          <td data-label="Unit cost" className="numeric">{formatAED(line.unitCostFils)}</td>
+          <td data-label="Qty" className="numeric">{weighed.has(line.productId) ? formatKg(line.quantity) : line.quantity}</td>
+          <td data-label="Unit cost" className="numeric">{formatAED(line.unitCostFils)}{weighed.has(line.productId) ? "/kg" : ""}</td>
           <td data-label="Line" className="numeric">{formatAED(line.lineNetFils)}</td>
           <td data-label="Cost" className="numeric">{line.costBeforeFils === null ? "—" : formatAED(line.costBeforeFils)} → {formatAED(line.costAfterFils)}</td>
         </tr>)}</tbody></table></div>
