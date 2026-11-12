@@ -95,6 +95,8 @@ declare
   anchor constant text := E'''gross_fils'', i.gross_fils\n      )';
 begin
   select pg_get_functiondef('public.find_sale_by_invoice(uuid, text)'::regprocedure) into def;
+  -- Production holds this function with CRLF line endings (it was created from a CRLF file); match on LF.
+  def := replace(def, E'\r\n', E'\n');
   if (length(def) - length(replace(def, anchor, ''))) / length(anchor) <> 1 then
     raise exception 'expected exactly one sale item gross in find_sale_by_invoice';
   end if;
