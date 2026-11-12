@@ -98,6 +98,22 @@
   offline since a change keeps the old rules until it reconnects. A "free" item is never a zero line: the saving is spread
   over the group, so lines can show prices like 21.34 and 21.33.
 
+## Stage 2F: weighed items and scale labels
+
+- [ ] Apply migration `202611130060_weighed_items` (replaces the sale, refund, product, delivery and profit functions,
+  keeping 2C cost stamping, 2E promotion fields and the 056 split cash fix; patches `find_sale_by_invoice` in place to
+  return each line's grams). Safe before the app deploy: no product is sold by weight until the new app switches one on,
+  and older tills send no `weightGrams`.
+- [ ] Deploy the 2F app after 060.
+- [ ] Smoke test on a Pro shop: Settings → Scale labels (save, and the test box reads a label); make a product sold by
+  weight with a scale code; at the till scan a weight label, a price label and type a weight (online and offline); check
+  the receipt's "0.750 kg × AED 40.00/kg" line; refund a weighed line (its grams go back); Inventory shows kg; record a
+  delivery in kg; the Profit tab shows kg sold. On Starter, Sold by weight and Scale labels show the Pro prompt.
+- [ ] Note for support: every till needs the 2F app before a product is switched to sold by weight; an older till's sale
+  of that product is refused (`weight_mismatch`) and stays in its outbox until the till is reloaded. Switching a product
+  to or from sold by weight needs its stock at 0. A refund of a line sold before such a switch pays back without
+  restocking. A weighed line is refunded whole.
+
 ## Rollback
 
 1. Keep the previous hosting deployment available.
