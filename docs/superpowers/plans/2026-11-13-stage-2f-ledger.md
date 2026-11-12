@@ -52,3 +52,4 @@ Task 8: complete (commits 7382c13..835d902, tests: npm test → 531/531 pass; li
 - Not verified in the browser: offline selling (the pane has no offline switch). Label parsing and the weight box run on the till with no server call, and the outbox replay is unit-tested (snapshot-merge Stage 2F test).
 - Task 9: Ruling: the stale local register from 11 Nov was closed (counted AED 100.00, variance 0) and a new one opened to test selling — local data only — cost if wrong: none.
 - Task 9: Ruling: the product form's weight switch got aria-label "Sold by weight" (its accessible name read "on" in the browser check) — cost if wrong: none.
+Task 9: complete (commits 835d902..acb8cbd, tests: npm test → 531/531 pass; test:sql 9/9)
